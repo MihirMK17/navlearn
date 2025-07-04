@@ -4,27 +4,22 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-22.04
+    container: ros:humble-ros-base          # ready-made ROS 2 image
     steps:
       - uses: actions/checkout@v3
 
-      # 1. Install ROS 2 Humble + rosdep
-      - uses: ros-tooling/setup-ros@v0.4
-        with:
-          required-ros-distributions: humble
-
-      # 2. Install colcon & common extensions
-      - run: sudo apt-get update && sudo apt-get install -y python3-colcon-common-extensions
-
-      # 3. Initialise and update rosdep
-      - run: |
-          sudo rosdep init || true
+      - name: Install colcon & rosdep
+        run: |
+          apt-get update
+          apt-get install -y python3-colcon-common-extensions python3-rosdep git
+          rosdep init || true
           rosdep update
+          rosdep install --from-paths src --ignore-src -r -y
 
-      # 4. Resolve package dependencies
-      - run: rosdep install --from-paths src --ignore-src -r -y
+      - name: Build
+        run: colcon build --event-handlers console_cohesion+
 
-      # 5. Build and test
-      - run: colcon build --event-handlers console_cohesion+
-      - run: colcon test
-      - run: colcon test-result --verbose
-
+      - name: Test
+        run: |
+          colcon test
+          colcon test-result --verbose
