@@ -1,10 +1,30 @@
 name: ROS Humble CI
 on: [push, pull_request]
+
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
-      - uses: ros-tooling/action-ros-ci@v0.4
+
+      # 1. Install ROS 2 Humble + rosdep
+      - uses: ros-tooling/setup-ros@v0.4
         with:
-          target-ros2-distro: humble
+          required-ros-distributions: humble
+
+      # 2. Install colcon & common extensions
+      - run: sudo apt-get update && sudo apt-get install -y python3-colcon-common-extensions
+
+      # 3. Initialise and update rosdep
+      - run: |
+          sudo rosdep init || true
+          rosdep update
+
+      # 4. Resolve package dependencies
+      - run: rosdep install --from-paths src --ignore-src -r -y
+
+      # 5. Build and test
+      - run: colcon build --event-handlers console_cohesion+
+      - run: colcon test
+      - run: colcon test-result --verbose
+
