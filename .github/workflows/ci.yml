@@ -1,25 +1,41 @@
 name: ROS Humble CI
+
 on: [push, pull_request]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    container: ros:humble-ros-base          # ready-made ROS 2 image
+
+    # Use the official ROS 2 Humble base image
+    container: ros:humble-ros-base
+
     steps:
+      # 1. Checkout your code
       - uses: actions/checkout@v3
 
-      - name: Install colcon & rosdep
+      # 2. Build and test in one shell so the ROS environment remains sourced
+      - name: Build & Test
+        shell: bash
         run: |
+          set -e
+
+          # Source ROS 2 environment
+          source /opt/ros/humble/setup.bash
+
+          # Install build tools
           apt-get update
           apt-get install -y python3-colcon-common-extensions python3-rosdep git
+
+          # Initialise & update rosdep
           rosdep init || true
           rosdep update
+
+          # Install package dependencies
           rosdep install --from-paths src --ignore-src -r -y
 
-      - name: Build
-        run: colcon build --event-handlers console_cohesion+
+          # Build
+          colcon build --event-handlers console_cohesion+
 
-      - name: Test
-        run: |
+          # Run tests
           colcon test
           colcon test-result --verbose
