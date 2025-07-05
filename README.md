@@ -30,7 +30,7 @@ NavLearn is a modular ROS2-based project built for learning and experimenting wi
 > Demonstrates full mapping in an indoor environment.
 
 <p align="center">
-  <video src="media/slam_mapping.mp4" width="75%" controls></video>
+  <img src="media/slam_mapping.gif" width="75%" alt="Slam Mapping"/>
 </p>
 
 ---
@@ -40,7 +40,7 @@ NavLearn is a modular ROS2-based project built for learning and experimenting wi
 > Shows side-by-side RViz and Gazebo with real-time path replanning.
 
 <p align="center">
-  <video src="media/nav_demo.mp4" width="75%" controls></video>
+  <img src="media/nav_demo.gif" width="75%" alt="Nav demo"/>
 </p>
 
 ---
@@ -58,8 +58,8 @@ NavLearn is a modular ROS2-based project built for learning and experimenting wi
 > Simulated robot running the full navigation stack
 
 <p align="center">
-  <video src="media/gazebo_demo.mp4" width="75%" controls></video>
-</p>	
+  <img src="media/gazebo_demo.gif" width="75%" alt="Gazebo demo"/>
+</p>
 
 ---
 
