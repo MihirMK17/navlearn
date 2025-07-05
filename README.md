@@ -25,64 +25,15 @@ NavLearn is a modular ROS2-based project built for learning and experimenting wi
 
 ---
 
-## 🧠 Architecture Overview
-
-```mermaid
-graph TD
-  subgraph Sensors & Inputs
-    IMU
-    Lidar
-    WheelEncoders
-    Joypad
-  end
-
-  subgraph Perception
-    SLAM
-    Localization
-  end
-
-  subgraph Planning
-    GlobalPlanner
-    LocalPlanner
-    Costmaps
-  end
-
-  subgraph Control
-    PIDController
-    MotorDriver
-  end
-
-  subgraph Interfaces
-    ROS2Nodes
-    RViz
-    Gazebo
-  end
-
-  IMU --> Localization
-  Lidar --> SLAM
-  WheelEncoders --> Localization
-  Joypad --> ROS2Nodes
-
-  SLAM --> Costmaps
-  Localization --> Costmaps
-  Costmaps --> GlobalPlanner
-  GlobalPlanner --> LocalPlanner
-  LocalPlanner --> PIDController
-  PIDController --> MotorDriver
-
-  ROS2Nodes --> RViz
-  ROS2Nodes --> Gazebo
-```
-
----
-
 ## 🎥 Demos
 
 ### 📡 SLAM Mapping Demo
 
 > Demonstrates full mapping in an indoor environment.
 
-[https://user-images.githubusercontent.com/123456789/your-slug/slam\_mapping.mp4](https://user-images.githubusercontent.com/123456789/your-slug/slam_mapping.mp4)
+<p align="center">
+  <video src="media/slam_mapping.mp4" width="75%" controls></video>
+</p>
 
 ---
 
@@ -90,7 +41,9 @@ graph TD
 
 > Shows side-by-side RViz and Gazebo with real-time path replanning.
 
-[https://user-images.githubusercontent.com/123456789/your-slug/nav\_demo.mp4](https://user-images.githubusercontent.com/123456789/your-slug/nav_demo.mp4)
+<p align="center">
+  <video src="media/nav_demo.mp4" width="75%" controls></video>
+</p>
 
 ---
 
@@ -106,7 +59,9 @@ graph TD
 
 > Simulated robot running the full navigation stack
 
-[https://user-images.githubusercontent.com/123456789/your-slug/gazebo\_demo.mp4](https://user-images.githubusercontent.com/123456789/your-slug/gazebo_demo.mp4)
+<p align="center">
+  <video src="media/gazebo_demo.mp4" width="75%" controls></video>
+</p>	
 
 ---
 
@@ -118,22 +73,30 @@ graph TD
 
 ---
 
-## 📁 Directory Structure (robot\_ws)
+## 🚀  Quick Start
+
+### Clone & Build
 
 ```bash
-robot_ws/
-├── src/
-│   ├── bumperbot_controller/
-│   ├── bumperbot_description/
-│   ├── bumperbot_firmware/
-│   ├── bumperbot_localization/
-│   ├── bumperbot_navigation/
-│   └── bumperbot_bringup/
-├── media/
-│   └── *.mp4, *.png, *.JPG
-├── .github/workflows/
-│   └── ci.yml
-└── README.md
+# 1) create a workspace & clone the repo
+mkdir -p ~/navlearn_ws/src && cd ~/navlearn_ws/src
+git clone https://github.com/MihirMK17/navlearn.git
+cd ~/navlearn_ws
+
+# 2) resolve deps & build
+rosdep install --from-paths src --ignore-src -y
+colcon build
+source install/setup.bash
+```
+
+### Simulation (Gazebo)
+```bash
+ros2 launch navlearn_bringup simulated_robot.launch.py world_name:=small_house use_slam:false
+```
+
+### Real Robot
+```bash
+ros2 launch navlearn_bringup real_robot.launch.py world_name:=small_house use_slam:false
 ```
 
 ---
@@ -195,4 +158,5 @@ All modifications and extensions in NavLearn are released under the same license
 > 🚧 Built for learning. Made for real-world autonomy.
 
 ---
+
 
