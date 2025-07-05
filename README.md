@@ -7,8 +7,9 @@ NavLearn is a modular ROS2-based project built for learning and experimenting wi
 ---
 
 ## 📸 Project Highlights
-
-<img src="media/hero.JPG" width="600"/>
+<p align="center">
+  <img src="media/hero.JPG" width="600"/>
+</p>
 
 ---
 
@@ -48,8 +49,9 @@ NavLearn is a modular ROS2-based project built for learning and experimenting wi
 ### 🧭 Navigation Snapshot
 
 > Local and global costmaps with AMCL localization
-
-<img src="media/nav.png" width="600"/>
+<p align="center">
+  <img src="media/nav.png" width="600"/>
+</p>
 
 ---
 
@@ -141,7 +143,7 @@ More fixes and logs documented in [`Project Documentation`](Project%20Documentat
 ## 👤 Author
 
 * Mihir Kulkarni
-* [LinkedIn](https://www.linkedin.com/in/mihirmk/)
+* [LinkedIn](https://www.linkedin.com/in/kulkarnimihir17/)
 * [mihir.kulkarni17@gmail.com](mailto:mihir.kulkarni17@gmail.com)
 
 ---
