@@ -8,8 +8,6 @@ NavLearn is a modular ROS2-based project built for learning and experimenting wi
 
 ## 📸 Project Highlights
 
-### Hero Shot
-
 <img src="media/hero.JPG" width="600"/>
 
 ---
