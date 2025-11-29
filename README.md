@@ -24,6 +24,109 @@ NavLearn is a modular ROS2-based project built for learning and experimenting wi
 
 ---
 
+## 📊 Benchmarking Framework (navlearn_benchmarks + navlearn_msgs)
+
+
+This repo also includes a **navigation benchmarking framework** for Nav2 
+
+The goal is to:
+
+- Run multiple navigation **episodes** in a controlled environment.
+- Log **per-episode metrics** (success, time-to-goal, collisions, path length, etc.).
+- Compare different planners/controllers/maps on the **same benchmark**.
+
+### Packages
+
+- `navlearn_msgs`: custom message definitions for benchmarking:
+  - `GoalMetric.msg`
+  - `TrajectoryMetric.msg`
+  - `ControlMetric.msg`
+  - `EpisodeEvent.msg`
+
+- `navlearn_benchmarks`: C++ nodes that compute and aggregate metrics:
+  - `episode_manager` – orchestrates episodes, sends goals, tracks start/end.
+  - `trajectory_metric` – path length and basic trajectory stats.
+  - `control_metric` – logs `/cmd_vel` for control statistics.
+  - `metrics_compiler` – writes CSV / JSON reports.
+
+## 🔧 Building the Benchmarking Components
+
+If you follow the standard workspace build (see Quick Start), benchmarking packages are built automatically.
+
+To explicitly build just the benchmarking stack:
+
+```bash
+cd ~/navlearn_ws
+colcon build --packages-select navlearn_msgs navlearn_benchmarks
+source install/setup.bash
+
+```
+
+### Launch the Benchmarking Stack
+```bash
+cd ~/navlearn_ws
+source install/setup.bash
+
+ros2 launch navlearn_benchmarks benchmarks.launch.py
+```
+
+By default, the launch file uses the configs in:
+
+```bash
+src/navlearn_benchmarks/config/
+  episode_manager_1mSquare.yaml
+  metrics_compiler.yaml
+  control_metric.yaml
+  trajectory_metric.yaml
+```
+
+### 📂 Benchmark Outputs
+
+After the benchmark run finishes, reports are generated in:
+
+```bash
+src/navlearn_benchmarks/benchmark_reports/
+  navlearn_metrics.csv
+  navlearn_run_report.json
+```
+
+### 📐 Metrics Definitions (High-Level)
+
+Goal Success
+A goal is considered successful if the robot reaches inside Nav2’s goal tolerances:
+
+Position within xy_tolerance
+
+Orientation within yaw_tolerance
+
+Time-to-Goal
+
+```bash
+t_goal = t_goal_reached − t_goal_sent
+```
+
+Measured per episode (per goal sequence if multiple goals are chained).
+
+Path Length
+Sum of Euclidean distances between consecutive robot poses along the executed trajectory, as estimated by odometry/localization.
+
+Collisions
+Number of collision events detected in an episode.
+(Implementation depends on your setup: contact sensors, laser-based collision inference, etc.)
+
+Control Metrics
+Statistics of the control commands (/cmd_vel):
+
+Mean / max linear velocity (|v|)
+
+Mean / max angular velocity (|ω|)
+
+Potentially extendable to tracking error if reference vs. executed trajectories are logged.
+
+The framework is designed to be extendable—add more metrics as required.
+
+---
+
 ## 🎥 Demos
 
 ### 📡 SLAM Mapping Demo
@@ -65,6 +168,21 @@ NavLearn is a modular ROS2-based project built for learning and experimenting wi
 
 ---
 
+### 🗂 Canonical Benchmark Demo — 1m Square
+
+> The canonical NavLearn benchmark is a robot running repeated 1m square navigation episodes in Isaac Sim while metrics are logged
+
+High-level flow:
+- Isaac Sim runs the world and robot with ROS 2 bridge.
+- Nav2 runs the navigation stack on the ROS side.
+- navlearn_benchmarks nodes run in parallel to log metrics and compile reports.
+
+<p align="centre">
+  <img src="media/navlearn_benchmark_demo.gif" width="75%" at="Navlean Benchmarking Demo"/>
+</p> 
+
+---
+
 ### 🧱 TF Tree
 
 > Frame visualization after `bumperbot_bringup`
@@ -98,8 +216,6 @@ ros2 launch navlearn_bringup simulated_robot.launch.py world_name:=small_house u
 ```bash
 ros2 launch navlearn_bringup real_robot.launch.py world_name:=small_house use_slam:false
 ```
-
----
 
 ## 📚 Project Documentation
 
@@ -137,6 +253,7 @@ More fixes and logs documented in [`Project Documentation`](Project%20Documentat
 * 🧠 Reinforcement Learning for local planning
 * 🤖 Multi-agent navigation support
 * ☁️ Edge-cloud updates for policy deployment
+* 📈 More advanced benchmarking metrics and automated test scenarios
 
 ---
 
