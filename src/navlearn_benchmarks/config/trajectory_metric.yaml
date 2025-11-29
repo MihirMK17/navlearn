@@ -1,0 +1,9 @@
+trajectory_metric:
+  ros__parameters:
+    odom_topic: /bumperbot_controller/odom
+    jitter_guard: 0.002
+    max_gap_dt: 0.5
+    rpe_delta: 1.0
+
+    episode_event_topic: /navlearn/episode_event
+    trajectory_metric_topic: /navlearn/trajectory_metric

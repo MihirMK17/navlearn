@@ -1,0 +1,22 @@
+control_metric:
+  ros__parameters:
+    controller_topic: /bumperbot_controller/cmd_vel
+    wheel_radius: 0.033 # m
+    wheel_separation: 0.16  # m
+    v_max: 0.25 
+    w_max: 1.0
+    saturation_tolerance: 0.98
+    eps_v: 0.05
+    eps_w: 0.05
+    buffer_span: 2.0  # sec
+    lambda: 0.5
+
+    odom_topic: /bumperbot_controller/odom
+    joint_states_topic: /joint_states
+    episode_event_topic: /navlearn/episode_event
+    control_metric_topic: /navlearn/control_metric
+
+    wheel_left_joint: wheel_left_joint
+    wheel_right_joint: wheel_right_joint
+
+
