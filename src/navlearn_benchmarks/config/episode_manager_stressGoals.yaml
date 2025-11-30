@@ -1,0 +1,12 @@
+episode_manager:
+  ros__parameters:
+    dwell_sec: 5.0  # sec
+    goal_poses_x: [1.0, 0.0, 2.0, -1.0, 5.0, 7.0, 8.3, 4.0, -1.0, -2.0, -5.0, -7.8, -6.5, 0.0]
+    goal_poses_y: [0.0, 0.0, 1.0, 3.0, -2.0, -1.0, 1.7, -4.0, -4.0, -1.0, -4.0, -2.75, 0.0, 0.0]
+    goal_poses_yaw: [0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0]    
+    goals_num: 14
+    episodes_num: 1
+    action_server: /navigate_to_pose
+    episode_pub_topic: /navlearn/episode_event
+    fixed_frame: map
+    robot_frame: base_link
