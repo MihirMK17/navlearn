@@ -27,6 +27,20 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   fixed_frame_ = this->declare_parameter<std::string>("fixed_frame", "map");
   robot_frame_ = this->declare_parameter<std::string>("robot_frame", "base_link");
 
+  if(goals_num_ < 0) 
+  {
+    RCLCPP_FATAL(get_logger(), "Bad param: goals_num (%d) must be > 0", goals_num_);
+    rclcpp::shutdown();
+  }
+  if(episodes_num_ < 0) 
+  {
+    RCLCPP_FATAL(get_logger(), "Bad param: episodes_num (%d) must be > 0", episodes_num_);
+    rclcpp::shutdown();
+  }
+
+  RCLCPP_INFO(get_logger(), "EpisodeManager config: dwell_sec:%.2f, episodes_num:%d, goals_num:%zu, action server:%s",
+              dwell_sec_, episodes_num_, goal_poses_x_.size(), action_server_.c_str());
+
   next_allowed_send_ = this->get_clock()->now();
 
   client_ = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(this, action_server_);
