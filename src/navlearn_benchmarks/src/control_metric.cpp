@@ -40,6 +40,20 @@ ControlMetric::ControlMetric(const std::string &name) : Node(name)
   buffer_span_s_ = this->declare_parameter<double>("buffer_span", 2.0);
   lambda_ = this->declare_parameter<double>("lambda", 0.5);
 
+  if(wheel_radius_ < 0)
+  {
+    RCLCPP_FATAL(get_logger(), "Bad param: wheel_radius (%d) has to be > 0", wheel_radius_);
+    rclcpp::shutdown();
+  }
+  if(wheel_separation_ < 0)
+  {
+    RCLCPP_FATAL(get_logger(), "Bad param: wheel_separation (%d) has to be > 0", wheel_separation_);
+    rclcpp::shutdown();
+  }
+
+  RCLCPP_INFO(get_logger(), "ControlMetric config: wheel_radius:%.2f, wheel_separation:%.2f, v_max:%.2f, w_max:%.2f, buffer_span:%.2f, lambda:%.2f",
+              wheel_radius_, wheel_separation_, v_max_, w_max_, buffer_span_s_, lambda_);
+
   // QoS
   auto q_sensor = rclcpp::SensorDataQoS{};
   auto q_cmd    = rclcpp::QoS{10};
