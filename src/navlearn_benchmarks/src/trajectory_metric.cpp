@@ -20,6 +20,20 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   max_gap_s_      = declare_parameter<double>("max_gap_dt", 0.5);        // skip giant dt gaps
   rpe_delta_s_    = declare_parameter<double>("rpe_delta", 1.0);      // placeholder only
 
+  if(ds_thresh_m_ < 0)
+  {
+    RCLCPP_FATAL(get_logger(), "Bad param: Jitter guard (%d) (m) has to be > 0", ds_thresh_m_);
+    rclcpp::shutdown();
+  }
+  if(max_gap_s_ < 0)
+  {
+    RCLCPP_FATAL(get_logger(), "Bad param: Jitter guard (%d) (sec) has to be > 0", max_gap_s_);
+    rclcpp::shutdown();
+  }
+
+  RCLCPP_INFO(get_logger(), "TrajectoryMetric config: Jitter Guard (distance):%.2f, Jitter Guard (time):%.2f",
+              ds_thresh_m_, max_gap_s_);
+
   // --- I/O ---
   odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(odom_topic_, rclcpp::SensorDataQoS(),
                 std::bind(&TrajectoryMetric::odomCallback, this, std::placeholders::_1));
