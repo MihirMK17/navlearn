@@ -111,6 +111,8 @@ void MetricsCompiler::trajCallback(navlearn_msgs::msg::TrajectoryMetric::SharedP
 
 void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggregate & episode)
 {
+  auto t0 = std::chrono::steady_clock::now();
+
   // Wait until we have END event + both metrics
   if (!(episode.have_end_event && episode.have_control && episode.have_trajectory)) {
     return;
@@ -205,15 +207,16 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
 
   csv_.flush();
 
-  RCLCPP_INFO(
-    get_logger(),
-    "Wrote episode %s: result=%s, nav_time=%.3fs, path=%.3fm, RMSv=%.3f, RMSw=%.3f",
-    key.c_str(), result_str.c_str(), nav_time_sec,
-    tm.path_length_m, cm.tracking_rms_v, cm.tracking_rms_w
-  );
+  RCLCPP_INFO(get_logger(), "Wrote episode %s: result=%s, nav_time=%.3fs, path=%.3fm, RMSv=%.3f, RMSw=%.3f", key.c_str(), result_str.c_str(), nav_time_sec,
+              tm.path_length_m, cm.tracking_rms_v, cm.tracking_rms_w);
 
   // Drop from map so memory doesn't grow forever
   episodes_.erase(key);
+
+  auto t1 = std::chrono::steady_clock::now();
+  double dt_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+  RCLCPP_INFO(get_logger(), "maybe_flush_episode took %.3f ms (episode %s)", dt_ms, key.c_str());
 }
 
 void MetricsCompiler::update_run_accumulator(const navlearn_msgs::msg::EpisodeEvent &ev, const navlearn_msgs::msg::ControlMetric &cm, 
