@@ -22,12 +22,12 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
 
   if(ds_thresh_m_ < 0)
   {
-    RCLCPP_FATAL(get_logger(), "Bad param: Jitter guard (%d) (m) has to be > 0", ds_thresh_m_);
+    RCLCPP_FATAL(get_logger(), "Bad param: Jitter guard (%f) (m) has to be > 0", ds_thresh_m_);
     rclcpp::shutdown();
   }
   if(max_gap_s_ < 0)
   {
-    RCLCPP_FATAL(get_logger(), "Bad param: Jitter guard (%d) (sec) has to be > 0", max_gap_s_);
+    RCLCPP_FATAL(get_logger(), "Bad param: Jitter guard (%f) (sec) has to be > 0", max_gap_s_);
     rclcpp::shutdown();
   }
 

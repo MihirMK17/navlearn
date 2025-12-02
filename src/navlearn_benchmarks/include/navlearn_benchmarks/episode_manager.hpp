@@ -9,6 +9,7 @@
  * 
  * Subscribes / Client to:
  *  - /navigate_to_pose :  nav2_msgs::action::NavigateToPose
+ *  - /map  :  nav_msgs::msg::OccupancyGrid
  *  - /global_costmap/map   :  nav_msgs::msg::OccupancyGrid (planned)
  *  - /local_costmap/map    :  nav_msgs::msg::OccupancyGrid (planned)
  * 
@@ -31,6 +32,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <navlearn_msgs/msg/episode_event.hpp>
+#include <nav_msgs/msg/occupancy_grid.hpp>
 
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_ros/buffer.h>
@@ -45,6 +47,7 @@ public:
 
 private:
     rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SharedPtr client_;
+    rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
     rclcpp::Publisher<navlearn_msgs::msg::EpisodeEvent>::SharedPtr episode_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -61,6 +64,7 @@ private:
 
     double dwell_sec_;
     rclcpp::Time next_allowed_send_;
+    std::string goal_source_;
 
     std::vector<double> goal_poses_x_;
     std::vector<double> goal_poses_y_;
@@ -74,9 +78,13 @@ private:
     std::string fixed_frame_;
     std::string robot_frame_;
 
+    bool have_map_;
+
     void loadGoals();
 
     bool sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & pose);
+
+    void mapCallback(nav_msgs::msg::OccupancyGrid::SharedPtr map);
 
     void timerCallback();
 
