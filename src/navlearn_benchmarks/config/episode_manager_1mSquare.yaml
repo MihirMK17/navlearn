@@ -1,6 +1,7 @@
 episode_manager:
   ros__parameters:
     dwell_sec: 5.0  # sec
+    goal_source: static
     goal_poses_x: [1.0, 1.0, 0.0, 0.0]
     goal_poses_y: [0.0, 1.0, 1.0, 0.0]
     goal_poses_yaw: [0.0, 90.0, 180.0, 270.0]    
