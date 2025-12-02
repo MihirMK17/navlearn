@@ -1,13 +1,13 @@
 {
-  "episodes_total": 14,
-  "episodes_succeeded": 10,
-  "episodes_failed": 4,
+  "episodes_total": 4,
+  "episodes_succeeded": 4,
+  "episodes_failed": 0,
   "episodes_canceled": 0,
-  "nav_time_mean": 31.0743,
-  "total_nav_time": 435.04,
-  "path_length_mean": 2.769,
-  "total_path_traveled": 38.7659,
-  "control_energy_mean": 5558.43,
-  "total_control_energy": 77818,
+  "nav_time_mean": 9.865,
+  "total_nav_time": 39.46,
+  "path_length_mean": 0.138247,
+  "total_path_traveled": 0.552987,
+  "control_energy_mean": 2763.89,
+  "total_control_energy": 11055.6,
   "csv_path": "/home/mihirmk/robot_ws/src/navlearn_benchmarks/benchmark_reports/navlearn_metrics.csv"
 }
