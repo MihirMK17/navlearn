@@ -42,12 +42,12 @@ ControlMetric::ControlMetric(const std::string &name) : Node(name)
 
   if(wheel_radius_ < 0)
   {
-    RCLCPP_FATAL(get_logger(), "Bad param: wheel_radius (%d) has to be > 0", wheel_radius_);
+    RCLCPP_FATAL(get_logger(), "Bad param: wheel_radius (%f) has to be > 0", wheel_radius_);
     rclcpp::shutdown();
   }
   if(wheel_separation_ < 0)
   {
-    RCLCPP_FATAL(get_logger(), "Bad param: wheel_separation (%d) has to be > 0", wheel_separation_);
+    RCLCPP_FATAL(get_logger(), "Bad param: wheel_separation (%f) has to be > 0", wheel_separation_);
     rclcpp::shutdown();
   }
 
