@@ -78,7 +78,7 @@ def generate_launch_description():
             os.path.join(
                 get_package_share_directory("navlearn_benchmarks"), 
                 "config", 
-                "episode_manager_1mSquare.yaml"
+                "episode_manager_customGoals.yaml"
             ),
             {"use_sim_time": use_sim_time}
         ]
