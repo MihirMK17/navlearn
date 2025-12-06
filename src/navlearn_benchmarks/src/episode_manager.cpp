@@ -15,6 +15,7 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   , idx_(0)
   , active_(false)
   , stamp_received_(0,0,RCL_ROS_TIME)
+  , qos_profile_sub(10)
 {
   dwell_sec_ = this->declare_parameter<double>("dwell_sec", 5.0);
   goal_source_ = this->declare_parameter<std::string>("goal_source", "map_random");
@@ -44,8 +45,17 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
 
   next_allowed_send_ = this->get_clock()->now();
 
+  declare_parameter<std::string>("reliability", "Reliable");
+  declare_parameter<std::string>("durability", "Transient");
+
+  const auto reliability = get_parameter("reliability").as_string();
+  const auto durability = get_parameter("durability").as_string();
+
+  qos_profile_sub.reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE);
+  qos_profile_sub.durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
+
   client_ = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(this, action_server_);
-  map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>("map", 10,
+  map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>("map", qos_profile_sub,
               std::bind(&EpisodeManager::mapCallback, this, _1));
   episode_pub_ = create_publisher<navlearn_msgs::msg::EpisodeEvent>(episode_pub_topic_, rclcpp::QoS(10).reliable());
   timer_ = create_wall_timer(200ms, std::bind(&EpisodeManager::timerCallback, this));
@@ -54,8 +64,11 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
   have_map_ = false;
-
-  loadGoals();
+  
+  if(goal_source_ == "static")
+  {
+    loadGoals();
+  }
 }
 // ---------- helpers ----------
 bool EpisodeManager::sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & out) {
@@ -86,9 +99,10 @@ bool EpisodeManager::sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::ms
 }
 
 void EpisodeManager::loadGoals() {
-  if(goal_source_ == "static")
+  if (goal_source_ == "static")
   {
-    if(goal_poses_x_.size() != goal_poses_y_.size() || goal_poses_x_.size() != goal_poses_yaw_.size())
+    if (goal_poses_x_.size() != goal_poses_y_.size() ||
+        goal_poses_x_.size() != goal_poses_yaw_.size())
     {
       RCLCPP_FATAL(get_logger(), "Goal Poses length mismatch!");
       rclcpp::shutdown();
@@ -96,6 +110,7 @@ void EpisodeManager::loadGoals() {
     }
 
     // Load goals from yaml file
+    goal_poses_.clear();
     goal_poses_.reserve(goal_poses_x_.size());
 
     for (std::size_t i = 0; i < goal_poses_x_.size(); ++i) {
@@ -105,34 +120,124 @@ void EpisodeManager::loadGoals() {
       p.pose.position.x = goal_poses_x_[i];
       p.pose.position.y = goal_poses_y_[i];
       p.pose.position.z = 0.0;
-      tf2::Quaternion q; 
-      q.setRPY(0,0, goal_poses_yaw_[i] * M_PI / 180.0);
+
+      tf2::Quaternion q;
+      q.setRPY(0.0, 0.0, goal_poses_yaw_[i] * M_PI / 180.0);
       p.pose.orientation.x = q.x();
       p.pose.orientation.y = q.y();
       p.pose.orientation.z = q.z();
       p.pose.orientation.w = q.w();
+
       goal_poses_.push_back(p);
     }
-  } else if(goal_source_ == "map_random")
-    {
-      if(!have_map_)
-      {
-        RCLCPP_ERROR(get_logger(), "Map not available");
-        return;
-      } else{
-        // Run loop for goal_num times --> Generate random index --> sample cell at index --> if cell free add to goal_poses 
-        // --> else continue till iterator > goal_num
-        return;
-      }
-    } else{
-      RCLCPP_ERROR(get_logger(), "Invalid goal_source in EpisodeManager config");
+  }
+  else if (goal_source_ == "map_random")
+  {
+    if (!have_map_) {
+      RCLCPP_WARN(get_logger(),
+                  "loadGoals(map_random) called before map; will retry when map is available");
       return;
     }
-  }
 
-void EpisodeManager::mapCallback(nav_msgs::msg::OccupancyGrid::SharedPtr map)
+    const auto & info = latest_map_.info;
+    const int width   = static_cast<int>(info.width);
+    const int height  = static_cast<int>(info.height);
+    const double res  = info.resolution;
+    const auto & data = latest_map_.data;
+
+    if (width <= 0 || height <= 0 || data.empty()) {
+      RCLCPP_ERROR(get_logger(),
+                   "loadGoals(map_random): invalid map (width=%d, height=%d, data.size=%zu)",
+                   width, height, data.size());
+      return;
+    }
+
+    goal_poses_.clear();
+    goal_poses_.reserve(goals_num_);
+
+    std::mt19937 gen(static_cast<unsigned>(
+      std::chrono::system_clock::now().time_since_epoch().count()));
+    std::uniform_int_distribution<int> dist(0, width * height - 1);
+
+    const int max_tries_per_goal = 1000;
+
+    for (int i = 0; i < goals_num_; ++i) {
+      int cell_index = -1;
+
+      for (int attempt = 0; attempt < max_tries_per_goal; ++attempt) {
+        int idx = dist(gen);
+        if (idx < 0 || idx >= static_cast<int>(data.size())) {
+          continue;  // sanity check
+        }
+
+        // Only accept free cells (0); skip unknown (-1) and occupied (>0)
+        if (data[idx] == 0) {
+          cell_index = idx;
+          break;
+        }
+      }
+
+      if (cell_index < 0) {
+        RCLCPP_WARN(get_logger(),
+                    "Failed to find free cell for goal %d after %d attempts",
+                    i, max_tries_per_goal);
+        continue;
+      }
+
+      int row = cell_index / width;   // y-index
+      int col = cell_index % width;   // x-index
+
+      geometry_msgs::msg::PoseStamped pose;
+      pose.header.frame_id = fixed_frame_;
+      pose.header.stamp    = this->get_clock()->now();
+
+      // Cell center in world coordinates
+      pose.pose.position.x = info.origin.position.x + (col + 0.5) * res;
+      pose.pose.position.y = info.origin.position.y + (row + 0.5) * res;
+      pose.pose.position.z = 0.0;
+
+      std::uniform_real_distribution<double> dist_theta(-M_PI, M_PI);
+      double yaw = dist_theta(gen);
+
+      tf2::Quaternion q;
+      q.setRPY(0.0, 0.0, yaw);
+      pose.pose.orientation.x = q.x();
+      pose.pose.orientation.y = q.y();
+      pose.pose.orientation.z = q.z();
+      pose.pose.orientation.w = q.w();
+
+      goal_poses_.push_back(pose);
+    }
+
+    if (goal_poses_.empty()) {
+      RCLCPP_WARN(get_logger(),
+                  "loadGoals(map_random): generated 0 valid goals (map may be fully occupied/unknown)");
+    } else {
+      RCLCPP_INFO(get_logger(),
+                  "loadGoals(map_random): generated %zu random goals from map",
+                  goal_poses_.size());
+    }
+  }
+  else
+  {
+    RCLCPP_ERROR(get_logger(), "Invalid goal_source in EpisodeManager config");
+    return;
+  }
+}
+
+
+void EpisodeManager::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr map)
 {
   have_map_ = true;
+  latest_map_ = *map;
+  
+  RCLCPP_DEBUG(get_logger(), "Map received: %u x %u, res=%.3f", latest_map_.info.width, latest_map_.info.height, latest_map_.info.resolution);
+
+  if (goal_source_ == "map_random" && goal_poses_.empty()) {
+    RCLCPP_INFO(get_logger(), "First map received, generating %d random goals", goals_num_);
+    loadGoals();
+    RCLCPP_INFO(get_logger(), "Generated %zu random goals from map", goal_poses_.size());
+  }
 }
 
 void EpisodeManager::timerCallback() {
