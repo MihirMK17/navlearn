@@ -105,7 +105,7 @@ Time-to-Goal
 t_goal = t_goal_reached − t_goal_sent
 ```
 
-Measured per episode (per goal sequence if multiple goals are chained).
+Measured per episode (per goal sequence if multiple goals are chained)
 
 Path Length
 Sum of Euclidean distances between consecutive robot poses along the executed trajectory, as estimated by odometry/localization.
