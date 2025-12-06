@@ -48,6 +48,26 @@ The goal is to:
   - `trajectory_metric` – path length and basic trajectory stats.
   - `control_metric` – logs `/cmd_vel` for control statistics.
   - `metrics_compiler` – writes CSV / JSON reports.
+  
+### Episode Manager
+Role: 
+- Loads navigation goals and sends them to the Robot sequentially
+- Tracks episode state, navigation time, start pose, goal pose (and collisions --> planned) for each goal
+- Publishes them as EpisodeEvent messages
+- Accuracy in goal_xy and goal_yaw is decided by controller_server (0.25m and 0.25 rad/s)
+- Accuracy in path length measurements is decided by trajectory metric node's parameters
+
+Configurations: EpisodeManger has the ability to use two goal sources - fixed or randomized as selected by changing the goal_source pararmeter
+```bash
+goal_source: static
+```
+Uses YAML defined goals (cannonical 1m demo). The X, Y and Yaw coordinates of the goals configured need to match in size
+
+```bash
+- goal_source: map_random
+```
+Samples `goals_num` size of random free cells from `/map`. Only needs `goals_num` parameter defined
+
 
 ## 🔧 Building the Benchmarking Components
 
@@ -105,21 +125,15 @@ Time-to-Goal
 t_goal = t_goal_reached − t_goal_sent
 ```
 
-Measured per episode (per goal sequence if multiple goals are chained)
+Measured per episode (per goal sequence if multiple goals are chained).
 
-Path Length
-Sum of Euclidean distances between consecutive robot poses along the executed trajectory, as estimated by odometry/localization.
+- Path Length: Sum of Euclidean distances between consecutive robot poses along the executed trajectory, as estimated by odometry/localization.
 
-Collisions
-Number of collision events detected in an episode.
-(Implementation depends on your setup: contact sensors, laser-based collision inference, etc.)
+- Collisions: Number of collision events detected in an episode.
 
-Control Metrics
-Statistics of the control commands (/cmd_vel):
-
-Mean / max linear velocity (|v|)
-
-Mean / max angular velocity (|ω|)
+- Control Metrics: Statistics of the control commands (`/cmd_vel`):
+	Mean / max linear velocity (`|v|`)
+	Mean / max angular velocity (`|ω|`)
 
 Potentially extendable to tracking error if reference vs. executed trajectories are logged.
 
