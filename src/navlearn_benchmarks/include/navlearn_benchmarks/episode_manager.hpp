@@ -37,6 +37,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
+#include <tf2/utils.h>
 
 namespace navlearn_benchmarks{
 
@@ -73,18 +74,21 @@ private:
     int goals_num_;
     int episodes_num_;
 
+    rclcpp::QoS qos_profile_sub;
+
     std::string action_server_;
     std::string episode_pub_topic_;
     std::string fixed_frame_;
     std::string robot_frame_;
 
     bool have_map_;
+    nav_msgs::msg::OccupancyGrid latest_map_;
 
     void loadGoals();
 
     bool sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & pose);
 
-    void mapCallback(nav_msgs::msg::OccupancyGrid::SharedPtr map);
+    void mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr map);
 
     void timerCallback();
 
