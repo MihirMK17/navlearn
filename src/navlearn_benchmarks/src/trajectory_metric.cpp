@@ -85,12 +85,12 @@ void TrajectoryMetric::episodeCallback(navlearn_msgs::msg::EpisodeEvent::ConstSh
 
   if (ev->state == E::START) {
     active_ = true;
-    episode_id_ = ev->episode_id;
+    goal_id_ = ev->goal_id;
     t_start_ = ev->header.stamp;
 
     // reset message
     msg_ = navlearn_msgs::msg::TrajectoryMetric();
-    msg_.episode_id = episode_id_;
+    msg_.goal_id = goal_id_;
     msg_.path_length_m = 0.0;
     msg_.samples = 0;
 
@@ -116,7 +116,7 @@ void TrajectoryMetric::publishReport(const rclcpp::Time & t_end)
   // Header & frames
   msg_.header.stamp = t_end;
   msg_.header.frame_id = "odom";   // path length is integrated in odom frame
-  msg_.episode_id = episode_id_;
+  msg_.goal_id = goal_id_;
 
   // Duration
   const rclcpp::Duration dur = t_end - t_start_;
