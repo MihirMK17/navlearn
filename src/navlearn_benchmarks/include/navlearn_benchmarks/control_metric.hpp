@@ -96,7 +96,7 @@ private:
 
     // State
     bool active_;
-    unique_identifier_msgs::msg::UUID episode_id_;
+    unique_identifier_msgs::msg::UUID goal_id_;
     rclcpp::Time t_start_;
     uint32_t count_;
     uint32_t sat_v_count_;

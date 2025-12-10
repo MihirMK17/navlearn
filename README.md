@@ -1,8 +1,10 @@
-# NavLearn: Autonomous Navigation Stack for Real & Simulated Robots
+# NavLearn: 
+
+_Reproducible Nav2-based navigation and benchmarking stack for real and simulated robots_
 
 ![CI](https://github.com/MihirMK17/navlearn/actions/workflows/ci.yml/badge.svg)
 
-NavLearn is a modular ROS2-based project built for learning and experimenting with autonomous mobile robot navigation, both in Gazebo simulation and real hardware. This stack includes SLAM, localization, path planning, and navigation with future extensions for reinforcement learning and multi-robot systems.
+NavLearn is a modular ROS 2 project for building and **benchmarking** autonomous mobile robot navigation pipelines across Gazebo and NVIDIA Isaac Sim, and mirroring them on real robots. It bundles SLAM, localization, planning, control, and a reproducible Nav2 benchmarking harness with planned extensions for reinforcement learning and multi-robot systems.
 
 ---
 
@@ -13,14 +15,86 @@ NavLearn is a modular ROS2-based project built for learning and experimenting wi
 
 ---
 
-## 🎯 Features
+## Overview / Motivation
 
-* 🗺️ **SLAM with Lidar**: Real-time mapping of unknown environments
-* 📍 **Localization**: AMCL-based probabilistic localization
-* 🧭 **Navigation**: Nav2 stack integration with obstacle avoidance
-* 🧪 **Gazebo Simulation**: Full support for testing in simulation
-* 🤖 **Real Robot Ready**: Deployed on differential drive robot with calibrated control
-* 🔜 **Upcoming**: RL-based planning, multi-agent exploration
+Nav2 is a powerful, production-grade navigation framework, but turning it into a **reliable, well-tuned stack for your own robot** is still painful. You juggle hundreds of parameters, multiple planners/controllers, different simulators, and a real robot — and there’s no single, repeatable way to say “this configuration is better than that one.”
+
+NavLearn is meant to be that missing piece: a single ROS 2 repo that couples a solid Nav2 stack with a **reproducible benchmarking workflow** for both simulation and real robots.
+
+It provides:
+
+- A **reference Nav2-based navigation stack** (SLAM/localization, planning, control) wired for a Turtlebot-style differential-drive robot.
+- A **sim-first workflow** that keeps Gazebo and NVIDIA Isaac Sim setups aligned so you can iterate quickly before touching hardware.
+- A **benchmarking harness** that drives scripted navigation goals, records per-goal metrics, and exports CSV/JSON summaries for comparing parameter sets, maps, and robots.
+- A foundation for **future work**: reinforcement-learning policies on top of Nav2, multi-robot navigation experiments, and safety layers.
+
+The goal is not “yet another navigation demo,” but a **repeatable way to answer** questions like:
+
+- Did this controller or planner change actually improve navigation performance?
+- How does a given Nav2 configuration behave on a simple 1 m square test map versus a cluttered apartment layout?
+- How close is my real-robot behavior to what I see in Isaac Sim?
+
+If you care about moving from “it kind of navigates” to “I can quantify and iterate on navigation performance,” NavLearn is the stack and tooling this repo provides.
+
+---
+
+## Key Features
+
+- **End-to-end Nav2 stack, wired and tuned**
+  - SLAM / mapping, localization, planning, and control set up for a Turtlebot-style differential-drive robot.
+  - Designed so you can swap maps and robots without rewriting the whole launch zoo.
+
+- **Simulation-first workflow (Gazebo / NVIDIA Isaac Sim)**
+  - Matching Nav2 configuration across Gazebo and Isaac Sim so you can debug behavior in sim before touching hardware.
+  - Same navigation pipeline, different backends: helps you catch modeling and tuning issues early.
+
+- **Real-robot mirroring**
+  - Launch files and configs intended to mirror the simulation stack on a real robot.
+  - Lets you take a Nav2 config from “works in sim” to “actually runs on wheels” instead of stopping at RViz demos.
+
+- **Reproducible benchmarking harness**
+  - Scripted navigation goals (random or predefined) driven through NavigateToPose.
+  - Per-goal metrics (success/failure, timing, path-level metrics, control metrics) logged to CSV and JSON.
+  - Multi-run harness + aggregator to compare parameter sets, maps, or robots across batches of runs.
+
+- **Config-first, ROS 2 native design**
+  - All major behaviors controlled through ROS 2 parameters and YAML (no magic constants buried in code).
+  - Clean separation between bringup, navigation, and benchmarking packages.
+
+- **Built to be extended**
+  - Room to plug in reinforcement-learning policies on top of Nav2, experiment with multi-robot scenarios, and add new metrics without rewriting the core stack.
+  - CI on GitHub Actions to keep the project building and testable as it grows.
+  
+---
+
+## Quickstart (TL;DR)
+
+### 0. Prerequisites
+
+- Ubuntu 22.04 with **ROS 2 Humble**
+- **Nav2** installed (e.g. `sudo apt install ros-humble-nav2-bringup`)
+- **Gazebo** (Fortress/Garden) and the **Bumperbot** stack available in your workspace  
+  (from the Learn-By-Doing courses by Antonio Brandi / `bumperbot_bringup` package)
+- A working ROS 2 workspace (colcon)  
+
+> The examples below assume a Bumperbot-style differential-drive robot. Adapting to other robots is covered later.
+
+---
+
+### 1. Clone and build
+
+```bash
+mkdir -p ~/navlearn_ws/src
+cd ~/navlearn_ws/src
+
+# Clone NavLearn
+git clone https://github.com/MihirMK17/navlearn.git
+
+cd ..
+rosdep install --from-paths src --ignore-src -r -y
+colcon build --symlink-install
+source install/setup.bash
+```
 
 ---
 

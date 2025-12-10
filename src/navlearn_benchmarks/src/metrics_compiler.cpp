@@ -79,31 +79,31 @@ void MetricsCompiler::episodeCallback(navlearn_msgs::msg::EpisodeEvent::SharedPt
     return;
   }
 
-  auto & episode = get_or_create(msg->episode_id);
+  auto & episode = get_or_create(msg->goal_id);
   episode.end_event = *msg;
   episode.have_end_event = true;
 
-  const auto key= uuid_to_string(msg->episode_id);
+  const auto key= uuid_to_string(msg->goal_id);
   maybe_flush_episode(key, episode);
 }
 
 void MetricsCompiler::controlCallback(navlearn_msgs::msg::ControlMetric::SharedPtr msg)
 {
-  auto & episode = get_or_create(msg->episode_id);
+  auto & episode = get_or_create(msg->goal_id);
   episode.control = *msg;
   episode.have_control = true;
 
-  const auto key = uuid_to_string(msg->episode_id);
+  const auto key = uuid_to_string(msg->goal_id);
   maybe_flush_episode(key, episode);
 }
 
 void MetricsCompiler::trajCallback(navlearn_msgs::msg::TrajectoryMetric::SharedPtr msg)
 {
-  auto & episode = get_or_create(msg->episode_id);
+  auto & episode = get_or_create(msg->goal_id);
   episode.traj = *msg;
   episode.have_trajectory = true;
 
-  const auto key = uuid_to_string(msg->episode_id);
+  const auto key = uuid_to_string(msg->goal_id);
   maybe_flush_episode(key, episode);
 }
 
@@ -126,7 +126,7 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
 
   // Header (once)
   if (!header_written_) {
-    csv_ << "Episode_ID,Reference Frame,"
+    csv_ << "Goal_ID,Reference Frame,"
          << "Start Pose_X (m),Start Pose_Y (m),Start Pose_Yaw (deg),Goal Pose_X (m),Goal Pose_Y (m),Goal Pose_Yaw (deg),Goal Result Code,Goal Result,Success Count,Nav Time (sec),Nav Time Start (sec),Nav Time End (sec),"
          << "Tracking RMS_V (m/s),Tracking RMS_W (rad/s),Saturation Frac_V,Saturation Frac_W,Slip Mean,Slip Std Deviation,Slip 95_Percentile,Control Energy,Control Samples,"
          << "Path Length (m),Absolute Path Error RMS (m),Relative Pose Error (Drift),Trajectory Samples"
@@ -173,7 +173,7 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
 
   // To implement  - max goal_counter in EpisodeEvent message, set from the config file / parameter during execution
 
-  // One row per episode
+  // One row per goal
   csv_ << key << ","
        << "map" << ","
        << start_pose_x << ","
@@ -224,12 +224,12 @@ void MetricsCompiler::update_run_accumulator(const navlearn_msgs::msg::EpisodeEv
 {
   using E = navlearn_msgs::msg::EpisodeEvent;
 
-  run_acc_.episodes_total++;
+  run_acc_.goals_total++;
 
   switch (ev.result) {
-    case E::RESULT_SUCCEEDED: run_acc_.episodes_succeeded++; break;
-    case E::RESULT_FAILED:    run_acc_.episodes_failed++;    break;
-    case E::RESULT_CANCELED:  run_acc_.episodes_canceled++;  break;
+    case E::RESULT_SUCCEEDED: run_acc_.goals_succeeded++; break;
+    case E::RESULT_FAILED:    run_acc_.goals_failed++;    break;
+    case E::RESULT_CANCELED:  run_acc_.goals_canceled++;  break;
     default: break;
   }
 
@@ -237,24 +237,21 @@ void MetricsCompiler::update_run_accumulator(const navlearn_msgs::msg::EpisodeEv
   const auto & nt = ev.nav_time;
   const double nav_t = static_cast<double>(nt.sec) + 1e-9 * static_cast<double>(nt.nanosec);
   run_acc_.total_nav_time += nav_t;
-  run_acc_.total_nav_time_sq = nav_t*nav_t;
 
   // path length
   const double L = tm.path_length_m;
   run_acc_.total_path_traveled += L;
-  run_acc_.total_path_traveled = L*L;
 
   // control energy
   const double Ectrl = cm.control_energy;
   run_acc_.total_control_energy += Ectrl;
-  run_acc_.total_control_energy = Ectrl*Ectrl;
 }
 
 void MetricsCompiler::write_run_json()
 {
-  const unsigned int N = run_acc_.episodes_total;
+  const unsigned int N = run_acc_.goals_total;
   if (N == 0) {
-    RCLCPP_WARN(get_logger(), "No episodes seen; skipping run JSON.");
+    RCLCPP_WARN(get_logger(), "No goals seen; skipping run JSON.");
     return;
   }
 
@@ -264,10 +261,10 @@ void MetricsCompiler::write_run_json()
   }
 
   js << "{\n";
-  js << "  \"episodes_total\": "      << N << ",\n";
-  js << "  \"episodes_succeeded\": "  << run_acc_.episodes_succeeded << ",\n";
-  js << "  \"episodes_failed\": "     << run_acc_.episodes_failed << ",\n";
-  js << "  \"episodes_canceled\": "   << run_acc_.episodes_canceled << ",\n";
+  js << "  \"goals_total\": "      << N << ",\n";
+  js << "  \"goals_succeeded\": "  << run_acc_.goals_succeeded << ",\n";
+  js << "  \"goals_failed\": "     << run_acc_.goals_failed << ",\n";
+  js << "  \"goals_canceled\": "   << run_acc_.goals_canceled << ",\n";
 
   js << "  \"nav_time_mean\": "       << run_acc_.total_nav_time / static_cast<double>(N) << ",\n";
   js << "  \"total_nav_time\": "      << run_acc_.total_nav_time << ",\n";
@@ -286,7 +283,7 @@ void MetricsCompiler::write_run_json()
   RCLCPP_INFO(
     get_logger(),
     "Run summary JSON written to %s (N=%u, success=%u)",
-    json_path_.c_str(), N, run_acc_.episodes_succeeded);
+    json_path_.c_str(), N, run_acc_.goals_succeeded);
 }
 
 MetricsCompiler::~MetricsCompiler()
