@@ -1,5 +1,5 @@
 std_msgs/Header header
-unique_identifier_msgs/UUID episode_id
+unique_identifier_msgs/UUID goal_id
 builtin_interfaces/Duration duration
 uint32 samples
 float64 path_length_m        # total distance traveled in this episode
