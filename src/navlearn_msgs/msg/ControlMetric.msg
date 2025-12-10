@@ -1,5 +1,5 @@
 std_msgs/Header header                  # stamp ~ episode end; frame_id = "base_link"
-unique_identifier_msgs/UUID episode_id  
+unique_identifier_msgs/UUID goal_id
 builtin_interfaces/Duration duration    # Duration of aggregation episode 
 uint32 samples                          # Number of time synchronized samples per episode
 
