@@ -12,7 +12,7 @@ std_msgs/Header header                      # stamp = event time
 builtin_interfaces/Time stamp_received
 builtin_interfaces/Time stamp_terminated
 builtin_interfaces/Duration nav_time 
-unique_identifier_msgs/UUID episode_id      
+unique_identifier_msgs/UUID goal_id      
 uint8 state                                 # 1=START, 2=END
 uint8 result                                # 0=NA, 1=SUCCEEDED, 2=FAILED, 3=CANCELED
 geometry_msgs/PoseStamped start_pose

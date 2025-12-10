@@ -94,7 +94,6 @@ void ControlMetric::trim(std::deque<Sample>& q, const rclcpp::Time &now)
   }
 }
 
-// NOTE: Twist (no header) => use this->now()
 void ControlMetric::velCallback(const geometry_msgs::msg::TwistStamped::ConstSharedPtr vel)
 {
   const rclcpp::Time t = this->now();
@@ -111,13 +110,11 @@ void ControlMetric::jointStateCallback(const sensor_msgs::msg::JointState::Const
   double wL = std::numeric_limits<double>::quiet_NaN();
   double wR = std::numeric_limits<double>::quiet_NaN();
 
-  // Prefer explicit names if present; else first two velocities
   for (std::size_t i = 0; i < joint->name.size() && i < joint->velocity.size(); ++i) {
     if (joint->name[i].find(wheel_left_joint_) != std::string::npos)  wL = joint->velocity[i];
     if (joint->name[i].find(wheel_right_joint_) != std::string::npos) wR = joint->velocity[i];
   }
   if (!std::isfinite(wL) || !std::isfinite(wR)) {
-    // Fallback: if exactly 2 velocities, assume [L, R]
     if (joint->velocity.size() >= 2) {
       wL = std::isfinite(wL) ? wL : joint->velocity[0];
       wR = std::isfinite(wR) ? wR : joint->velocity[1];
@@ -253,7 +250,7 @@ void ControlMetric::episodeCallback(const navlearn_msgs::msg::EpisodeEvent::Cons
   using E = navlearn_msgs::msg::EpisodeEvent;
   if (episode->state == E::START) {
     active_ = true;
-    episode_id_ = episode->episode_id;
+    goal_id_ = episode->goal_id;
     t_start_ = episode->header.stamp;
     resetAccumulators();
   } else if (episode->state == E::END) {
@@ -268,7 +265,7 @@ void ControlMetric::publishReport(const rclcpp::Time& t_end)
   navlearn_msgs::msg::ControlMetric msg;
   msg.header.stamp = t_end;
   msg.header.frame_id = "base_link";
-  msg.episode_id = episode_id_;
+  msg.goal_id = goal_id_;
   msg.samples = count_;
 
   // Duration
