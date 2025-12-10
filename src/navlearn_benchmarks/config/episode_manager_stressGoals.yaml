@@ -15,7 +15,6 @@ episode_manager:
                      0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0,
                      0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0]    
     goals_num: 56
-    episodes_num: 1
     action_server: /navigate_to_pose
     episode_pub_topic: /navlearn/episode_event
     fixed_frame: map

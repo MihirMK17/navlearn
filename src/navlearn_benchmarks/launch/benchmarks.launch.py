@@ -2,27 +2,32 @@ import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, TimerAction, RegisterEventHandler, EmitEvent
 from launch.substitutions import LaunchConfiguration
-from launch.actions import TimerAction
+from launch.events import Shutdown
+from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     
-    episode_start_delay_arg = DeclareLaunchArgument(
-        "episode_start_delay",
-        default_value="2.0"
-    )
-
-    use_sim_time_arg = DeclareLaunchArgument(
-        "use_sim_time",
-        default_value="True"
-    )
-
+    episode_start_delay_arg = DeclareLaunchArgument("episode_start_delay", default_value="2.0")
     episode_start_delay = LaunchConfiguration("episode_start_delay")
 
+    use_sim_time_arg = DeclareLaunchArgument("use_sim_time",default_value="True")
     use_sim_time = LaunchConfiguration("use_sim_time")
+
+    goals_num_arg = DeclareLaunchArgument("goals_num",default_value="4")
+    goals_num = LaunchConfiguration("goals_num")
+
+    goal_source_arg = DeclareLaunchArgument("goal_source",default_value="map_random")
+    goal_source = LaunchConfiguration("goal_source")
+
+    csv_path_arg = DeclareLaunchArgument("csv_path", default_value="/home/mihirmk/robot_ws/src/navlearn_benchmarks/benchmark_reports/runs")
+    csv_path = LaunchConfiguration("csv_path")
+
+    json_path_arg = DeclareLaunchArgument("json_path", default_value="/home/mihirmk/robot_ws/src/navlearn_benchmarks/benchmark_reports/runs")
+    json_path = LaunchConfiguration("json_path")
 
     compiler = Node(
         package='navlearn_benchmarks',
@@ -35,7 +40,9 @@ def generate_launch_description():
                 "config", 
                 "metrics_compiler.yaml"
             ),
-            {"use_sim_time": use_sim_time}
+            {"use_sim_time": use_sim_time,
+             "csv_path" : csv_path,
+             "json_path" : json_path}
         ]
     )
 
@@ -71,7 +78,7 @@ def generate_launch_description():
 
     episode_manager = Node(
         package='navlearn_benchmarks',
-        executable='episode_manager_node',   # rclcpp_components EXECUTABLE
+        executable='episode_manager_node',   
         name='episode_manager',
         output='screen',
         parameters=[
@@ -80,7 +87,9 @@ def generate_launch_description():
                 "config", 
                 "episode_manager_customGoals.yaml"
             ),
-            {"use_sim_time": use_sim_time}
+            {"use_sim_time": use_sim_time,
+             "goals_num" : goals_num,
+             "goal_source" : goal_source}
         ]
     )
 
@@ -89,11 +98,23 @@ def generate_launch_description():
         actions=[episode_manager],
     )
 
+    shutdown_on_episode_done = RegisterEventHandler(
+        OnProcessExit(
+            target_action=episode_manager,
+            on_exit=[EmitEvent(event=Shutdown())],
+        )
+    )
+
     return LaunchDescription([
         episode_start_delay_arg,
         use_sim_time_arg,
-        compiler,            # 1) compiler first
-        control_metric,      # 2) metric nodes
+        goals_num_arg, 
+        goal_source_arg,
+        csv_path_arg,
+        json_path_arg,
+        compiler,            
+        control_metric,      
         trajectory_metric,
-        delayed_episode_manager,  # 3) episode manager last (delayed)
+        delayed_episode_manager,
+        shutdown_on_episode_done,
     ])

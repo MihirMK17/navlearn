@@ -1,13 +1,13 @@
 {
-  "episodes_total": 4,
-  "episodes_succeeded": 2,
-  "episodes_failed": 2,
-  "episodes_canceled": 0,
-  "nav_time_mean": 50.555,
-  "total_nav_time": 202.22,
-  "path_length_mean": 52.2841,
-  "total_path_traveled": 209.137,
-  "control_energy_mean": 283728,
-  "total_control_energy": 1.13491e+06,
+  "goals_total": 4,
+  "goals_succeeded": 1,
+  "goals_failed": 3,
+  "goals_canceled": 0,
+  "nav_time_mean": 44.895,
+  "total_nav_time": 179.58,
+  "path_length_mean": 7.89588,
+  "total_path_traveled": 31.5835,
+  "control_energy_mean": 486.067,
+  "total_control_energy": 1944.27,
   "csv_path": "/home/mihirmk/robot_ws/src/navlearn_benchmarks/benchmark_reports/navlearn_metrics.csv"
 }

@@ -55,7 +55,7 @@ private:
     bool have_last_odom_;
 
     bool active_;
-    unique_identifier_msgs::msg::UUID episode_id_;
+    unique_identifier_msgs::msg::UUID goal_id_;
     rclcpp::Time t_start_;
 
     navlearn_msgs::msg::TrajectoryMetric msg_;
