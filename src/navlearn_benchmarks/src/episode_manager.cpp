@@ -23,7 +23,6 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   goal_poses_y_ = this->declare_parameter<std::vector<double>>("goal_poses_y", {});
   goal_poses_yaw_ = this->declare_parameter<std::vector<double>>("goal_poses_yaw", {});
   goals_num_ = this->declare_parameter<int>("goals_num", 4);
-  episodes_num_ = this->declare_parameter<int>("episodes_num", 1);
   action_server_ = this->declare_parameter<std::string>("action_server", "/navigate_to_pose");
   episode_pub_topic_ = this->declare_parameter<std::string>("episode_pub_topic", "/navlearn/episode_event");
   fixed_frame_ = this->declare_parameter<std::string>("fixed_frame", "map");
@@ -34,14 +33,9 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
     RCLCPP_FATAL(get_logger(), "Bad param: goals_num (%d) must be > 0", goals_num_);
     rclcpp::shutdown();
   }
-  if(episodes_num_ < 0) 
-  {
-    RCLCPP_FATAL(get_logger(), "Bad param: episodes_num (%d) must be > 0", episodes_num_);
-    rclcpp::shutdown();
-  }
 
-  RCLCPP_INFO(get_logger(), "EpisodeManager config: dwell_sec:%.2f, goal_source:%s, episodes_num:%d, goals_num:%zu, action server:%s",
-              dwell_sec_, goal_source_.c_str(), episodes_num_, goal_poses_x_.size(), action_server_.c_str());
+  RCLCPP_INFO(get_logger(), "EpisodeManager config: dwell_sec:%.2f, goal_source:%s, goals_num:%d, action server:%s",
+              dwell_sec_, goal_source_.c_str(), goals_num_, action_server_.c_str());
 
   next_allowed_send_ = this->get_clock()->now();
 
@@ -236,7 +230,7 @@ void EpisodeManager::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr m
   if (goal_source_ == "map_random" && goal_poses_.empty()) {
     RCLCPP_INFO(get_logger(), "First map received, generating %d random goals", goals_num_);
     loadGoals();
-    RCLCPP_INFO(get_logger(), "Generated %zu random goals from map", goal_poses_.size());
+    RCLCPP_INFO(get_logger(), "Generated %zu random goals from map", goals_num_);
   }
 }
 
@@ -283,14 +277,14 @@ void EpisodeManager::onGoalResponse(const rclcpp_action::ClientGoalHandle<nav2_m
 
   // Store episode_id (copy from action goal id)
   const auto goal_id = gh->get_goal_id();
-  std::copy(goal_id.begin(), goal_id.end(), episode_id_.uuid.begin());
+  std::copy(goal_id.begin(), goal_id.end(), goal_id_.uuid.begin());
 
   // Build START event
   navlearn_msgs::msg::EpisodeEvent ev;
   ev.header.stamp = this->get_clock()->now();  // authoritative start event time
   ev.state  = navlearn_msgs::msg::EpisodeEvent::START;
   ev.result = navlearn_msgs::msg::EpisodeEvent::RESULT_NA;
-  ev.episode_id = episode_id_;
+  ev.goal_id = goal_id_;
   ev.goal_pose  = goal_poses_[idx_];
 
   // Fill stamp_received and sample start_pose at accept time
@@ -308,7 +302,7 @@ void EpisodeManager::onGoalResponse(const rclcpp_action::ClientGoalHandle<nav2_m
   stamp_received_ = rclcpp::Time(ev.stamp_received);
 
   episode_pub_->publish(ev);
-  RCLCPP_INFO(get_logger(), "START episode for goal %zu (episode_id set)", idx_);
+  RCLCPP_INFO(get_logger(), "START episode for goal %zu (goal_id set)", idx_);
 }
 
 void EpisodeManager::onFeedback(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::SharedPtr &,
@@ -334,7 +328,7 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
       ev.result = navlearn_msgs::msg::EpisodeEvent::RESULT_FAILED;    break;
   }
 
-  ev.episode_id = episode_id_;
+  ev.goal_id = goal_id_;
   ev.goal_pose  = goal_poses_[idx_];
 
   // Carry forward the start pose captured at accept time (do NOT resample here)
@@ -371,7 +365,7 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
   next_allowed_send_ = this->get_clock()->now() + rclcpp::Duration::from_seconds(dwell_sec_);
 
   // Reset per-episode state
-  episode_id_.uuid.fill(0);
+  goal_id_.uuid.fill(0);
   // stamp_received_ = rclcpp::Time(0,0,RCL_ROS_TIME);
   start_pose_ = geometry_msgs::msg::PoseStamped();
 

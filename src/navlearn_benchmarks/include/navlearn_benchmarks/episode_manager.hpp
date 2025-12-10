@@ -58,7 +58,7 @@ private:
 
     size_t idx_;
     bool active_;
-    unique_identifier_msgs::msg::UUID episode_id_;
+    unique_identifier_msgs::msg::UUID goal_id_;
     
     rclcpp::Time stamp_received_;
     geometry_msgs::msg::PoseStamped start_pose_;
@@ -72,7 +72,6 @@ private:
     std::vector<double> goal_poses_yaw_;
 
     int goals_num_;
-    int episodes_num_;
 
     rclcpp::QoS qos_profile_sub;
 

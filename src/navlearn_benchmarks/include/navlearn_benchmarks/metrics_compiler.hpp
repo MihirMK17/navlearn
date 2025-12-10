@@ -51,19 +51,16 @@ private:
 
   struct RunAccumulator
   {
-    unsigned int episodes_total = 0;
-    unsigned int episodes_succeeded = 0;
-    unsigned int episodes_failed = 0;
-    unsigned int episodes_canceled = 0;
+    unsigned int goals_total = 0;
+    unsigned int goals_succeeded = 0;
+    unsigned int goals_failed = 0;
+    unsigned int goals_canceled = 0;
 
     double total_nav_time = 0.0;
-    double total_nav_time_sq = 0.0;
 
     double total_path_traveled = 0.0;
-    double total_path_traveled_sq = 0.0;
 
     double total_control_energy = 0.0;
-    double total_control_energy_sq = 0.0;
   };
 
   RunAccumulator run_acc_;
