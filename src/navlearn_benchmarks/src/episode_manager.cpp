@@ -230,7 +230,7 @@ void EpisodeManager::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr m
   if (goal_source_ == "map_random" && goal_poses_.empty()) {
     RCLCPP_INFO(get_logger(), "First map received, generating %d random goals", goals_num_);
     loadGoals();
-    RCLCPP_INFO(get_logger(), "Generated %zu random goals from map", goals_num_);
+    RCLCPP_INFO(get_logger(), "Generated %d random goals from map", goals_num_);
   }
 }
 

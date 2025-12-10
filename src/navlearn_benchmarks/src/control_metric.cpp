@@ -90,7 +90,7 @@ void ControlMetric::resetAccumulators()
 void ControlMetric::trim(std::deque<Sample>& q, const rclcpp::Time &now)
 {
   while (!q.empty() && (now - q.front().t).seconds() > buffer_span_s_) {
-    q.pop_front();q
+    q.pop_front();
   }
 }
 
