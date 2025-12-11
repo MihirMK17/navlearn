@@ -29,6 +29,11 @@ def generate_launch_description():
     json_path_arg = DeclareLaunchArgument("json_path", default_value="/home/mihirmk/robot_ws/src/navlearn_benchmarks/benchmark_reports/runs")
     json_path = LaunchConfiguration("json_path")
 
+    episode_manager_config_arg = DeclareLaunchArgument("episode_manager_config", default_value="episode_manager_1mSquare.yaml")
+    episode_manager_config = LaunchConfiguration("episode_manager_config")
+
+    episode_manager_config_path = os.path.join(get_package_share_directory("navlearn_benchmarks"), "config", episode_manager_config)
+
     compiler = Node(
         package='navlearn_benchmarks',
         executable='metrics_compiler',
@@ -82,11 +87,7 @@ def generate_launch_description():
         name='episode_manager',
         output='screen',
         parameters=[
-            os.path.join(
-                get_package_share_directory("navlearn_benchmarks"), 
-                "config", 
-                "episode_manager_customGoals.yaml"
-            ),
+            episode_manager_config_path,
             {"use_sim_time": use_sim_time,
              "goals_num" : goals_num,
              "goal_source" : goal_source}
@@ -112,6 +113,7 @@ def generate_launch_description():
         goal_source_arg,
         csv_path_arg,
         json_path_arg,
+        episode_manager_config_arg,
         compiler,            
         control_metric,      
         trajectory_metric,
