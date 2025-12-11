@@ -96,6 +96,178 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+### 3. Bring up simulation + Nav2 (Gazebo + Bumperbot)
+Terminal 1 - Gazebo + Robot Bring up
+```
+cd ~/navlearn_ws
+source install/setup.bash
+
+ros2 launch bumperbot_bringup simulated_robot.launch.py world_name:=small_house
+```
+This launches the Bumperbot robot in a small house Gazebo world and starts the Nav2-based navigation stack used by NavLearn (planner, controller, costmaps, BT, etc). 
+
+You should be able to send Nav2 goals from RViz and see the robot navigate.
+
+### 4. Run a single NavLearn benchmark run
+With the sim and Nav2 stack running
+```
+cd ~/navlearn_ws
+source install/setup.bash
+
+ros2 launch navlearn_benchmarks benchmarks.launch.py goal_nums:=4 goal_source:=map_random
+```
+This will:
+- Sample 4 random navigation goals on the current map
+- Drive them through `NavigateToPose`
+- Record per-goal metrics and a per-run JSON summary under `benchmark_reports/` (default path; details in the *Usage* section)
+
+
+The full pipeline should now be running:
+Gazebo world --> Bumperbot --> Nav2 Stack --> NavLearn benchmarking harness --> CSV / JSON metrics
+
+---
+
+## Usage
+
+Assuming the following is already done
+- Built the workspace and sourced it (`source install/setup.bash`)
+- Got a robot + Nav2 stack running (Bumperbot, Gazebo / Isaac Sim, or real robot)
+
+### 1. Navigation / Bringup Workflows
+
+#### 1.1 Gazebo + Bumperbot (recommended starting point)
+1. Start Gazebo + Bumperbot bringup
+```
+ros2 launch bumperbot_bringup simulated_robot.launch.py world_name:=small_house
+```
+
+2. Verify in RViz that 
+- TF tree is stable (`map --> odom --> base_link --> laser ...`)
+- You can send a normal Nav2 goal and the robot movees
+
+Once that's true, the NavLearn's benchmarking harness is ready to be plugged on top.
+
+### 2. Benchmarking Workflows
+This benchmarking stack is in:
+- `navlearn_msgs`: interface types (ControlMetric, TrajectoryMetric, ControlMetric, EpisodeEvent)
+- `navlearn_benchmarks`: C++ nodes and Python tooling
+	- `episode_manager`
+	- `trajectory_metric`
+	- `control_metric`
+	- `metrics_compiler`
+	- `srcipts/multi_run_harness.py`
+	- `srcipts/aggregate_runs.py`
+
+#### 2.1 Build the benchmarking stack (optional)
+Build the whole workspace or only the navlearn_benchmarks package for just benchmarking pieces
+```
+cd ~/navlearn_ws
+colcon build --packages-select navlearn_msgs navlearn_benchmarks
+source install/setup.bash
+```
+
+#### 2.2 Single-run benchmark
+With Bumperbot + Nav2 already running (sim or real)
+
+```
+cd ~/navlearn_ws
+source install/setup.bash
+
+ros2 launch navlearn_benchmarks benchmarks.launch.py
+```
+
+By default this will:
+- Use the configs in `src/navlearn_benchmarks/config/`:
+	- `episode_manager_1mSquare.yaml`
+	- `trajectory_metric.yaml`
+	- `control_metric.yaml`
+	- `metrics_compiler.yaml`
+- Run the cannonical 1m Square benchmark (if `episode_manager_1mSquare.yaml` is selected)
+- Log:
+	- Per-goal metrics --> `benchmark_reports/navlearn_metrics.csv`
+	- Per-run summary --> `benchmark_reports/navlearn_run_report.json`
+
+This can be treated as the "sanity-check" benchmark; if this doesn't work, the Nav2 / TF / Robot setup might be broken.
+
+#### 2.3 Choosing goal sources (static vs random)
+The `episode_manager` node controls which navigation goals are sent. It has a key parameter:
+- `goal_source` – one of:
+	- `static`: uses a fixed set of goals from a YAML file (canonical 1 m square, hand-picked poses, etc.)
+	- `map_random`: sample random free-cell goals from the current /map
+
+High-level behavior:
+```
+# Example (inside episode_manager_*.yaml)
+
+episode_manager:
+  ros__parameters:
+    goal_source: static         # or "map_random"
+    goals_num: 4                # used when goal_source == "map_random"
+    # For static:
+    goal_x: [0.5, 0.5, -0.5, -0.5]
+    goal_y: [0.5, -0.5, -0.5, 0.5]
+    goal_yaw: [0.0, 1.57, 3.14, -1.57]
+```
+- `goal_source: static`
+	- Uses YAML-defined arrays of `goal_x', `goal_y', `goal_yaw'
+	- Arrays must be the same length (one entry per goal)
+- `goal_source: map_random`
+	- Ignores explicit coordinates
+	- Samples `goals_num` random free cells from `/map` and uses those as goal positions\
+
+To switch between them, launch the `benchmark.launch.py` with the following launch arguments:
+- `episode_manager_config:=episode_manager_1mSquare.yaml` + `goal_source:=static` --> For pre-defined goals. Change the `episode_manager_config` argument with the YAML file with the required changes
+-  `goal_source:=map_random` + `goals_num:=4` --> For random goals
+
+#### 2.4 Multi-run harness (batch experiments)
+For running many benchmarks back-to-back (e.g., different parameter sets, goal counts, or maps), use:
+```
+cd ~/navlearn_ws
+source install/setup.bash
+
+python3 src/navlearn_benchmarks/scripts/multi_run_harness.py
+```
+
+This harness script is designed to:
+- Define a list of runs (different configs, maps, or goal counts) in the script itself
+- For each run:
+	- Call the `navlearn_benchmarks` launch file with the appropriate parameters
+	- Save that run's output into a separate directory under:
+	```
+	src/navlearn_benchmarks/benchmark_reports/runs/
+	run_0001/
+	navlearn_metrics.csv
+	navlearn_run_report.json
+	run_0002/
+	```
+To customize the experiments to run:
+- Open `scripts/multi_run_harness.py`
+- Edit the run definitions at the top (maps, `goal_source`, `goals_nums`, `episode_nums`, etc)
+- Re-run the script
+
+This is the tool to use for actual sweeps, not one-off runs.
+
+#### 2.5 Aggregating runs (compare experiments)
+After running multiple benchmarks, the runs are saved under `benchmark_reports/runs`, they can be aggregate. To do so follow below steps
+```
+cd ~/navlearn_ws
+source install/setup.bash
+
+python3 src/navlearn_benchmarks/scripts/aggregate_runs.py
+```
+
+Typical behavior:
+- Scans `benchmark_reports/runs/**/navlearn_run_report.json`
+- Builds a table with one row per run, including metrics like:
+	- number of goals
+	success rate
+	mean/median navigation time
+	mean path length
+- Prints that table to the terminal in a readable format.
+- Optionally writes a summary CSV (e.g. `benchmark_reports/navlearn_runs_summary.csv`) you can open in a notebook or spreadsheet.
+
+This script can be used to compare the configuration, map, robot, etc across multiple runs
+
 ---
 
 ## 📊 Benchmarking Framework (navlearn_benchmarks + navlearn_msgs)
