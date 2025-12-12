@@ -270,126 +270,309 @@ This script can be used to compare the configuration, map, robot, etc across mul
 
 ---
 
-## 📊 Benchmarking Framework (navlearn_benchmarks + navlearn_msgs)
+## Metrics & Output Format
 
+NavLearn’s benchmarking stack produces two main artifacts per run:
+- A **per-goal CSV** (`navlearn_metrics*.csv`) – one row per navigation goal.
+- A **per-run JSON summary** (`navlearn_run_report*.json`) – aggregates across all goals in that run.
 
-This repo also includes a **navigation benchmarking framework** for Nav2 
-
-The goal is to:
-
-- Run multiple navigation **episodes** in a controlled environment.
-- Log **per-episode metrics** (success, time-to-goal, collisions, path length, etc.).
-- Compare different planners/controllers/maps on the **same benchmark**.
-
-### Packages
-
-- `navlearn_msgs`: custom message definitions for benchmarking:
-  - `GoalMetric.msg`
-  - `TrajectoryMetric.msg`
-  - `ControlMetric.msg`
-  - `EpisodeEvent.msg`
-
-- `navlearn_benchmarks`: C++ nodes that compute and aggregate metrics:
-  - `episode_manager` – orchestrates episodes, sends goals, tracks start/end.
-  - `trajectory_metric` – path length and basic trajectory stats.
-  - `control_metric` – logs `/cmd_vel` for control statistics.
-  - `metrics_compiler` – writes CSV / JSON reports.
-  
-### Episode Manager
-Role: 
-- Loads navigation goals and sends them to the Robot sequentially
-- Tracks episode state, navigation time, start pose, goal pose (and collisions --> planned) for each goal
-- Publishes them as EpisodeEvent messages
-- Accuracy in goal_xy and goal_yaw is decided by controller_server (0.25m and 0.25 rad/s)
-- Accuracy in path length measurements is decided by trajectory metric node's parameters
-
-Configurations: EpisodeManger has the ability to use two goal sources - fixed or randomized as selected by changing the goal_source pararmeter
-```bash
-goal_source: static
+When `multi_run_harness.py` is used, these files are created under:
 ```
-Uses YAML defined goals (cannonical 1m demo). The X, Y and Yaw coordinates of the goals configured need to match in size
-
-```bash
-- goal_source: map_random
-```
-Samples `goals_num` size of random free cells from `/map`. Only needs `goals_num` parameter defined
-
-
-## 🔧 Building the Benchmarking Components
-
-If you follow the standard workspace build (see Quick Start), benchmarking packages are built automatically.
-
-To explicitly build just the benchmarking stack:
-
-```bash
-cd ~/navlearn_ws
-colcon build --packages-select navlearn_msgs navlearn_benchmarks
-source install/setup.bash
-
+~/navlearn_ws/src/navlearn_benchmarks/benchmark_reports/
+	navlearn_metrics.csv				# default single-run CSV
+	navlearn_run_report.json			# default single-run JSON
+	runs/
+		navlearn_metrics_run_0001_*.csv       	# batched runs
+		navlearn_run_report_run_0001_*.json
+		navlearn_metrics_run_0002_*.csv
+		navlearn_run_report_run_0002_*.json
 ```
 
-### Launch the Benchmarking Stack
-```bash
-cd ~/navlearn_ws
-source install/setup.bash
+### 1. Per-goal CSV schema (`navlearn_metrics*.csv)
+Each row = one navigation goal. The header is written once, the first time a complete episode (goal) is seen.
+| Column                        | Units           | Description                                                                                                                        |
+| ----------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `Goal_ID`                     | –               | Stringified UUID for the goal (`EpisodeEvent.goal_id`). Unique per goal. 		                                               |
+| `Reference Frame`             | –               | Frame used for poses; currently hard-coded to `"map"`. 		                                                               |
+| `Start Pose_X (m)`            | m               | Robot x-position at goal **start**, in `map` frame. 	                                                                       |
+| `Start Pose_Y (m)`            | m               | Robot y-position at goal start.                                                                                                    |
+| `Start Pose_Yaw (deg)`        | deg             | Robot yaw (heading) at start, converted from quaternion to degrees.                                                                |
+| `Goal Pose_X (m)`             | m               | Target goal x-position in `map` frame. 		                                                                               |
+| `Goal Pose_Y (m)`             | m               | Target goal y-position.                                                                                                            |
+| `Goal Pose_Yaw (deg)`         | deg             | Target goal yaw, in degrees.                                                                                                       |
+| `Goal Result Code`            | –               | Numeric result from `EpisodeEvent.result`: `0=NA`, `1=SUCCEEDED`, `2=FAILED`, `3=CANCELED`. 	                               |
+| `Goal Result`                 | –               | Human-readable result string: `SUCCEEDED`, `FAILED`, `CANCELED`, `NA`, or `UNKNOWN`.	                                       |
+| `Success Count`               | –               | Running count of successful goals so far in this run (monotone non-decreasing). 		                                       |
+| `Nav Time (sec)`              | s               | Navigation duration for this goal: `nav_time.sec + 1e-9 * nav_time.nanosec`.	                                               |
+| `Nav Time Start (sec)`        | s (ROS time)    | Start timestamp of the goal (`stamp_received`) converted to seconds.                                                               |
+| `Nav Time End (sec)`          | s (ROS time)    | Termination timestamp (`stamp_terminated`) converted to seconds.                                                                   |
+| `Tracking RMS_V (m/s)`        | m/s             | RMS tracking error in **linear velocity** over the episode. Comes from `ControlMetric.tracking_rms_v`. 		               |
+| `Tracking RMS_W (rad/s)`      | rad/s           | RMS tracking error in **angular velocity** (`tracking_rms_w`).                                                                     |
+| `Saturation Frac_V`           | fraction [0–1]  | Fraction of control samples where linear velocity was saturated. `saturation_frac_v`.                                              |
+| `Saturation Frac_W`           | fraction [0–1]  | Fraction of samples where angular velocity was saturated. `saturation_frac_w`.                                                     |
+| `Slip Mean`                   | –               | Mean longitudinal slip estimate over the episode (`slip_mean`).                                                                    |
+| `Slip Std Deviation`          | –               | Standard deviation of slip (`slip_std`).                                                                                           |
+| `Slip 95_Percentile`          | –               | 95th percentile of |slip| over the episode (`slip_p95`). 		                                                               |
+| `Control Energy`              | arbitrary units | Aggregate “control energy” over the episode (`control_energy`), typically sum of squared control commands over time.	       |
+| `Control Samples`             | count           | Number of `/cmd_vel` samples aggregated (`samples`).                                                                               |
+| `Path Length (m)`             | m               | Total distance traveled in this episode (`TrajectoryMetric.path_length_m`).		                                               |
+| `Absolute Path Error RMS (m)` | m               | Placeholder for future ATE RMSE; currently written as `0`.                                                                         |
+| `Relative Pose Error (Drift)` | –               | Placeholder for future RPE / drift metrics; currently `0`.                                                                         |
+| `Trajectory Samples`          | count           | Number of trajectory samples used (`TrajectoryMetric.samples`). 		                                                       |
 
-ros2 launch navlearn_benchmarks benchmarks.launch.py
+Example (truncated) CSV:
+```
+Goal_ID,Reference Frame,Start Pose_X (m),...,Path Length (m),Absolute Path Error RMS (m),Relative Pose Error (Drift),Trajectory Samples
+3f2a5c...,map,0.00,...,4.27,0,0,123
+...
 ```
 
-By default, the launch file uses the configs in:
+If required, analysis can be done in a notebook by
+- Filtering by `Goal Result` or `Goal Result Code`
+- Plotting `Nav Time (sec)` vs `Path Length (m)` vs `Slip` for different configs
+- Computing custom success metrics, SPL-like measures, etc
 
-```bash
-src/navlearn_benchmarks/config/
-  episode_manager_1mSquare.yaml
-  metrics_compiler.yaml
-  control_metric.yaml
-  trajectory_metric.yaml
+### Per-run JSON schema (`navlearn_run_report*.json)
+Every time the `metrics_compiler` node shuts down cleanly, it writes a single JSON summary for that run to `json_path`
+
+Schema (all numeric fields are scalars):
+| Key                    | Type    | Description                                               |
+| ---------------------- | ------- | --------------------------------------------------------- |
+| `goals_total`          | int     | Total number of goals seen in this run.                   |
+| `goals_succeeded`      | int     | Count of goals with `RESULT_SUCCEEDED`.                   |
+| `goals_failed`         | int     | Count of goals with `RESULT_FAILED`.                      |
+| `goals_canceled`       | int     | Count of goals with `RESULT_CANCELED`.                    |
+| `nav_time_mean`        | float s | Mean navigation time across all goals in this run.        |
+| `total_nav_time`       | float s | Sum of navigation times across all goals.                 |
+| `path_length_mean`     | float m | Mean path length across all goals.                        |
+| `total_path_traveled`  | float m | Sum of path lengths across all goals.                     |
+| `control_energy_mean`  | float   | Mean control energy across all goals.                     |
+| `total_control_energy` | float   | Sum of control energies across all goals.                 |
+| `csv_path`             | string  | Absolute path to the CSV used for this run. 	       |
+
+Example
+```
+{
+  "goals_total": 4,
+  "goals_succeeded": 4,
+  "goals_failed": 0,
+  "goals_canceled": 0,
+  "nav_time_mean": 5.321,
+  "total_nav_time": 21.284,
+  "path_length_mean": 4.27,
+  "total_path_traveled": 17.08,
+  "control_energy_mean": 13.5,
+  "total_control_energy": 54.0,
+  "csv_path": "/home/you/navlearn_ws/src/navlearn_benchmarks/benchmark_reports/navlearn_metrics_run_0001_20251201_120000.csv"
+}
+
 ```
 
-### 📂 Benchmark Outputs
+This is what `aggregate_runs.py` reads when it builds its summary table.
 
-After the benchmark run finishes, reports are generated in:
 
-```bash
-src/navlearn_benchmarks/benchmark_reports/
-  navlearn_metrics.csv
-  navlearn_run_report.json
+### 3. Aggregate runs summary (`aggregate_runs.py`)
+When below `aggregate_runs.py` is run
 ```
-
-### 📐 Metrics Definitions (High-Level)
-
-Goal Success
-A goal is considered successful if the robot reaches inside Nav2’s goal tolerances:
-
-Position within xy_tolerance
-
-Orientation within yaw_tolerance
-
-Time-to-Goal
-
-```bash
-t_goal = t_goal_reached − t_goal_sent
+python3 src/navlearn_benchmarks/scripts/aggregate_runs.py
 ```
+the script:
+- Looks for `navlearn_run_report_run_*.json` in the `runs/` directory (or a directory you pass as an argument)
+- Prints a tab-separated table with:
+	- `Run` – filename (`navlearn_run_report_run_0001_*.json`, etc.)
+	- `Goals` – `goals_total`
+	- `Success` – `goals_succeeded`
+	- `Fail` – `goals_failed`
+	- `NavTime_mean[s]` – `nav_time_mean`
+	- `Path_mean[m]` – `path_length_mean`
+	- `CtrlEnergy_mean` – `control_energy_mean`
+- Then prints an `ALL_RUNS` row where nav time, path length, and control energy are averaged over all goals across all runs, not just naïve mean-of-means. 
 
-Measured per episode (per goal sequence if multiple goals are chained).
+Example (schematic):
+```
+Run                                   Goals  Success  Fail  NavTime_mean[s]  Path_mean[m]  CtrlEnergy_mean
+navlearn_run_report_run_0001_....json 4      4        0     5.32            4.27          13.5
+navlearn_run_report_run_0002_....json 4      3        1     6.10            4.85          14.1
 
-- Path Length: Sum of Euclidean distances between consecutive robot poses along the executed trajectory, as estimated by odometry/localization.
-
-- Collisions: Number of collision events detected in an episode.
-
-- Control Metrics: Statistics of the control commands (`/cmd_vel`):
-	Mean / max linear velocity (`|v|`)
-	Mean / max angular velocity (`|ω|`)
-
-Potentially extendable to tracking error if reference vs. executed trajectories are logged.
-
-The framework is designed to be extendable—add more metrics as required.
+ALL_RUNS                              8      7        1     5.71            4.56          13.8
+```
 
 ---
 
-## 🎥 Demos
+## Configuration
+NavLearn is **config-first**: no need to recompile just to change maps, robots, or metrics.  
+Most behavior is controlled through YAML files in:
+- `navlearn_benchmarks/config/`
+- `bumperbot_bringup/launch/'	`# Through Launch Configurations
 
-### 📡 SLAM Mapping Demo
+Below is how the main pieces fit together and what is typically needed to edit.
+
+### 1. Robot + Nav2 assumptions
+
+NavLearn’s benchmarking harness assumes you already have:
+- Frames:
+  - `map → odom → base_link → {laser, depth_camera, ...}`
+- Topics (or their equivalents, remapped in launch):
+  - `/tf`, `/tf_static`
+  - `/odom`
+  - `/scan` (or `/pointcloud` + a laser plugin)
+  - `/cmd_vel`
+  - `/map`
+- Nav2 action server:
+  - `NavigateToPose` available under `/navigate_to_pose`
+
+If any of these differ on the robot, it can be fixed with **remappings** in the bringup or by editing the NavLearn configs.
+
+### 2. Episode Manager (`episode_manager_*.yaml)
+Controls **which goals are sent** to Nav2, in what order, and with what timing.
+
+Typical config (simplified):
+
+```yaml
+
+episode_manager:
+  ros__parameters:
+    dwell_sec: 1.0  # sec
+    goal_source: map_random
+    goal_poses_x: [1.0, 0.0, 2.0, -1.0, 5.0, 7.0, 8.3, 4.0, -1.0, -2.0, -5.0, -7.8, -6.5, 0.0, 
+                   1.0, 0.0, 2.0, -1.0, 5.0, 7.0, 8.3, 4.0, -1.0, -2.0, -5.0, -7.8, -6.5, 0.0,
+                   1.0, 0.0, 2.0, -1.0, 5.0, 7.0, 8.3, 4.0, -1.0, -2.0, -5.0, -7.8, -6.5, 0.0,
+                   1.0, 0.0, 2.0, -1.0, 5.0, 7.0, 8.3, 4.0, -1.0, -2.0, -5.0, -7.8, -6.5, 0.0]
+    goal_poses_y: [0.0, 0.0, 1.0, 3.0, -2.0, -1.0, 1.7, -4.0, -4.0, -1.0, -4.0, -2.75, 0.0, 0.0,
+                   0.0, 0.0, 1.0, 3.0, -2.0, -1.0, 1.7, -4.0, -4.0, -1.0, -4.0, -2.75, 0.0, 0.0,
+                   0.0, 0.0, 1.0, 3.0, -2.0, -1.0, 1.7, -4.0, -4.0, -1.0, -4.0, -2.75, 0.0, 0.0,
+                   0.0, 0.0, 1.0, 3.0, -2.0, -1.0, 1.7, -4.0, -4.0, -1.0, -4.0, -2.75, 0.0, 0.0]
+    goal_poses_yaw: [0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0,
+                     0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0,
+                     0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0,
+                     0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0, 180.0, 270.0, 0.0, 90.0]    
+    goals_num: 56
+    action_server: /navigate_to_pose
+    episode_pub_topic: /navlearn/episode_event
+    fixed_frame: map
+    robot_frame: base_link
+```
+
+What matters:
+- `goal_source`
+	- `static` → uses `goal_x/y/yaw` arrays (same length, one entry per goal)
+	- `map_random` → samples `goals_num` random free cells from `/map`
+
+You’ll typically maintain multiple episode_manager YAMLs:
+- `episode_manager_1mSquare.yaml` – canonical 1 m square benchmark
+- `episode_manager_stressgoals.yaml` – multiple goals with small dwell window between two goals
+- `episode_manager_custom.yaml` – your own layout
+
+### 3. Trajectory Metric (`trajectory_metric.yaml)
+Samples the robot trajectory and computes path length + trajectory samples.
+
+Representative config:
+```yaml
+
+trajectory_metric:
+  ros__parameters:
+    odom_topic: /bumperbot_controller/odom
+    jitter_guard: 0.002
+    max_gap_dt: 0.5
+    rpe_delta: 1.0
+
+    episode_event_topic: /navlearn/episode_event
+    trajectory_metric_topic: /navlearn/trajectory_metric
+```
+
+Key ideas:
+- Reads pose from `/odom` and accumulates path length in the `map` frame
+- Must use consistent frames with the rest of your stack (`map` / `odom` / `base_link`)
+
+### 4. Control Metric (`control_metric.yaml`)
+Subscribes to /cmd_vel (and optionally odom/TF) and computes:
+- Tracking RMS for linear / angular velocity.
+- Saturation fractions.
+- Slip statistics.
+- Aggregate control “energy.”
+
+Representative config:
+```yaml
+
+control_metric:
+  ros__parameters:
+    controller_topic: /bumperbot_controller/cmd_vel
+    wheel_radius: 0.033 # m
+    wheel_separation: 0.16  # m
+    v_max: 0.25 
+    w_max: 1.0
+    saturation_tolerance: 0.98
+    eps_v: 0.05
+    eps_w: 0.05
+    buffer_span: 2.0  # sec
+    lambda: 0.5
+
+    odom_topic: /bumperbot_controller/odom
+    joint_states_topic: /joint_states
+    episode_event_topic: /navlearn/episode_event
+    control_metric_topic: /navlearn/control_metric
+
+    wheel_left_joint: wheel_left_joint
+    wheel_right_joint: wheel_right_joint
+
+```
+
+Key Ideas:
+- If `v_max` / `w_max` / `wheel_radius` / `wheel_separation` don’t match your robot’s controller limits, controller metrics are meaningless
+- The odometry topic should match the topic on which wheel odometry is published published
+
+### 5. Metrics Compiler (`metrics_compiler.yaml`)
+This node fuses episode events + trajectory metrics + control metrics and writes out the CSV + JSON.
+
+Representative config:
+
+```yaml
+
+metrics_compiler:
+  ros__parameters:
+    csv_path: /home/mihirmk/robot_ws/src/navlearn_benchmarks/benchmark_reports/navlearn_metrics.csv
+    json_path: /home/mihirmk/robot_ws/src/navlearn_benchmarks/benchmark_reports/navlearn_run_report.json
+    episode_event_topic: /navlearn/episode_event
+    control_metric_topic: /navlearn/control_metric
+    trajectory_metric_topic: /navlearn/trajectory_metric
+```
+
+### 6. Launch-level configuration
+The main benchmark launch file (e.g. `launch/benchmarks.launch.py`) typically exposes a few arguments:
+- `goal_source` – forwarded to `episode_manager`
+- `goals_num` – forwarded to `episode_manager`
+- `csv_path` / `json_path` – forwarded to `metrics_compiler`
+- `use_sim_time` – syncs all nodes to simulation clock.
+
+Example call overriding defaults:
+```
+ros2 launch navlearn_benchmarks benchmarks.launch.py \
+  goal_source:=map_random \
+  goals_num:=10 \
+  csv_path:=benchmark_reports/small_house_random10.csv \
+  json_path:=benchmark_reports/small_house_random10.json \
+  use_sim_time:=true
+```
+
+### 7. Adapting to a different robot
+To plug in a new robot (as long as it’s Nav2-compatible):
+- Make sure your bringup provides:
+	- map, odom, base_link, laser frames.
+	- The standard topics (/map, /odom, /scan, /cmd_vel).
+	- A working NavigateToPose action server.
+- Fix any topic / frame name mismatches via:
+	- Nav2 config / remaps.
+	- NavLearn configs (odom_topic, cmd_vel_topic, world_frame, base_frame, etc.).
+- Run the canonical 1 m square benchmark first:
+	- If that fails, your robot or Nav2 setup is broken, not NavLearn.
+
+Once that works, you can start swapping maps, changing goal sets, and running multi-run sweeps without touching code.
+
+---
+
+## Cannonical Demos
+
+### 1. SLAM Mapping Demo
 
 > Demonstrates full mapping in an indoor environment.
 
@@ -399,7 +582,7 @@ The framework is designed to be extendable—add more metrics as required.
 
 ---
 
-### 🚧 Navigation with Static and Dynamic Obstacles
+### 2. Navigation with Static and Dynamic Obstacles
 
 > Shows side-by-side RViz and Gazebo with real-time path replanning.
 
@@ -409,7 +592,7 @@ The framework is designed to be extendable—add more metrics as required.
 
 ---
 
-### 🧭 Navigation Snapshot
+### 3. Navigation Snapshot
 
 > Local and global costmaps with AMCL localization
 <p align="center">
@@ -418,7 +601,7 @@ The framework is designed to be extendable—add more metrics as required.
 
 ---
 
-### 🧪 Gazebo Simulation
+### 4. Gazebo Simulation
 
 > Simulated robot running the full navigation stack
 
@@ -428,7 +611,7 @@ The framework is designed to be extendable—add more metrics as required.
 
 ---
 
-### 🗂 Canonical Benchmark Demo — 1m Square
+### 5. Canonical Benchmark Demo — 1m Square
 
 > The canonical NavLearn benchmark is a robot running repeated 1m square navigation episodes in Isaac Sim while metrics are logged
 
@@ -443,7 +626,7 @@ High-level flow:
 
 ---
 
-### 🧱 TF Tree
+### 6. TF Tree
 
 > Frame visualization after `bumperbot_bringup`
 
@@ -451,42 +634,17 @@ High-level flow:
 
 ---
 
-## 🚀  Quick Start
+## Project Documentation
 
-### Clone & Build
-
-```bash
-# 1) create a workspace & clone the repo
-mkdir -p ~/navlearn_ws/src && cd ~/navlearn_ws/src
-git clone https://github.com/MihirMK17/navlearn.git
-cd ~/navlearn_ws
-
-# 2) resolve deps & build
-rosdep install --from-paths src --ignore-src -y
-colcon build
-source install/setup.bash
-```
-
-### Simulation (Gazebo)
-```bash
-ros2 launch navlearn_bringup simulated_robot.launch.py world_name:=small_house use_slam:false
-```
-
-### Real Robot
-```bash
-ros2 launch navlearn_bringup real_robot.launch.py world_name:=small_house use_slam:false
-```
-
-## 📚 Project Documentation
-
-### ✅ Completed
+### 1. Completed
 
 * [x] Real-world SLAM & Navigation setup
 * [x] Simulation setup & ROS2 bridge
 * [x] Teleop + autonomous navigation
 * [x] CI workflow for ROS2 Humble
+* [x] 
 
-### 🐞 Common Issues & Fixes
+### 2. Common Issues & Fixes
 
 **1. L298N H-Bridge Partial Failure**
 Only one motor would work in forward motion due to a damaged internal transistor. Diagnosis was done using joystick teleop commands.
@@ -507,7 +665,7 @@ More fixes and logs documented in [`Project Documentation`](Project%20Documentat
 
 ---
 
-## 🚀 Coming Soon
+## Coming Soon
 
 * ✅ Calibration of wheel base and motor gains
 * 🧠 Reinforcement Learning for local planning
@@ -517,7 +675,7 @@ More fixes and logs documented in [`Project Documentation`](Project%20Documentat
 
 ---
 
-## 👤 Author
+## Author
 
 * Mihir Kulkarni
 * [LinkedIn](https://www.linkedin.com/in/kulkarnimihir17/)
@@ -525,7 +683,7 @@ More fixes and logs documented in [`Project Documentation`](Project%20Documentat
 
 ---
 
-## 📜 License
+## License
 
 This project is based on open-source work by Antonio Brandi ([BumperBot](https://github.com/AntoBrandi/Bumper-Bot)) under Apache 2.0 License.
 All modifications and extensions in NavLearn are released under the same license.
