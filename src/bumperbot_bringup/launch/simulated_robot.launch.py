@@ -16,6 +16,9 @@ def generate_launch_description():
 
     use_slam = LaunchConfiguration("use_slam")
 
+    nav2_profile_arg = DeclareLaunchArgument("nav2_profile", default_value="baseline")
+    nav2_profile = LaunchConfiguration("nav2_profile")
+
     gazebo = IncludeLaunchDescription(
         os.path.join(
             get_package_share_directory("bumperbot_description"),
@@ -70,7 +73,10 @@ def generate_launch_description():
             get_package_share_directory("bumperbot_navigation"),
             "launch",
             "navigation.launch.py"
-        )
+        ),
+        launch_arguments={
+            "nav2_profile" : nav2_profile
+        }.items()
     )
 
     safety_stop = Node(
@@ -107,6 +113,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         use_slam_arg,
+        nav2_profile_arg,
         gazebo,
         controller,
         joystick,
