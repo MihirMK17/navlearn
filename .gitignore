@@ -1,5 +1,13 @@
+# ROS 2 workspace build artifacts
 build/
 install/
 log/
-.vscode*
-*.swp
+
+# local logs
+build_log.txt
+verbose_build.txt
+*.log
+
+# optional: vendor packages you don't want tracked
+src/gz_ros2_control/
+
