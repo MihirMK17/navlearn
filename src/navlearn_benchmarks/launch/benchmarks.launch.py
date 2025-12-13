@@ -3,7 +3,8 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, TimerAction, RegisterEventHandler, EmitEvent
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 from launch.events import Shutdown
 from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
@@ -32,9 +33,14 @@ def generate_launch_description():
     episode_manager_config_arg = DeclareLaunchArgument("episode_manager_config", default_value="episode_manager_1mSquare.yaml")
     episode_manager_config = LaunchConfiguration("episode_manager_config")
 
-    episode_manager_config_path = os.path.join(get_package_share_directory("navlearn_benchmarks"), "config", episode_manager_config)
+    episode_manager_config_path = PathJoinSubstitution([
+        FindPackageShare("navlearn_benchmarks"),
+        "config",
+        episode_manager_config
+        ]
+    )
 
-    compiler = Node(
+    compiler = Node(    
         package='navlearn_benchmarks',
         executable='metrics_compiler',
         name='metrics_compiler',

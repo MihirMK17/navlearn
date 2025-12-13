@@ -75,9 +75,10 @@ If you care about moving from “it kind of navigates” to “I can quantify an
 - **Nav2** installed (e.g. `sudo apt install ros-humble-nav2-bringup`)
 - **Gazebo** (Fortress/Garden) and the **Bumperbot** stack available in your workspace  
   (from the Learn-By-Doing courses by Antonio Brandi / `bumperbot_bringup` package)
+- **Isaac Sim 4.5.0*** installed (refer offcial Isaac Sim documentation)
 - A working ROS 2 workspace (colcon)  
 
-> The examples below assume a Bumperbot-style differential-drive robot. Adapting to other robots is covered later.
+> The examples below assume a Bumperbot / Turtlebot3 Burger-style differential-drive robot. Adapting to other robots is covered later.
 
 ---
 
@@ -95,6 +96,33 @@ rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install
 source install/setup.bash
 ```
+
+### 2. Simulation + Nav2 (Isaac Sim + Turtlebot3 Burger)
+Terminal 1 - Isaac Sim
+```
+cd ~IsaacSim/
+./isaac-sim.sh
+```
+This will open the Isaac Sim GUI. To use the pre-configured world and robot, open the `navlearn_test.usd` file in the GUI. Upon opening the USD file, the scene will have a small warehouse world, a Turtlebot3 Burger differential-drive robot, Action Graphs for Odometry, Control, TF and Lidar and the physics engine configured. If you see an error message for the robot prim path, change the robot prim path under a suitable directory
+
+To start the simulation, click on `Play` button. In another terminal start the robot localizaton, map and the navigtaion
+
+Terminal 2
+```
+cd ~navlearn_ws/
+
+ros2 launch bumperbot_localization global_localization.launch.py
+```
+
+Terminal 3s
+```
+cd ~navlearn_ws/
+
+ros2 launch bumperbot_navigation navigation.launch.py
+```
+This launches the Turtlebot3 Burger a small warehouse map and starts the Nav2-based navigation stack used by NavLearn (planner, controller, costmaps, BT, etc). 
+
+You should be able to send Nav2 goals from RViz and see the robot navigate.
 
 ### 3. Bring up simulation + Nav2 (Gazebo + Bumperbot)
 Terminal 1 - Gazebo + Robot Bring up
@@ -121,9 +149,8 @@ This will:
 - Drive them through `NavigateToPose`
 - Record per-goal metrics and a per-run JSON summary under `benchmark_reports/` (default path; details in the *Usage* section)
 
-
 The full pipeline should now be running:
-Gazebo world --> Bumperbot --> Nav2 Stack --> NavLearn benchmarking harness --> CSV / JSON metrics
+Gazebo world / Isaac Sim world --> Bumperbot / Turtlebot3 Burger --> Nav2 Stack --> NavLearn benchmarking harness --> CSV / JSON metrics
 
 ---
 
@@ -146,6 +173,32 @@ ros2 launch bumperbot_bringup simulated_robot.launch.py world_name:=small_house
 - You can send a normal Nav2 goal and the robot movees
 
 Once that's true, the NavLearn's benchmarking harness is ready to be plugged on top.
+
+#### 1.2 Isaac Sim + Turtlebot3 Burger + Nav2
+1. Start Isaac Sim 
+```
+cd ~IsaacSim/
+./isaac-sim.sh
+```
+
+2. Open `navlearn_test.usd` file in the Isaac Sim Gui. Click on `Play` to start the Simulation. Verify that
+- Robot doesn't fall through the floor or hovers above the Ground Plane
+- In RViz, the TF tree is intact and you are able to see the RTX Lidar configured in the Sim
+- You are able to teleop the robot with the keyboard by running the teleop twist keyboard ROS2 package like below
+```
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```
+
+3. Start the localization and navigation packages for the robot by launching the respective launch file like below
+```
+ros2 launch bumperbot_localization global_localization.launch.py
+```
+
+```
+ros2 launch bumperbot_navigation navigation.launch.py
+```
+
+Once that's done, the NavLearn's benchmarking harness is ready to be plugged on top.
 
 ### 2. Benchmarking Workflows
 This benchmarking stack is in:
@@ -363,7 +416,7 @@ Example
   "total_path_traveled": 17.08,
   "control_energy_mean": 13.5,
   "total_control_energy": 54.0,
-  "csv_path": "/home/you/navlearn_ws/src/navlearn_benchmarks/benchmark_reports/navlearn_metrics_run_0001_20251201_120000.csv"
+  "csv_path": "/path/to/navlearn_ws/src/navlearn_benchmarks/benchmark_reports/navlearn_metrics_run_0001_20251201_120000.csv"
 }
 
 ```
@@ -611,7 +664,7 @@ Once that works, you can start swapping maps, changing goal sets, and running mu
 
 ---
 
-### 5. Canonical Benchmark Demo — 1m Square
+### 5. Canonical Benchmark Demo — 1m Square (Isaac Sim)
 
 > The canonical NavLearn benchmark is a robot running repeated 1m square navigation episodes in Isaac Sim while metrics are logged
 
@@ -642,7 +695,7 @@ High-level flow:
 * [x] Simulation setup & ROS2 bridge
 * [x] Teleop + autonomous navigation
 * [x] CI workflow for ROS2 Humble
-* [x] 
+* [x] Navigation benchmark and metrics
 
 ### 2. Common Issues & Fixes
 
