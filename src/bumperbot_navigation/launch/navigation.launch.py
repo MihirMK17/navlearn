@@ -1,21 +1,78 @@
 import os 
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, LogInfo, EmitEvent
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
+from launch.events import Shutdown
 from ament_index_python.packages import get_package_share_directory
 
-def generate_launch_description():
+def _validate_nav2_profile(context, *args, **kwargs):
+    profile = LaunchConfiguration("nav2_profile").perform(context)
 
+    profiles_root = os.path.join(
+        get_package_share_directory("bumperbot_navigation"),
+        "config", "nav2_profiles"
+    )
+    profile_dir = os.path.join(profiles_root, profile)
+
+    if not os.path.isdir(profile_dir):
+        return [
+            LogInfo(msg=f"[nav2] invalid nav2_profile='{profile}'. Not found: {profile_dir}"),
+            EmitEvent(event=Shutdown(reason="Invalid nav2_profile"))
+        ]
+    return []
+
+def generate_launch_description():
     use_sim_time_arg = DeclareLaunchArgument(
         "use_sim_time",
         default_value="True"
     )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
+    
+    nav2_profile_arg = DeclareLaunchArgument("nav2_profile", default_value="baseline")
+    nav2_profile = LaunchConfiguration("nav2_profile")
+
+    nav2_profiles_directory_guard = OpaqueFunction(function=_validate_nav2_profile)
 
     lifecycle_nodes = ["controller_server", "planner_server", "smoother_server", "bt_navigator", "behavior_server"]
+
+    controller_yaml = PathJoinSubstitution([
+        FindPackageShare("bumperbot_navigation"),
+        "config", "nav2_profiles", nav2_profile,
+        "controller_server.yaml"
+        ]
+    )
+
+    planner_yaml = PathJoinSubstitution([
+        FindPackageShare("bumperbot_navigation"),
+        "config", "nav2_profiles", nav2_profile,
+        "planner_server.yaml"
+        ]
+    )
+
+    smoother_yaml = PathJoinSubstitution([
+        FindPackageShare("bumperbot_navigation"),
+        "config", "nav2_profiles", nav2_profile,
+        "smoother_server.yaml"
+        ]
+    )
+
+    bt_navigator_yaml = PathJoinSubstitution([
+        FindPackageShare("bumperbot_navigation"),
+        "config", "nav2_profiles", nav2_profile,
+        "bt_navigator.yaml"
+        ]
+    )
+
+    behavior_yaml = PathJoinSubstitution([
+        FindPackageShare("bumperbot_navigation"),
+        "config", "nav2_profiles", nav2_profile,
+        "behavior_server.yaml"
+        ]
+    )
 
     nav2_controller_server = Node(
         package="nav2_controller",
@@ -23,11 +80,7 @@ def generate_launch_description():
         name="controller_server",
         output="screen",
         parameters=[
-            os.path.join(
-                get_package_share_directory("bumperbot_navigation"),
-                "config",
-                "controller_server.yaml"
-            ),
+            controller_yaml,
             {"use_sim_time": use_sim_time}
         ]
     )
@@ -38,11 +91,7 @@ def generate_launch_description():
         name="planner_server",
         output="screen",
         parameters=[
-            os.path.join(
-                get_package_share_directory("bumperbot_navigation"),
-                "config",
-                "planner_server.yaml"
-            ),
+            planner_yaml,
             {"use_sim_time": use_sim_time}
         ]
     )
@@ -53,11 +102,7 @@ def generate_launch_description():
         name="smoother_server",
         output="screen",
         parameters=[
-            os.path.join(
-                get_package_share_directory("bumperbot_navigation"),
-                "config",
-                "smoother_server.yaml"
-            ),
+            smoother_yaml,
             {"use_sim_time": use_sim_time}
         ]
     )
@@ -68,11 +113,7 @@ def generate_launch_description():
         name="bt_navigator",
         output="screen",
         parameters=[
-            os.path.join(
-                get_package_share_directory("bumperbot_navigation"),
-                "config",
-                "bt_navigator.yaml"
-            ),
+            bt_navigator_yaml,
             {"use_sim_time": use_sim_time}
         ]
     )
@@ -83,11 +124,7 @@ def generate_launch_description():
         name="behavior_server",
         output="screen",
         parameters=[
-            os.path.join(
-                get_package_share_directory("bumperbot_navigation"),
-                "config",
-                "behavior_server.yaml"
-            ),
+            behavior_yaml,
             {"use_sim_time": use_sim_time}
         ]
     )
@@ -106,6 +143,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         use_sim_time_arg,
+        nav2_profile_arg,
+        nav2_profiles_directory_guard,
         nav2_controller_server,
         nav2_planner_server,
         nav2_smoother_server,
