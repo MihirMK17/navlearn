@@ -67,7 +67,35 @@ If you care about moving from “it kind of navigates” to “I can quantify an
   
 ---
 
+<<<<<<< HEAD
 ## Quickstart (TL;DR)
+=======
+- `navlearn_benchmarks`: C++ nodes that compute and aggregate metrics:
+  - `episode_manager` – orchestrates episodes, sends goals, tracks start/end.
+  - `trajectory_metric` – path length and basic trajectory stats.
+  - `control_metric` – logs `/cmd_vel` for control statistics.
+  - `metrics_compiler` – writes CSV / JSON reports.
+  
+### Episode Manager
+Role: 
+- Loads navigation goals and sends them to the Robot sequentially
+- Tracks episode state, navigation time, start pose, goal pose (and collisions --> planned) for each goal
+- Publishes them as EpisodeEvent messages
+- Accuracy in goal_xy and goal_yaw is decided by controller_server (0.25m and 0.25 rad/s)
+- Accuracy in path length measurements is decided by trajectory metric node's parameters
+
+Configurations: EpisodeManger has the ability to use two goal sources - fixed or randomized as selected by changing the goal_source pararmeter
+```bash
+goal_source: static
+```
+Uses YAML defined goals (cannonical 1m demo). The X, Y and Yaw coordinates of the goals configured need to match in size
+
+```bash
+- goal_source: map_random
+```
+Samples `goals_num` size of random free cells from `/map`. Only needs `goals_num` parameter defined
+
+>>>>>>> 8598964 (EpisodeManager config information)
 
 ### 0. Prerequisites
 
@@ -319,7 +347,36 @@ Typical behavior:
 - Prints that table to the terminal in a readable format.
 - Optionally writes a summary CSV (e.g. `benchmark_reports/navlearn_runs_summary.csv`) you can open in a notebook or spreadsheet.
 
+<<<<<<< HEAD
 This script can be used to compare the configuration, map, robot, etc across multiple runs
+=======
+Goal Success
+A goal is considered successful if the robot reaches inside Nav2’s goal tolerances:
+
+Position within xy_tolerance
+
+Orientation within yaw_tolerance
+
+Time-to-Goal
+
+```bash
+t_goal = t_goal_reached − t_goal_sent
+```
+
+Measured per episode (per goal sequence if multiple goals are chained).
+
+- Path Length: Sum of Euclidean distances between consecutive robot poses along the executed trajectory, as estimated by odometry/localization.
+
+- Collisions: Number of collision events detected in an episode.
+
+- Control Metrics: Statistics of the control commands (`/cmd_vel`):
+	Mean / max linear velocity (`|v|`)
+	Mean / max angular velocity (`|ω|`)
+
+Potentially extendable to tracking error if reference vs. executed trajectories are logged.
+
+The framework is designed to be extendable—add more metrics as required.
+>>>>>>> 8598964 (EpisodeManager config information)
 
 ---
 
