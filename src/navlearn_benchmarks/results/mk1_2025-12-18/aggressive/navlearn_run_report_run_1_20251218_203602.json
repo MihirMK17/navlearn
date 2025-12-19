@@ -1,0 +1,13 @@
+{
+  "goals_total": 5,
+  "goals_succeeded": 5,
+  "goals_failed": 0,
+  "goals_canceled": 0,
+  "nav_time_mean": 22.49,
+  "total_nav_time": 112.45,
+  "path_length_mean": 6.45249,
+  "total_path_traveled": 32.2624,
+  "control_energy_mean": 823.867,
+  "total_control_energy": 4119.33,
+  "csv_path": "/home/mihirmk/robot_ws/src/navlearn_benchmarks/benchmark_reports/runs/aggressive/navlearn_metrics_run_1_20251218_203602.csv"
+}

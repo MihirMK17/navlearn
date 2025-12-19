@@ -18,6 +18,9 @@ def generate_launch_description():
     use_sim_time_arg = DeclareLaunchArgument("use_sim_time",default_value="True")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
+    goal_seed_arg = DeclareLaunchArgument("goal_seed", default_value="42")
+    goal_seed = LaunchConfiguration("goal_seed")
+
     goals_num_arg = DeclareLaunchArgument("goals_num",default_value="4")
     goals_num = LaunchConfiguration("goals_num")
 
@@ -95,6 +98,7 @@ def generate_launch_description():
         parameters=[
             episode_manager_config_path,
             {"use_sim_time": use_sim_time,
+             "goal_seed" : goal_seed,
              "goals_num" : goals_num,
              "goal_source" : goal_source}
         ]
@@ -115,6 +119,7 @@ def generate_launch_description():
     return LaunchDescription([
         episode_start_delay_arg,
         use_sim_time_arg,
+        goal_seed_arg,
         goals_num_arg, 
         goal_source_arg,
         csv_path_arg,

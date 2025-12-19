@@ -1,4 +1,0 @@
-Goal_ID,Reference Frame,Start Pose_X (m),Start Pose_Y (m),Start Pose_Yaw (deg),Goal Pose_X (m),Goal Pose_Y (m),Goal Pose_Yaw (deg),Goal Result Code,Goal Result,Success Count,Nav Time (sec),Nav Time Start (sec),Nav Time End (sec),Tracking RMS_V (m/s),Tracking RMS_W (rad/s),Saturation Frac_V,Saturation Frac_W,Slip Mean,Slip Std Deviation,Slip 95_Percentile,Control Energy,Control Samples,Path Length (m),Absolute Path Error RMS (m),Relative Pose Error (Drift),Trajectory Samples
-0c4c891dd24cd293d6854e1c8ff2293a,map,0,0,0,7.575,-2.925,105.247,2,FAILED,0,20.15,231.46,251.61,0,0,0,0,0,0,0,0,0,0,0,0,1000
-19b4263c0ec1e66f975701ceafff61ae,map,7.56124,-1.42724,133.363,2.125,3.175,50.9116,2,FAILED,0,20.14,256.7,276.84,0,0,0,0,0,0,0,0,0,0,0,0,1007
-a4173559adac7ab17a5b9b3203d355bf,map,7.56124,-1.42724,133.363,-5.725,-0.725,-50.4679,2,FAILED,0,11.67,281.93,293.6,0,0,0,0,0,0,0,0,0,0,0,0,587
