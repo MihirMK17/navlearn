@@ -67,11 +67,16 @@ private:
     rclcpp::Time next_allowed_send_;
     std::string goal_source_;
 
+    double goal_min_clearance_m_;
+    int goal_occ_thresh_;
+    bool goal_reject_unknown_;
+
     std::vector<double> goal_poses_x_;
     std::vector<double> goal_poses_y_;
     std::vector<double> goal_poses_yaw_;
 
     int goals_num_;
+    unsigned int goal_seed_;
 
     rclcpp::QoS qos_profile_sub;
 
@@ -82,6 +87,11 @@ private:
 
     bool have_map_;
     nav_msgs::msg::OccupancyGrid latest_map_;
+
+    bool hasClearanceCell(int col, int row, int width, int height, double res,
+                const std::vector<int8_t> & data) const;
+
+    bool inExclusionZone(double x, double y) const;
 
     void loadGoals();
 

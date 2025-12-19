@@ -127,7 +127,7 @@
       <always_on>true</always_on>
       <visualize>true</visualize>
       <topic>scan</topic>
-      <update_rate>5</update_rate>
+      <update_rate>20</update_rate>
       <gz_frame_id>laser_link</gz_frame_id>
       <lidar>
         <scan>

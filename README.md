@@ -67,9 +67,7 @@ If you care about moving from “it kind of navigates” to “I can quantify an
   
 ---
 
-<<<<<<< HEAD
 ## Quickstart (TL;DR)
-=======
 - `navlearn_benchmarks`: C++ nodes that compute and aggregate metrics:
   - `episode_manager` – orchestrates episodes, sends goals, tracks start/end.
   - `trajectory_metric` – path length and basic trajectory stats.
@@ -95,7 +93,6 @@ Uses YAML defined goals (cannonical 1m demo). The X, Y and Yaw coordinates of th
 ```
 Samples `goals_num` size of random free cells from `/map`. Only needs `goals_num` parameter defined
 
->>>>>>> 8598964 (EpisodeManager config information)
 
 ### 0. Prerequisites
 
@@ -181,6 +178,79 @@ The full pipeline should now be running:
 Gazebo world / Isaac Sim world --> Bumperbot / Turtlebot3 Burger --> Nav2 Stack --> NavLearn benchmarking harness --> CSV / JSON metrics
 
 ---
+
+## MK1 Release: Benchmark Harness Snapshot (Dec 18, 2025)
+
+MK1 marks the first "freeze + compare" milestone for NavLearn's Nav2 benchmarking harness:
+- Two fixed parameter profiles (baseline + aggressive)
+- A frozen benchmark scenario (map/world + start + goal source)
+- Multi-run execution + aggregation into CSV / JSON summaries
+
+### What MK1 includes
+- Nav2 benchmarking harness:
+  - `episode_manager` sends scripted goals through `NavigateToPose`
+  - `trajectory_metric`, `control_metric`, and `metrics_compiler` produce per-goal CSV + per-run JSON
+  - `multi_run_harness.py` runs repeated trials
+  - `aggregate_runs.py` aggregates runs into a single table + summary
+- Frozen configs:
+  - Baseline: `PATH_TO_BASELINE_YAML`
+  - Aggressive: `PATH_TO_AGGRESSIVE_YAML`
+- Frozen scenario:
+  - Simulator backend: Gazebo (`world_name:=small_house`)
+  - Goal source: static (canonical 1m square goal list)
+  
+### What MK1 does NOT claim (MK2 work)
+- Safety / clearance metrics, collision modeling, or dynamic obstacle stress tests
+- TF determinism validation and frame publisher enforcement
+- Compute profiling (CPU/mem/latency), deadline misses, loop timing
+- Statistical reporting beyond means (std/percentiles/outlier rules)
+
+---
+
+## MK1: Reproduce the benchmark
+
+### 1. Bringup Gazebo + Nav2 (cannonical MK1 path)
+
+```
+cd ~/navlearn_ws
+source install/setup.bash
+ros2 launch bumperbot_bringup simulated_robot.launch.py world_name:=small_house
+```
+
+### 2. Run multi-run benchmarks
+Baseline (use the frozen baseline Nav2 params inside the harness run definition). To use Aggressive profile run the same command; switch the run definition / config to the aggressive params.
+```
+cd ~/navlearn_ws
+source install/setup.bash
+python3 src/navlearn_benchmarks/scripts/multi_run_harness.py
+```
+
+Outputs (default):
+1. src/navlearn_benchmarks/benchmark_reports/navlearn_metrics*.csv
+2. src/navlearn_benchmarks/benchmark_reports/navlearn_run_report*.json
+3. Batched runs under src/navlearn_benchmarks/benchmark_reports/runs/
+
+```
+## MK1 Results Snapshot (Dec 18, 2025)
+
+Multi-run comparison (10 runs × 5 goals each):
+
+| Profile     | Goals | Success | Fail | NavTime_mean [s] | Path_mean [m] | CtrlEnergy_mean |
+|------------|------:|--------:|-----:|-----------------:|--------------:|----------------:|
+| Baseline   | 50    | 50      | 0    | 28.11            | 5.71          | 477.9           |
+| Aggressive | 50    | 50      | 0    | 20.28            | 5.82          | 719.0           |
+
+Raw artifacts are stored under:
+- `results/mk1_2025-12-18/baseline/`
+- `results/mk1_2025-12-18/aggressive/`
+```
+
+### 3. Aggregate runs
+```
+cd ~/navlearn_ws
+source install/setup.bash
+python3 src/navlearn_benchmarks/scripts/aggregate_runs.py
+```
 
 ## Usage
 
@@ -792,6 +862,7 @@ More fixes and logs documented in [`Project Documentation`](Project%20Documentat
 * [mihir.kulkarni17@gmail.com](mailto:mihir.kulkarni17@gmail.com)
 
 ---
+.
 
 ## License
 

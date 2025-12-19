@@ -84,7 +84,7 @@ def main():
     else:
         directory = (
             pathlib.Path.home()
-            / "robot_ws/src/navlearn_benchmarks/benchmark_reports/runs"
+            / "robot_ws/src/navlearn_benchmarks/benchmark_reports/runs/aggressive"
         )
 
     if not directory.exists():
