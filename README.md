@@ -417,9 +417,8 @@ Typical behavior:
 - Prints that table to the terminal in a readable format.
 - Optionally writes a summary CSV (e.g. `benchmark_reports/navlearn_runs_summary.csv`) you can open in a notebook or spreadsheet.
 
-<<<<<<< HEAD
 This script can be used to compare the configuration, map, robot, etc across multiple runs
-=======
+
 Goal Success
 A goal is considered successful if the robot reaches inside Nav2’s goal tolerances:
 
