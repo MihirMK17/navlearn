@@ -83,24 +83,23 @@ Visualization Manager:
       Show Names: true
       Tree:
         map:
-          {}
-        odom:
-          base_footprint:
-            base_link:
-              caster_front_link:
-                {}
-              caster_rear_link:
-                {}
-              imu_link:
-                {}
-              laser_link:
-                {}
-              wheel_left_link:
-                {}
-              wheel_right_link:
-                {}
-          base_footprint_noisy:
-            {}
+          odom:
+            base_footprint:
+              base_link:
+                caster_front_link:
+                  {}
+                caster_rear_link:
+                  {}
+                imu_link:
+                  {}
+                laser_link:
+                  {}
+                wheel_left_link:
+                  {}
+                wheel_right_link:
+                  {}
+            base_footprint_noisy:
+              {}
       Update Interval: 0
       Value: true
     - Alpha: 0.699999988079071
@@ -223,6 +222,27 @@ Visualization Manager:
         Value: /global_costmap/costmap_updates
       Use Timestamp: false
       Value: true
+    - Alpha: 0.699999988079071
+      Class: rviz_default_plugins/Map
+      Color Scheme: costmap
+      Draw Behind: false
+      Enabled: false
+      Name: Map
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_costmap/costmap
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_costmap/costmap_updates
+      Use Timestamp: false
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -269,7 +289,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 14.197420120239258
+      Distance: 14.165844917297363
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1

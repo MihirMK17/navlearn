@@ -117,7 +117,7 @@ def generate_launch_description():
         gazebo,
         controller,
         joystick,
-        safety_stop,
+        # safety_stop,
         localization,
         slam,
         navigation,

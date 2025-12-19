@@ -19,6 +19,7 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
 {
   dwell_sec_ = this->declare_parameter<double>("dwell_sec", 5.0);
   goal_source_ = this->declare_parameter<std::string>("goal_source", "map_random");
+  goal_seed_ = this->declare_parameter<int>("goal_seed", 42);
   goal_poses_x_ = this->declare_parameter<std::vector<double>>("goal_poses_x", {});
   goal_poses_y_ = this->declare_parameter<std::vector<double>>("goal_poses_y", {});
   goal_poses_yaw_ = this->declare_parameter<std::vector<double>>("goal_poses_yaw", {});
@@ -27,6 +28,10 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   episode_pub_topic_ = this->declare_parameter<std::string>("episode_pub_topic", "/navlearn/episode_event");
   fixed_frame_ = this->declare_parameter<std::string>("fixed_frame", "map");
   robot_frame_ = this->declare_parameter<std::string>("robot_frame", "base_link");
+
+  goal_min_clearance_m_ = declare_parameter<double>("goal_min_clearance_m", 0.75);
+  goal_occ_thresh_      = declare_parameter<int>("goal_occ_thresh", 50);     // treat >=50 as occupied
+  goal_reject_unknown_  = declare_parameter<bool>("goal_reject_unknown", true);
 
   if(goals_num_ < 0) 
   {
@@ -92,6 +97,42 @@ bool EpisodeManager::sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::ms
   }
 }
 
+bool EpisodeManager::hasClearanceCell(int col, int row, int width, int height, double res,
+                const std::vector<int8_t> & data) const 
+{
+  const int r = static_cast<int>(std::ceil(goal_min_clearance_m_ / res));
+  const int r2 = r * r;
+
+  // If the clearance circle would go out of bounds, reject (prevents edge-goals)
+  if (col - r < 0 || col + r >= width || row - r < 0 || row + r >= height) {
+    return false;
+  }
+
+  for (int dy = -r; dy <= r; ++dy) {
+    for (int dx = -r; dx <= r; ++dx) {
+      if (dx*dx + dy*dy > r2) continue; // circle, not square
+
+      const int c = col + dx;
+      const int rr = row + dy;
+      const int idx = rr * width + c;
+
+      const int v = static_cast<int>(data[idx]); // -1 unknown, 0 free, 1..100 occupied
+      if (goal_reject_unknown_ && v < 0) return false;
+      if (v >= goal_occ_thresh_) return false;
+    }
+  }
+  return true;
+}
+
+
+bool EpisodeManager::inExclusionZone(double x, double y) const
+{
+  const bool in_x = (x > -2.4) && (x < 0.7);
+  const bool in_y = (y> 3.3) && (y < 5.4);
+
+  return in_x && in_y;
+}
+
 void EpisodeManager::loadGoals() {
   if (goal_source_ == "static")
   {
@@ -149,8 +190,12 @@ void EpisodeManager::loadGoals() {
     goal_poses_.clear();
     goal_poses_.reserve(goals_num_);
 
-    std::mt19937 gen(static_cast<unsigned>(
-      std::chrono::system_clock::now().time_since_epoch().count()));
+    // Static Seed for randomized goals
+    std::mt19937 gen(static_cast<uint32_t>(goal_seed_));
+
+    // Variable Seed for randomized goals
+    // std::mt19937 gen(static_cast<unsigned>(
+    //   std::chrono::system_clock::now().time_since_epoch().count()));
     std::uniform_int_distribution<int> dist(0, width * height - 1);
 
     const int max_tries_per_goal = 1000;
@@ -167,6 +212,17 @@ void EpisodeManager::loadGoals() {
         // Only accept free cells (0); skip unknown (-1) and occupied (>0)
         if (data[idx] == 0) {
           cell_index = idx;
+
+          int row = cell_index / width;   // y-index
+          int col = cell_index % width;   // x-index
+
+          const double x = info.origin.position.x + (col + 0.5) * res;
+          const double y = info.origin.position.y + (row + 0.5) * res;
+
+          if(inExclusionZone(x,y)) continue;
+          if(!hasClearanceCell(col, row, width, height, res, data)) continue;
+
+          cell_index = idx;
           break;
         }
       }
@@ -178,8 +234,8 @@ void EpisodeManager::loadGoals() {
         continue;
       }
 
-      int row = cell_index / width;   // y-index
-      int col = cell_index % width;   // x-index
+      int row = cell_index / width;
+      int col = cell_index % width; 
 
       geometry_msgs::msg::PoseStamped pose;
       pose.header.frame_id = fixed_frame_;
