@@ -1,0 +1,4 @@
+gz_set_pose_server:
+  ros__parameters:
+    world_name: default
+    ign_service: /world/default/set_pose

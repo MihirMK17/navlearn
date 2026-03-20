@@ -1,25 +1,49 @@
+// episode_manager.cpp
+
 #include <chrono>
 #include <vector>
 #include <random>
 #include <algorithm>
+#include <cmath>
 
 #include "navlearn_benchmarks/episode_manager.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono_literals;
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 namespace navlearn_benchmarks{
+
+static inline double wrap_to_pi(double a)
+{
+    constexpr double kPi = 3.14159265358979323846;
+    while (a >  kPi) a -= 2.0 * kPi;
+    while (a < -kPi) a += 2.0 * kPi;
+    return a;
+}
 
 EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   : rclcpp::Node("episode_manager", options)
   , idx_(0)
   , active_(false)
+  , goal_request_inflight_(false)
   , stamp_received_(0,0,RCL_ROS_TIME)
   , qos_profile_sub(10)
+  , is_first_bad_init_(false)
+  , pose_sequence_pending_(false)
+  , pose_seq_stage_(PoseSeqStage::IDLE)
+  , kidnap_stage_(KidnapStage::IDLE)
+  , kidnap_sampled_delay_sec_(0.0)
+  , have_start_gt_(false)
+  , reinit_in_flight_(false)
+  , last_reinit_time_(0,0,RCL_ROS_TIME)
 {
   dwell_sec_ = this->declare_parameter<double>("dwell_sec", 5.0);
   goal_source_ = this->declare_parameter<std::string>("goal_source", "map_random");
-  goal_seed_ = this->declare_parameter<int>("goal_seed", 42);
+  goal_seed_ = static_cast<unsigned int>(this->declare_parameter<int>("goal_seed", 42));
   goal_poses_x_ = this->declare_parameter<std::vector<double>>("goal_poses_x", {});
   goal_poses_y_ = this->declare_parameter<std::vector<double>>("goal_poses_y", {});
   goal_poses_yaw_ = this->declare_parameter<std::vector<double>>("goal_poses_yaw", {});
@@ -30,10 +54,58 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   robot_frame_ = this->declare_parameter<std::string>("robot_frame", "base_link");
 
   goal_min_clearance_m_ = declare_parameter<double>("goal_min_clearance_m", 0.75);
-  goal_occ_thresh_      = declare_parameter<int>("goal_occ_thresh", 50);     // treat >=50 as occupied
+  goal_occ_thresh_      = declare_parameter<int>("goal_occ_thresh", 50);
   goal_reject_unknown_  = declare_parameter<bool>("goal_reject_unknown", true);
 
-  if(goals_num_ < 0) 
+  bad_init_test_ = declare_parameter<bool>("bad_init_test", false);
+  bad_init_pose_topic_ = declare_parameter<std::string>("bad_init_pose_topic", "/navlearn/bad_initialpose_event");
+  set_initial_pose_srv_ = this->declare_parameter<std::string>("set_initial_pose_srv", "/set_initial_pose");
+
+  est_error_frame_ = declare_parameter<std::string>("est_error_frame", "base_footprint");
+  gt_error_frame_  = declare_parameter<std::string>("gt_error_frame",  "base_footprint_gt");
+
+  end_error_pos_threshold_m_  = declare_parameter<double>("end_error_pos_threshold_m", 0.10);
+  end_error_yaw_threshold_rad_ = declare_parameter<double>("end_error_yaw_threshold_rad", 0.10);
+
+  bad_init_lin_range_m_  = declare_parameter<double>("bad_init_lin_range_m", 0.10);
+  bad_init_yaw_range_rad_ = declare_parameter<double>("bad_init_yaw_range_rad", 0.20);
+
+  pose_apply_pos_tol_m_  = declare_parameter<double>("pose_apply_pos_tol_m", 0.02);
+  pose_apply_yaw_tol_rad_ = declare_parameter<double>("pose_apply_yaw_tol_rad", 0.02);
+  pose_apply_timeout_sec_ = declare_parameter<double>("pose_apply_timeout_sec", 2.0);
+  pose_sequence_timeout_sec_ = declare_parameter<double>("pose_sequence_timeout_sec", 6.0);
+
+  correct_cov_xy_ = declare_parameter<double>("correct_cov_xy", 1e-6);
+  correct_cov_yaw_ = declare_parameter<double>("correct_cov_yaw", 1e-4);
+  bad_cov_xy_ = declare_parameter<double>("bad_cov_xy", 0.25);
+  bad_cov_yaw_ = declare_parameter<double>("bad_cov_yaw", 0.25);
+
+  initial_pose_seed_ = declare_parameter<int>("initial_pose_seed", 1337);
+
+  set_pose_service_ = this->declare_parameter<std::string>("set_pose_service", "/gz_set_pose_server/set_entity_pose");
+  entity_name_ = this->declare_parameter<std::string>("entity_name", "bumperbot");
+
+  kidnap_enabled_ = this->declare_parameter<bool>("kidnap_enabled", false);
+
+  // deprecated (kept only so old configs don’t crash). Not used in logic.
+  kidnap_delay_sec_ = this->declare_parameter<double>("kidnap_delay_sec", 0.0);
+
+  kidnap_delay_min_sec_ = this->declare_parameter<double>("kidnap_delay_min_sec", 1.0);
+  kidnap_delay_max_sec_ = this->declare_parameter<double>("kidnap_delay_max_sec", 5.0);
+  kidnap_min_travel_m_  = this->declare_parameter<double>("kidnap_min_travel_m", 0.25);
+  kidnap_distance_m_    = this->declare_parameter<double>("kidnap_distance_m", 0.20);
+  kidnap_max_distance_m_ = this->declare_parameter<double>("kidnap_max_distance_m", 3.0);
+  kidnap_z_             = this->declare_parameter<double>("kidnap_z", 0.01);
+  kidnap_seed_          = this->declare_parameter<int>("kidnap_seed", 4242);
+  kidnap_max_sample_tries_ = this->declare_parameter<int>("kidnap_max_sample_tries", 1500);
+
+  kidnap_verify_pos_tol_m_ = this->declare_parameter<double>("kidnap_verify_pos_tol_m", 0.05);
+  kidnap_verify_yaw_tol_rad_ = this->declare_parameter<double>("kidnap_verify_yaw_tol_rad", 0.05);
+  kidnap_verify_timeout_sec_ = this->declare_parameter<double>("kidnap_verify_timeout_sec", 1.0);
+
+  kidnap_event_topic_ = this->declare_parameter<std::string>("kidnap_event_topic", "/navlearn/kidnap_event");
+
+  if(goals_num_ <= 0) 
   {
     RCLCPP_FATAL(get_logger(), "Bad param: goals_num (%d) must be > 0", goals_num_);
     rclcpp::shutdown();
@@ -47,9 +119,6 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   declare_parameter<std::string>("reliability", "Reliable");
   declare_parameter<std::string>("durability", "Transient");
 
-  const auto reliability = get_parameter("reliability").as_string();
-  const auto durability = get_parameter("durability").as_string();
-
   qos_profile_sub.reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE);
   qos_profile_sub.durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
 
@@ -57,23 +126,42 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>("map", qos_profile_sub,
               std::bind(&EpisodeManager::mapCallback, this, _1));
   episode_pub_ = create_publisher<navlearn_msgs::msg::EpisodeEvent>(episode_pub_topic_, rclcpp::QoS(10).reliable());
+  kidnap_pub_ = create_publisher<navlearn_msgs::msg::KidnapEvent>(kidnap_event_topic_, rclcpp::QoS(10).reliable());
   timer_ = create_wall_timer(200ms, std::bind(&EpisodeManager::timerCallback, this));
 
   tf_buffer_   = std::make_shared<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
+  set_initial_pose_client_ = create_client<nav2_msgs::srv::SetInitialPose>(set_initial_pose_srv_);
+  bad_init_pose_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(bad_init_pose_topic_, 10);
+
+  set_pose_entity_client_ = this->create_client<navlearn_msgs::srv::SetEntityPose>(set_pose_service_);
+
+  reinit_cooldown_ = rclcpp::Duration::from_seconds(10.0);
+  last_reinit_time_ = this->get_clock()->now() - reinit_cooldown_;
+
+  reinit_global_loc_client_ = create_client<std_srvs::srv::Empty>("/reinitialize_global_localization");
+  if (!reinit_global_loc_client_->wait_for_service(std::chrono::seconds(2)))
+  {
+    RCLCPP_WARN(this->get_logger(), "Service /reinitialize_global_localization not available (yet). Will retry on call.");
+  }
+
   have_map_ = false;
+
+  RCLCPP_INFO(get_logger(), "Kidnap client: %s (entity=%s) kidnap_event_topic=%s",
+              set_pose_service_.c_str(), entity_name_.c_str(), kidnap_event_topic_.c_str());
   
   if(goal_source_ == "static")
   {
     loadGoals();
   }
 }
+
 // ---------- helpers ----------
-bool EpisodeManager::sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & out) {
-  // Try TF at event time; fallback to latest if needed.
+bool EpisodeManager::lookupPose(const std::string & child_frame, const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & out)
+{
   try {
-    const auto tr = tf_buffer_->lookupTransform(fixed_frame_, robot_frame_, t, 150ms);
+    const auto tr = tf_buffer_->lookupTransform(fixed_frame_, child_frame, t, 150ms);
     out.header = tr.header;
     out.pose.position.x = tr.transform.translation.x;
     out.pose.position.y = tr.transform.translation.y;
@@ -82,19 +170,22 @@ bool EpisodeManager::sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::ms
     return true;
   } catch (...) {
     try {
-      const auto tr_latest = tf_buffer_->lookupTransform(fixed_frame_, robot_frame_, rclcpp::Time(0,0,RCL_ROS_TIME));
+      const auto tr_latest = tf_buffer_->lookupTransform(fixed_frame_, child_frame, rclcpp::Time(0,0,RCL_ROS_TIME), 150ms);
       out.header = tr_latest.header;
       out.pose.position.x = tr_latest.transform.translation.x;
       out.pose.position.y = tr_latest.transform.translation.y;
       out.pose.position.z = tr_latest.transform.translation.z;
       out.pose.orientation = tr_latest.transform.rotation;
-      return true; // fallback used
+      return true;
     } catch (...) {
-      // Leave out zero-initialized if TF completely unavailable
       out = geometry_msgs::msg::PoseStamped();
       return false;
     }
   }
+}
+
+bool EpisodeManager::sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & out) {
+  return lookupPose(robot_frame_, t, out);
 }
 
 bool EpisodeManager::hasClearanceCell(int col, int row, int width, int height, double res,
@@ -103,27 +194,25 @@ bool EpisodeManager::hasClearanceCell(int col, int row, int width, int height, d
   const int r = static_cast<int>(std::ceil(goal_min_clearance_m_ / res));
   const int r2 = r * r;
 
-  // If the clearance circle would go out of bounds, reject (prevents edge-goals)
   if (col - r < 0 || col + r >= width || row - r < 0 || row + r >= height) {
     return false;
   }
 
   for (int dy = -r; dy <= r; ++dy) {
     for (int dx = -r; dx <= r; ++dx) {
-      if (dx*dx + dy*dy > r2) continue; // circle, not square
+      if (dx*dx + dy*dy > r2) continue;
 
       const int c = col + dx;
       const int rr = row + dy;
       const int idx = rr * width + c;
 
-      const int v = static_cast<int>(data[idx]); // -1 unknown, 0 free, 1..100 occupied
+      const int v = static_cast<int>(data[idx]);
       if (goal_reject_unknown_ && v < 0) return false;
       if (v >= goal_occ_thresh_) return false;
     }
   }
   return true;
 }
-
 
 bool EpisodeManager::inExclusionZone(double x, double y) const
 {
@@ -144,7 +233,6 @@ void EpisodeManager::loadGoals() {
       return;
     }
 
-    // Load goals from yaml file
     goal_poses_.clear();
     goal_poses_.reserve(goal_poses_x_.size());
 
@@ -158,10 +246,7 @@ void EpisodeManager::loadGoals() {
 
       tf2::Quaternion q;
       q.setRPY(0.0, 0.0, goal_poses_yaw_[i] * M_PI / 180.0);
-      p.pose.orientation.x = q.x();
-      p.pose.orientation.y = q.y();
-      p.pose.orientation.z = q.z();
-      p.pose.orientation.w = q.w();
+      p.pose.orientation = tf2::toMsg(q);
 
       goal_poses_.push_back(p);
     }
@@ -190,12 +275,7 @@ void EpisodeManager::loadGoals() {
     goal_poses_.clear();
     goal_poses_.reserve(goals_num_);
 
-    // Static Seed for randomized goals
     std::mt19937 gen(static_cast<uint32_t>(goal_seed_));
-
-    // Variable Seed for randomized goals
-    // std::mt19937 gen(static_cast<unsigned>(
-    //   std::chrono::system_clock::now().time_since_epoch().count()));
     std::uniform_int_distribution<int> dist(0, width * height - 1);
 
     const int max_tries_per_goal = 1000;
@@ -206,15 +286,12 @@ void EpisodeManager::loadGoals() {
       for (int attempt = 0; attempt < max_tries_per_goal; ++attempt) {
         int idx = dist(gen);
         if (idx < 0 || idx >= static_cast<int>(data.size())) {
-          continue;  // sanity check
+          continue;
         }
 
-        // Only accept free cells (0); skip unknown (-1) and occupied (>0)
         if (data[idx] == 0) {
-          cell_index = idx;
-
-          int row = cell_index / width;   // y-index
-          int col = cell_index % width;   // x-index
+          int row = idx / width;
+          int col = idx % width;
 
           const double x = info.origin.position.x + (col + 0.5) * res;
           const double y = info.origin.position.y + (row + 0.5) * res;
@@ -241,7 +318,6 @@ void EpisodeManager::loadGoals() {
       pose.header.frame_id = fixed_frame_;
       pose.header.stamp    = this->get_clock()->now();
 
-      // Cell center in world coordinates
       pose.pose.position.x = info.origin.position.x + (col + 0.5) * res;
       pose.pose.position.y = info.origin.position.y + (row + 0.5) * res;
       pose.pose.position.z = 0.0;
@@ -251,10 +327,7 @@ void EpisodeManager::loadGoals() {
 
       tf2::Quaternion q;
       q.setRPY(0.0, 0.0, yaw);
-      pose.pose.orientation.x = q.x();
-      pose.pose.orientation.y = q.y();
-      pose.pose.orientation.z = q.z();
-      pose.pose.orientation.w = q.w();
+      pose.pose.orientation = tf2::toMsg(q);
 
       goal_poses_.push_back(pose);
     }
@@ -275,7 +348,6 @@ void EpisodeManager::loadGoals() {
   }
 }
 
-
 void EpisodeManager::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr map)
 {
   have_map_ = true;
@@ -286,8 +358,439 @@ void EpisodeManager::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr m
   if (goal_source_ == "map_random" && goal_poses_.empty()) {
     RCLCPP_INFO(get_logger(), "First map received, generating %d random goals", goals_num_);
     loadGoals();
-    RCLCPP_INFO(get_logger(), "Generated %d random goals from map", goals_num_);
+    RCLCPP_INFO(get_logger(), "Generated %zu random goals from map", goal_poses_.size());
   }
+}
+
+void EpisodeManager::onSetInitialPose(rclcpp::Client<nav2_msgs::srv::SetInitialPose>::SharedFuture future)
+{
+  (void)future;
+  // We intentionally don't assume any response fields exist across Nav2/ROS2 variants.
+  // Application is verified via TF convergence in isInitialPoseApplied().
+}
+
+bool EpisodeManager::needCorrection(const geometry_msgs::msg::PoseStamped &ground_truth_pose, const geometry_msgs::msg::PoseStamped &estimated_pose)
+{
+  const double dx = ground_truth_pose.pose.position.x - estimated_pose.pose.position.x;
+  const double dy = ground_truth_pose.pose.position.y - estimated_pose.pose.position.y;
+  const double pos_err = std::hypot(dx, dy);
+
+  tf2::Quaternion q_gt, q_est;
+  tf2::fromMsg(ground_truth_pose.pose.orientation, q_gt);
+  tf2::fromMsg(estimated_pose.pose.orientation, q_est);
+
+  double roll_gt, pitch_gt, yaw_gt;
+  tf2::Matrix3x3(q_gt).getRPY(roll_gt, pitch_gt, yaw_gt);
+
+  double roll_est, pitch_est, yaw_est;
+  tf2::Matrix3x3(q_est).getRPY(roll_est, pitch_est, yaw_est);
+
+  const double yaw_err = std::fabs(wrap_to_pi(yaw_gt - yaw_est));
+
+  return (pos_err >= end_error_pos_threshold_m_) || (yaw_err >= end_error_yaw_threshold_rad_);
+}
+
+geometry_msgs::msg::PoseWithCovarianceStamped EpisodeManager::buildPoseWithCovariance(
+  const geometry_msgs::msg::PoseStamped & base,
+  double cov_xy,
+  double cov_yaw)
+{
+  geometry_msgs::msg::PoseWithCovarianceStamped msg;
+  msg.header = base.header;
+  msg.header.frame_id = fixed_frame_;
+  msg.header.stamp = this->get_clock()->now();
+  msg.pose.pose = base.pose;
+
+  for (auto &v : msg.pose.covariance) v = 0.0;
+  msg.pose.covariance[0]  = cov_xy;
+  msg.pose.covariance[7]  = cov_xy;
+  msg.pose.covariance[35] = cov_yaw;
+  return msg;
+}
+
+geometry_msgs::msg::PoseWithCovarianceStamped EpisodeManager::buildPerturbedPose(const geometry_msgs::msg::PoseStamped & base)
+{
+  std::mt19937 gen(static_cast<uint32_t>(initial_pose_seed_ + static_cast<int>(idx_)));
+  std::uniform_real_distribution<double> dist_lin(-bad_init_lin_range_m_, bad_init_lin_range_m_);
+  std::uniform_real_distribution<double> dist_yaw(-bad_init_yaw_range_rad_, bad_init_yaw_range_rad_);
+
+  const double dx = dist_lin(gen);
+  const double dy = dist_lin(gen);
+  const double dyaw = dist_yaw(gen);
+
+  geometry_msgs::msg::PoseStamped p = base;
+  p.header.frame_id = fixed_frame_;
+  p.header.stamp = this->get_clock()->now();
+
+  p.pose.position.x += dx;
+  p.pose.position.y += dy;
+
+  tf2::Quaternion q_base, q_noise;
+  tf2::fromMsg(base.pose.orientation, q_base);
+  q_noise.setRPY(0.0, 0.0, dyaw);
+  tf2::Quaternion q_new = q_base * q_noise;
+  q_new.normalize();
+  p.pose.orientation = tf2::toMsg(q_new);
+
+  return buildPoseWithCovariance(p, bad_cov_xy_, bad_cov_yaw_);
+}
+
+bool EpisodeManager::sendInitialPoseRequest(const geometry_msgs::msg::PoseWithCovarianceStamped & pose_msg)
+{
+  while (!set_initial_pose_client_->wait_for_service(200ms))
+  {
+    if (!rclcpp::ok()) 
+    {
+      RCLCPP_ERROR(get_logger(), "Interrupted while waiting for the set_initial_pose service. Exiting.");
+      return false;
+    }
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "set_initial_pose service not available, waiting again...");
+  }
+
+  auto request = std::make_shared<nav2_msgs::srv::SetInitialPose::Request>();
+  request->pose = pose_msg;
+
+  (void)set_initial_pose_client_->async_send_request(request, std::bind(&EpisodeManager::onSetInitialPose, this, _1));
+  return true;
+}
+
+bool EpisodeManager::isInitialPoseApplied(const geometry_msgs::msg::PoseWithCovarianceStamped & target)
+{
+  geometry_msgs::msg::PoseStamped est;
+  if (!lookupPose(est_error_frame_, rclcpp::Time(0,0,RCL_ROS_TIME), est)) {
+    return false;
+  }
+
+  const double dx = est.pose.position.x - target.pose.pose.position.x;
+  const double dy = est.pose.position.y - target.pose.pose.position.y;
+  const double pos_err = std::hypot(dx, dy);
+
+  tf2::Quaternion q_tgt, q_est;
+  tf2::fromMsg(target.pose.pose.orientation, q_tgt);
+  tf2::fromMsg(est.pose.orientation, q_est);
+
+  double r1, p1, yaw_tgt;
+  tf2::Matrix3x3(q_tgt).getRPY(r1, p1, yaw_tgt);
+
+  double r2, p2, yaw_est;
+  tf2::Matrix3x3(q_est).getRPY(r2, p2, yaw_est);
+
+  const double yaw_err = std::fabs(wrap_to_pi(yaw_tgt - yaw_est));
+
+  return (pos_err <= pose_apply_pos_tol_m_) && (yaw_err <= pose_apply_yaw_tol_rad_);
+}
+
+void EpisodeManager::startPoseSequence(const rclcpp::Time & t)
+{
+  geometry_msgs::msg::PoseStamped gt_pose;
+  if (!lookupPose(gt_error_frame_, t, gt_pose)) {
+    RCLCPP_WARN(get_logger(), "Cannot start pose sequence: TF %s->%s unavailable. Sending goal without injection.",
+                fixed_frame_.c_str(), gt_error_frame_.c_str());
+    sendGoal();
+    return;
+  }
+
+  geometry_msgs::msg::PoseStamped est_pose;
+  const bool have_est = lookupPose(est_error_frame_, t, est_pose);
+
+  const bool need_correct =
+    (idx_ > 0) && have_est && needCorrection(gt_pose, est_pose);
+
+  correct_pose_msg_ = buildPoseWithCovariance(gt_pose, correct_cov_xy_, correct_cov_yaw_);
+  bad_pose_msg_ = buildPerturbedPose(gt_pose);
+
+  pose_sequence_pending_ = true;
+  pose_seq_started_at_ = this->get_clock()->now();
+
+  if (need_correct) {
+    pose_seq_stage_ = PoseSeqStage::SEND_CORRECT;
+  } else {
+    pose_seq_stage_ = PoseSeqStage::SEND_BAD;
+  }
+
+  pose_stage_started_at_ = this->get_clock()->now();
+}
+
+void EpisodeManager::advancePoseSequence(const rclcpp::Time & t)
+{
+  (void)t;
+
+  const auto now = this->get_clock()->now();
+
+  if ((now - pose_seq_started_at_).seconds() > pose_sequence_timeout_sec_) {
+    RCLCPP_WARN(get_logger(), "Pose sequence timed out (%.2fs). Sending goal anyway.", pose_sequence_timeout_sec_);
+    pose_sequence_pending_ = false;
+    pose_seq_stage_ = PoseSeqStage::IDLE;
+    sendGoal();
+    return;
+  }
+
+  switch (pose_seq_stage_)
+  {
+    case PoseSeqStage::SEND_CORRECT:
+    {
+      pose_wait_target_ = correct_pose_msg_;
+      if (!sendInitialPoseRequest(correct_pose_msg_)) {
+        RCLCPP_WARN(get_logger(), "Failed to send correct initial pose request. Sending goal anyway.");
+        pose_sequence_pending_ = false;
+        pose_seq_stage_ = PoseSeqStage::IDLE;
+        sendGoal();
+        return;
+      }
+      pose_stage_started_at_ = now;
+      pose_seq_stage_ = PoseSeqStage::WAIT_CORRECT_APPLIED;
+      return;
+    }
+
+    case PoseSeqStage::WAIT_CORRECT_APPLIED:
+    {
+      if ((now - pose_stage_started_at_).seconds() > pose_apply_timeout_sec_) {
+        RCLCPP_WARN(get_logger(), "Correct pose apply timed out (%.2fs). Proceeding to BAD injection.", pose_apply_timeout_sec_);
+        pose_seq_stage_ = PoseSeqStage::SEND_BAD;
+        pose_stage_started_at_ = now;
+        return;
+      }
+
+      if (isInitialPoseApplied(pose_wait_target_)) {
+        pose_seq_stage_ = PoseSeqStage::SEND_BAD;
+        pose_stage_started_at_ = now;
+      }
+      return;
+    }
+
+    case PoseSeqStage::SEND_BAD:
+    {
+      pose_wait_target_ = bad_pose_msg_;
+      if (!sendInitialPoseRequest(bad_pose_msg_)) {
+        RCLCPP_WARN(get_logger(), "Failed to send bad initial pose request. Sending goal anyway.");
+        pose_sequence_pending_ = false;
+        pose_seq_stage_ = PoseSeqStage::IDLE;
+        sendGoal();
+        return;
+      }
+      pose_stage_started_at_ = now;
+      pose_seq_stage_ = PoseSeqStage::WAIT_BAD_APPLIED;
+      return;
+    }
+
+    case PoseSeqStage::WAIT_BAD_APPLIED:
+    {
+      if ((now - pose_stage_started_at_).seconds() > pose_apply_timeout_sec_) {
+        RCLCPP_WARN(get_logger(), "Bad pose apply timed out (%.2fs). Sending goal anyway.", pose_apply_timeout_sec_);
+        bad_init_pose_pub_->publish(bad_pose_msg_);
+        pose_sequence_pending_ = false;
+        pose_seq_stage_ = PoseSeqStage::IDLE;
+        is_first_bad_init_ = false;
+        sendGoal();
+        return;
+      }
+
+      if (isInitialPoseApplied(pose_wait_target_)) {
+        bad_init_pose_pub_->publish(bad_pose_msg_);
+        pose_sequence_pending_ = false;
+        pose_seq_stage_ = PoseSeqStage::IDLE;
+        is_first_bad_init_ = false;
+        sendGoal();
+      }
+      return;
+    }
+
+    case PoseSeqStage::IDLE:
+    default:
+      pose_sequence_pending_ = false;
+      return;
+  }
+}
+
+// ---------------- kidnap helpers ----------------
+unique_identifier_msgs::msg::UUID EpisodeManager::makeUUID_(uint32_t seed)
+{
+  unique_identifier_msgs::msg::UUID id;
+  std::mt19937 gen(seed);
+  std::uniform_int_distribution<int> dist(0, 255);
+  for (auto &b : id.uuid) {
+    b = static_cast<uint8_t>(dist(gen));
+  }
+  return id;
+}
+
+bool EpisodeManager::sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStamped & ref, geometry_msgs::msg::Pose & out_pose)
+{
+  if (!have_map_) return false;
+
+  const auto & info = latest_map_.info;
+  const int width   = static_cast<int>(info.width);
+  const int height  = static_cast<int>(info.height);
+  const double res  = info.resolution;
+  const auto & data = latest_map_.data;
+
+  if (width <= 0 || height <= 0 || data.empty()) return false;
+
+  std::mt19937 gen(static_cast<uint32_t>(kidnap_seed_ + static_cast<int>(idx_)));
+  std::uniform_int_distribution<int> dist_cell(0, width * height - 1);
+  std::uniform_real_distribution<double> dist_theta(-M_PI, M_PI);
+
+  for (int attempt = 0; attempt < kidnap_max_sample_tries_; ++attempt)
+  {
+    int idx = dist_cell(gen);
+    if (idx < 0 || idx >= static_cast<int>(data.size())) continue;
+
+    if (data[idx] != 0) continue;
+
+    int row = idx / width;
+    int col = idx % width;
+
+    const double x = info.origin.position.x + (col + 0.5) * res;
+    const double y = info.origin.position.y + (row + 0.5) * res;
+
+    if (inExclusionZone(x, y)) continue;
+    if (!hasClearanceCell(col, row, width, height, res, data)) continue;
+
+    const double d = std::hypot(x - ref.pose.position.x, y - ref.pose.position.y);
+    if (kidnap_distance_m_ > 0.0 && d < kidnap_distance_m_) continue;
+    if (kidnap_max_distance_m_ > 0.0 && d > kidnap_max_distance_m_) continue;
+
+    out_pose.position.x = x;
+    out_pose.position.y = y;
+    out_pose.position.z = kidnap_z_;
+
+    const double yaw = dist_theta(gen);
+    tf2::Quaternion q;
+    q.setRPY(0.0, 0.0, yaw);
+    out_pose.orientation = tf2::toMsg(q);
+
+    return true;
+  }
+
+  return false;
+}
+
+void EpisodeManager::publishKidnapEvent_(bool success)
+{
+  navlearn_msgs::msg::KidnapEvent ev;
+  ev.header.stamp = kidnap_event_time_;
+  ev.header.frame_id = fixed_frame_;
+  ev.goal_id = goal_id_;
+  ev.kidnap_pose = kidnap_target_pose_;
+  ev.success = success;
+  ev.attempt_id = kidnap_attempt_id_;
+
+  kidnap_pub_->publish(ev);
+}
+
+bool EpisodeManager::isKidnapGTVerified_()
+{
+  geometry_msgs::msg::PoseStamped gt;
+  if (!lookupPose(gt_error_frame_, rclcpp::Time(0,0,RCL_ROS_TIME), gt)) {
+    return false;
+  }
+
+  const double dx = gt.pose.position.x - kidnap_target_pose_.position.x;
+  const double dy = gt.pose.position.y - kidnap_target_pose_.position.y;
+  const double pos_err = std::hypot(dx, dy);
+
+  const double yaw_gt = tf2::getYaw(gt.pose.orientation);
+  const double yaw_tgt = tf2::getYaw(kidnap_target_pose_.orientation);
+  const double yaw_err = std::fabs(wrap_to_pi(yaw_gt - yaw_tgt));
+
+  return (pos_err <= kidnap_verify_pos_tol_m_) && (yaw_err <= kidnap_verify_yaw_tol_rad_);
+}
+
+bool EpisodeManager::setEntityPose_(double x, double y, double z, double yaw)
+{
+  if (!set_pose_entity_client_->service_is_ready()) {
+    if (!set_pose_entity_client_->wait_for_service(0s)) {
+      return false;
+    }
+  }
+
+  auto req = std::make_shared<navlearn_msgs::srv::SetEntityPose::Request>();
+  req->name = entity_name_;
+
+  geometry_msgs::msg::Pose p;
+  p.position.x = x;
+  p.position.y = y;
+  p.position.z = z;
+
+  tf2::Quaternion q;
+  q.setRPY(0.0, 0.0, yaw);
+  p.orientation = tf2::toMsg(q);
+
+  req->pose = p;
+
+  kidnap_target_pose_ = p;
+
+  kidnap_future_ = set_pose_entity_client_->async_send_request(req);
+  return true;
+}
+
+void EpisodeManager::maybeKidnap(const rclcpp::Time & now)
+{
+  if (!kidnap_enabled_) return;
+
+  if (kidnap_stage_ == KidnapStage::DONE) return;
+
+  if (kidnap_stage_ == KidnapStage::WAIT_SERVICE_RESPONSE)
+  {
+    if (kidnap_future_.wait_for(0s) != std::future_status::ready) {
+      return;
+    }
+
+    const auto res = kidnap_future_.get();
+    if (!res || !res->success) {
+      publishKidnapEvent_(false);
+      kidnap_stage_ = KidnapStage::DONE;
+      return;
+    }
+
+    publishKidnapEvent_(true);
+    callReinitGlobalLocalization();
+    kidnap_stage_ = KidnapStage::DONE;
+    return;
+  }
+
+  if (kidnap_stage_ != KidnapStage::IDLE) return;
+
+  const double elapsed = (now - goal_started_at_).seconds();
+
+  geometry_msgs::msg::PoseStamped ref_pose;
+  if (!lookupPose(gt_error_frame_, rclcpp::Time(0,0,RCL_ROS_TIME), ref_pose)) {
+    return;
+  }
+
+  double traveled = 0.0;
+  if (have_start_gt_) {
+    traveled = std::hypot(ref_pose.pose.position.x - start_gt_pose_.pose.position.x,
+                         ref_pose.pose.position.y - start_gt_pose_.pose.position.y);
+  }
+
+  const bool trigger =
+    (elapsed >= kidnap_sampled_delay_sec_) || (traveled >= kidnap_min_travel_m_);
+
+  if (!trigger) return;
+
+  if (!have_map_) {
+    return;
+  }
+
+  geometry_msgs::msg::Pose target;
+  if (!sampleKidnapPoseFromMap_(ref_pose, target)) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Kidnap sample failed (no valid pose found)");
+    return;
+  }
+
+  kidnap_attempt_id_ = makeUUID_(static_cast<uint32_t>(kidnap_seed_ + static_cast<int>(idx_) * 101));
+  kidnap_event_time_ = now;
+  kidnap_target_pose_ = target;
+
+  const double yaw = tf2::getYaw(target.orientation);
+  if (!setEntityPose_(target.position.x, target.position.y, target.position.z, yaw)) {
+    publishKidnapEvent_(false);
+    kidnap_stage_ = KidnapStage::DONE;
+    return;
+  }
+
+  kidnap_stage_ = KidnapStage::WAIT_SERVICE_RESPONSE;
 }
 
 void EpisodeManager::timerCallback() {
@@ -296,15 +799,38 @@ void EpisodeManager::timerCallback() {
     return;
   }
 
-  const auto t = this->get_clock()->now();
-  if (!active_ && idx_ < goal_poses_.size()) {
-    if (t >= next_allowed_send_) {
-      sendGoal();
-    } else {
-      RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
-        "Cooling down... %.2fs left", (next_allowed_send_ - t).seconds());
-    }
+  const auto now = this->get_clock()->now();
+
+  if (active_) {
+    maybeKidnap(now);
+    return;
   }
+
+  if (goal_request_inflight_) {
+    return;
+  }
+
+  if (idx_ >= goal_poses_.size()) {
+    return;
+  }
+
+  if (now < next_allowed_send_) {
+    RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
+      "Cooling down... %.2fs left", (next_allowed_send_ - now).seconds());
+    return;
+  }
+
+  if (!bad_init_test_) {
+    sendGoal();
+    return;
+  }
+
+  if (pose_sequence_pending_) {
+    advancePoseSequence(now);
+    return;
+  }
+
+  startPoseSequence(now);
 }
 
 void EpisodeManager::sendGoal() {
@@ -316,62 +842,73 @@ void EpisodeManager::sendGoal() {
   opts.feedback_callback      = std::bind(&EpisodeManager::onFeedback, this, _1, _2);
   opts.result_callback        = std::bind(&EpisodeManager::onResult, this, _1);
 
+  goal_request_inflight_ = true;
   client_->async_send_goal(goal_msg, opts);
+
   RCLCPP_INFO(get_logger(), "Sent goal %zu: (x=%.2f, y=%.2f)",
               idx_, goal_poses_[idx_].pose.position.x, goal_poses_[idx_].pose.position.y);
 }
 
 void EpisodeManager::onGoalResponse(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::SharedPtr & gh) {
+  goal_request_inflight_ = false;
+
   if (!gh) {
     RCLCPP_ERROR(get_logger(), "Goal %zu rejected by NavigateToPose", idx_);
-    idx_++; // Skip to next goal
+    idx_++;
     return;
   }
 
   RCLCPP_INFO(get_logger(), "Goal %zu accepted by NavigateToPose", idx_);
   active_ = true;
 
-  // Store episode_id (copy from action goal id)
   const auto goal_id = gh->get_goal_id();
   std::copy(goal_id.begin(), goal_id.end(), goal_id_.uuid.begin());
 
-  // Build START event
   navlearn_msgs::msg::EpisodeEvent ev;
-  ev.header.stamp = this->get_clock()->now();  // authoritative start event time
+  ev.header.stamp = this->get_clock()->now();
   ev.state  = navlearn_msgs::msg::EpisodeEvent::START;
   ev.result = navlearn_msgs::msg::EpisodeEvent::RESULT_NA;
   ev.goal_id = goal_id_;
   ev.goal_pose  = goal_poses_[idx_];
 
-  // Fill stamp_received and sample start_pose at accept time
   ev.stamp_received = ev.header.stamp;
   (void)sampleStartPoseAt(ev.header.stamp, start_pose_);
-  ev.start_pose = start_pose_;  // even if zero-init (TF failed), we publish it
+  ev.start_pose = start_pose_;
 
-  // Clear terminate/nav_time for START
   ev.stamp_terminated.sec = 0;
   ev.stamp_terminated.nanosec = 0;
   ev.nav_time.sec = 0;
   ev.nav_time.nanosec = 0;
 
-  // Remember t_start (for safety) even though you now carry it in the event
   stamp_received_ = rclcpp::Time(ev.stamp_received);
 
   episode_pub_->publish(ev);
   RCLCPP_INFO(get_logger(), "START episode for goal %zu (goal_id set)", idx_);
+
+  goal_started_at_ = ev.header.stamp;
+
+  have_start_gt_ = lookupPose(gt_error_frame_, rclcpp::Time(0,0,RCL_ROS_TIME), start_gt_pose_);
+
+  double lo = kidnap_delay_min_sec_;
+  double hi = kidnap_delay_max_sec_;
+  if (hi < lo) std::swap(lo, hi);
+
+  std::mt19937 gen(static_cast<uint32_t>(kidnap_seed_ + static_cast<int>(idx_) * 17));
+  std::uniform_real_distribution<double> dist_delay(lo, hi);
+  kidnap_sampled_delay_sec_ = dist_delay(gen);
+
+  kidnap_stage_ = KidnapStage::IDLE;
 }
 
 void EpisodeManager::onFeedback(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::SharedPtr &,
                 const std::shared_ptr<const nav2_msgs::action::NavigateToPose::Feedback> feedback)
 {
-  // Optional: track recoveries/distance_remaining internally if you later extend EpisodeEvent.
   (void)feedback;
 }
 
 void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::WrappedResult result) {
-  // Build END event
   navlearn_msgs::msg::EpisodeEvent ev;
-  ev.header.stamp = this->get_clock()->now();        // authoritative end event time
+  ev.header.stamp = this->get_clock()->now();
   ev.state = navlearn_msgs::msg::EpisodeEvent::END;
 
   switch (result.code) {
@@ -386,11 +923,8 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
 
   ev.goal_id = goal_id_;
   ev.goal_pose  = goal_poses_[idx_];
-
-  // Carry forward the start pose captured at accept time (do NOT resample here)
   ev.start_pose = start_pose_;
 
-  // Fill stamps + nav_time (Humble-safe conversion)
   ev.stamp_received = stamp_received_;
   ev.stamp_terminated = ev.header.stamp;
 
@@ -415,21 +949,62 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
               idx_, res_str, static_cast<unsigned>(ev.result),
               (rclcpp::Time(ev.stamp_terminated) - stamp_received_).seconds());
 
-  // Prepare next goal
   active_ = false;
   idx_++;
   next_allowed_send_ = this->get_clock()->now() + rclcpp::Duration::from_seconds(dwell_sec_);
 
-  // Reset per-episode state
   goal_id_.uuid.fill(0);
-  // stamp_received_ = rclcpp::Time(0,0,RCL_ROS_TIME);
   start_pose_ = geometry_msgs::msg::PoseStamped();
+
+  pose_sequence_pending_ = false;
+  pose_seq_stage_ = PoseSeqStage::IDLE;
+
+  kidnap_stage_ = KidnapStage::IDLE;
+  have_start_gt_ = false;
+  kidnap_sampled_delay_sec_ = 0.0;
 
   if (idx_ >= goal_poses_.size()) {
     RCLCPP_INFO(get_logger(), "All goals done");
     rclcpp::shutdown();
   }
 }
+
+void EpisodeManager::callReinitGlobalLocalization()
+{
+  const auto now = this->now();
+
+  if (reinit_in_flight_) {
+    RCLCPP_WARN(this->get_logger(), "Reinit global localization already in flight; skipping.");
+    return;
+  }
+
+  if ((now - last_reinit_time_) < reinit_cooldown_) {
+    RCLCPP_WARN(this->get_logger(), "Reinit global localization cooldown active; skipping.");
+    return;
+  }
+
+  if (!reinit_global_loc_client_->service_is_ready()) {
+    RCLCPP_WARN(this->get_logger(),
+                "/reinitialize_global_localization not ready; skipping.");
+    return;
+  }
+
+  reinit_in_flight_ = true;
+  last_reinit_time_ = now;
+
+  auto req = std::make_shared<std_srvs::srv::Empty::Request>();
+
+  using SharedFuture = rclcpp::Client<std_srvs::srv::Empty>::SharedFuture;
+
+  reinit_global_loc_client_->async_send_request(
+    req,
+    [this](SharedFuture /*future*/) {
+      reinit_in_flight_ = false;
+      RCLCPP_INFO(this->get_logger(), "Called /reinitialize_global_localization.");
+    }
+  );
+}
+
 }
 
 RCLCPP_COMPONENTS_REGISTER_NODE(navlearn_benchmarks::EpisodeManager)

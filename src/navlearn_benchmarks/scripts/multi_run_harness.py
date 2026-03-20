@@ -7,7 +7,7 @@ EPISODES_NUM = 10
 BASE_SEED = 42
 GOALS_NUM = 5
 GOAL_SOURCE = "map_random"
-REPORT_DIR = pathlib.Path.home() / "robot_ws/src/navlearn_benchmarks/benchmark_reports/runs/aggressive"
+REPORT_DIR = pathlib.Path.home() / "robot_ws/src/navlearn_benchmarks/benchmark_reports/runs/baseline"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 def run_benchmark(episode_id_: int):

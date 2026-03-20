@@ -17,3 +17,5 @@ uint8 state                                 # 1=START, 2=END
 uint8 result                                # 0=NA, 1=SUCCEEDED, 2=FAILED, 3=CANCELED
 geometry_msgs/PoseStamped start_pose
 geometry_msgs/PoseStamped goal_pose
+
+int16 recoveries
