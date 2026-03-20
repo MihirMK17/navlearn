@@ -1,0 +1,6 @@
+ground_truth_publisher:
+  ros__parameters:
+    fixed_frame: map
+    robot_frame: bumperbot
+    gazebo_ground_truth_topic: /tf_gt
+    robot_ground_truth_topic: /bumperbot/ground_truth_pose

@@ -1,0 +1,5 @@
+std_msgs/Header header
+unique_identifier_msgs/UUID goal_id
+geometry_msgs/Pose kidnap_pose
+bool success
+unique_identifier_msgs/UUID attempt_id

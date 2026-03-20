@@ -17,13 +17,9 @@
 - Recoveries per run: <= __ (optional)
 
 ### Quality
-- map->odom jump events: 0 (jump > __ m or > __ deg)
-- max jump_lin magnitude: <= __ (m)
-- max jump_ang magnitude: <= __ (deg)
-
-- jump_amcl_pos events: 0 (jump > __ m or > __ deg)
-- max jump_lin_amcl_pos magnitude: <= __ (m)
-- max jump_ang_amcl_pos magnitude: <= __ (deg)
+- amcl_pose cov_xx: (__ < cov_xx < __)
+- amcl_pose cov_yy: (__ < cov_xx < __)
+- amcl_pose cov_yawyaw: (__ < cov_xx < __)
 
 ### Stability
 - map->odom jump events: 0 (jump > __ m or > __ deg)
