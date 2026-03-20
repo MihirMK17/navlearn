@@ -80,19 +80,39 @@ def generate_launch_description():
         arguments=[
             "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock",
             "/imu@sensor_msgs/msg/Imu[gz.msgs.IMU",
-            "/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan"
+            "/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan",
+            "/world/default/dynamic_pose/info@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V",
         ],
         remappings=[
             ('/imu', '/imu/out'),
-        ]
+            ('/scan', '/scan_unfiltered'),
+            ("/world/default/dynamic_pose/info", "/tf_gt"),
+        ],
+        parameters=[{'use_sim_time': True}],
+        output="screen"
     )
 
-    return LaunchDescription([
+    scan_sanitizer_node = Node(
+        package="bumperbot_description",
+        executable="scan_sanitizer",
+        parameters=[{
+            "use_sim_time" : True,
+            "input_topic": "scan_unfiltered",
+            "output_topic": "scan",
+            "min_valid_range": 0.12,
+            "max_valid_range": 12.0,
+            "mode": "to_inf"
+        }],
+        output="screen"
+    )
+
+    return LaunchDescription([  
         model_arg,
         world_name_arg,
         gazebo_resource_path,
         robot_state_publisher_node,
         gazebo,
         gz_spawn_entity,
-        gz_ros2_bridge
+        gz_ros2_bridge,
+        scan_sanitizer_node
     ])

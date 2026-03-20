@@ -15,3 +15,18 @@ src/gz_ros2_control/
 # IDE
 .vscode/
 src/.vscode/
+
+# O-1 visa strategy docs (personal, not for public repo)
+docs/o1/
+SESSION_LOG.md
+BOOTSTRAP_PROMPT.md
+files.zip
+files_extracted/
+
+# Local scratch / temp output files
+navlearn-project/
+bench.txt
+bringup.txt
+loc_eval.txt
+scan_inf_nan.txt
+scan_inf_nan_plusinf.txt
