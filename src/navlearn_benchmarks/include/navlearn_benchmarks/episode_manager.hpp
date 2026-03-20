@@ -1,3 +1,5 @@
+// episode_manager.hpp
+
 /**
  * Node: EpisodeManager
  * Role:
@@ -30,14 +32,24 @@
 #include <rclcpp_components/register_node_macro.hpp>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <navlearn_msgs/msg/episode_event.hpp>
+#include <navlearn_msgs/msg/kidnap_event.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 
+#include <unique_identifier_msgs/msg/uuid.hpp>
+
 #include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2/utils.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+
+#include <nav2_msgs/srv/set_initial_pose.hpp>
+#include <navlearn_msgs/srv/set_entity_pose.hpp>
+#include <std_srvs/srv/empty.hpp>
 
 namespace navlearn_benchmarks{
 
@@ -47,19 +59,104 @@ public:
     EpisodeManager(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
 private:
+    // Core ROS interfaces
     rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SharedPtr client_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
     rclcpp::Publisher<navlearn_msgs::msg::EpisodeEvent>::SharedPtr episode_pub_;
+    rclcpp::Publisher<navlearn_msgs::msg::KidnapEvent>::SharedPtr kidnap_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
+
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
+    rclcpp::Client<nav2_msgs::srv::SetInitialPose>::SharedPtr set_initial_pose_client_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr bad_init_pose_pub_;
+    rclcpp::Client<navlearn_msgs::srv::SetEntityPose>::SharedPtr set_pose_entity_client_;
+    rclcpp::Client<std_srvs::srv::Empty>::SharedPtr reinit_global_loc_client_;
+    bool reinit_in_flight_;
+    rclcpp::Time last_reinit_time_;
+    rclcpp::Duration reinit_cooldown_{0, 0};
+
+    // Params / topics
+    bool bad_init_test_;
+    bool is_first_bad_init_;
+    std::string bad_init_pose_topic_;
+    std::string set_initial_pose_srv_;
+
+    std::string fixed_frame_;
+    std::string robot_frame_;
+
+    std::string est_error_frame_;
+    std::string gt_error_frame_;
+
+    double end_error_pos_threshold_m_;
+    double end_error_yaw_threshold_rad_;
+
+    double bad_init_lin_range_m_;
+    double bad_init_yaw_range_rad_;
+
+    double pose_apply_pos_tol_m_;
+    double pose_apply_yaw_tol_rad_;
+    double pose_apply_timeout_sec_;
+    double pose_sequence_timeout_sec_;
+
+    double correct_cov_xy_;
+    double correct_cov_yaw_;
+    double bad_cov_xy_;
+    double bad_cov_yaw_;
+
+    int initial_pose_seed_;
+
+    std::string set_pose_service_;
+    std::string entity_name_;
+
+    bool kidnap_enabled_;
+    double kidnap_delay_sec_;                 // deprecated (kept for compatibility, not used)
+    double kidnap_delay_min_sec_;
+    double kidnap_delay_max_sec_;
+    double kidnap_min_travel_m_;
+    double kidnap_distance_m_;
+    double kidnap_max_distance_m_;
+    double kidnap_z_;
+    int kidnap_seed_;
+    int kidnap_max_sample_tries_;
+
+    double kidnap_verify_pos_tol_m_;
+    double kidnap_verify_yaw_tol_rad_;
+    double kidnap_verify_timeout_sec_;
+
+    std::string kidnap_event_topic_;
+
+    // Kidnap state machine (one attempt per goal)
+    enum class KidnapStage : int
+    {
+        IDLE = 0,
+        WAIT_SERVICE_RESPONSE,
+        VERIFY_GT,
+        DONE
+    };
+
+    KidnapStage kidnap_stage_;
+    rclcpp::Time goal_started_at_;
+    double kidnap_sampled_delay_sec_;
+    geometry_msgs::msg::PoseStamped start_gt_pose_;
+    bool have_start_gt_;
+
+    geometry_msgs::msg::Pose kidnap_target_pose_;
+    unique_identifier_msgs::msg::UUID kidnap_attempt_id_;
+    rclcpp::Time kidnap_event_time_;
+    rclcpp::Time kidnap_verify_started_at_;
+
+    rclcpp::Client<navlearn_msgs::srv::SetEntityPose>::SharedFuture kidnap_future_;
+
+    // Goals / episode state
     std::vector<geometry_msgs::msg::PoseStamped> goal_poses_;
 
     size_t idx_;
     bool active_;
+    bool goal_request_inflight_;
     unique_identifier_msgs::msg::UUID goal_id_;
-    
+
     rclcpp::Time stamp_received_;
     geometry_msgs::msg::PoseStamped start_pose_;
 
@@ -82,12 +179,30 @@ private:
 
     std::string action_server_;
     std::string episode_pub_topic_;
-    std::string fixed_frame_;
-    std::string robot_frame_;
 
     bool have_map_;
     nav_msgs::msg::OccupancyGrid latest_map_;
 
+    // Pose injection sequence state machine
+    enum class PoseSeqStage : int
+    {
+        IDLE = 0,
+        SEND_CORRECT,
+        WAIT_CORRECT_APPLIED,
+        SEND_BAD,
+        WAIT_BAD_APPLIED
+    };
+
+    bool pose_sequence_pending_;
+    PoseSeqStage pose_seq_stage_;
+    rclcpp::Time pose_seq_started_at_;
+    rclcpp::Time pose_stage_started_at_;
+
+    geometry_msgs::msg::PoseWithCovarianceStamped correct_pose_msg_;
+    geometry_msgs::msg::PoseWithCovarianceStamped bad_pose_msg_;
+    geometry_msgs::msg::PoseWithCovarianceStamped pose_wait_target_;
+
+    // Map helpers
     bool hasClearanceCell(int col, int row, int width, int height, double res,
                 const std::vector<int8_t> & data) const;
 
@@ -95,20 +210,49 @@ private:
 
     void loadGoals();
 
+    // TF helpers
     bool sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & pose);
+    bool lookupPose(const std::string & child_frame, const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & out);
 
+    // Callbacks
     void mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr map);
-
     void timerCallback();
 
+    // Nav actions
     void sendGoal();
-
     void onGoalResponse(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::SharedPtr & gh);
-
     void onFeedback(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::SharedPtr &,
                   const std::shared_ptr<const nav2_msgs::action::NavigateToPose::Feedback> feedback);
-    
     void onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::WrappedResult result);
+
+    // Initial pose injection
+    void onSetInitialPose(rclcpp::Client<nav2_msgs::srv::SetInitialPose>::SharedFuture future);
+
+    bool needCorrection(const geometry_msgs::msg::PoseStamped &ground_truth_pose, const geometry_msgs::msg::PoseStamped &estimated_pose);
+
+    geometry_msgs::msg::PoseWithCovarianceStamped buildPoseWithCovariance(
+        const geometry_msgs::msg::PoseStamped & base,
+        double cov_xy,
+        double cov_yaw);
+
+    geometry_msgs::msg::PoseWithCovarianceStamped buildPerturbedPose(
+        const geometry_msgs::msg::PoseStamped & base);
+
+    bool sendInitialPoseRequest(const geometry_msgs::msg::PoseWithCovarianceStamped & pose_msg);
+
+    bool isInitialPoseApplied(const geometry_msgs::msg::PoseWithCovarianceStamped & target);
+
+    void startPoseSequence(const rclcpp::Time & t);
+    void advancePoseSequence(const rclcpp::Time & t);
+
+    // Kidnap helpers
+    unique_identifier_msgs::msg::UUID makeUUID_(uint32_t seed);
+    bool sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStamped & ref, geometry_msgs::msg::Pose & out_pose);
+    void publishKidnapEvent_(bool success);
+    bool isKidnapGTVerified_();
+    bool setEntityPose_(double x, double y, double z, double yaw);
+    void maybeKidnap(const rclcpp::Time & now);
+    void callReinitGlobalLocalization();
 };
 }
 

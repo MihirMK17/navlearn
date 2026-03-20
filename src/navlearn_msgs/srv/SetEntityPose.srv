@@ -1,0 +1,7 @@
+# Request
+string name                     # Entity name in Gazebo
+geometry_msgs/Pose pose         # Entity Required Pose
+---
+#Response
+bool success                    # Set Pose Success / Fail
+string message                  # Informative message on service response
