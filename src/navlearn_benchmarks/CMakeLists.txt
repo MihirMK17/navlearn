@@ -19,6 +19,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(navlearn_msgs REQUIRED)
 find_package(unique_identifier_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
+find_package(std_srvs REQUIRED)
 
 add_library(episode_manager SHARED src/episode_manager.cpp)
 target_include_directories(episode_manager PRIVATE
@@ -34,7 +35,9 @@ ament_target_dependencies(episode_manager
   "geometry_msgs"
   "nav2_msgs"
   "tf2"
-  "tf2_ros")
+  "tf2_ros"
+  "tf2_geometry_msgs"
+  "std_srvs")
 rclcpp_components_register_node(episode_manager
   PLUGIN "navlearn_benchmarks::EpisodeManager"
   EXECUTABLE episode_manager_node

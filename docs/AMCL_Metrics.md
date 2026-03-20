@@ -8,7 +8,7 @@ AMCL Metrics
 	- Pose Covariance: from `/amcl_pose` topic. Need position covariance `cov(x,x)`, 
 	                   cov(y,y)`, orientation covariance `cov(yaw, yaw)`. Also, the spread as
 	                   derived `cov(x, x)` + `cov(y, y)`
-	- Particle Cloud spread: from `/particlecloud`. Compute particle mean + covariance as a
+	- Particle Cloud spread: from `/particlecloud`. Compute particle mean and covariance as a
 			   grounded spread measure.
 3. Localization Stability: Jumps are catastrophic for planners and controllers. Localization needs to have zero jumps and drifts
 	- TF Continuity: tracking `map -> odom` transform and plot its jump derived as 
@@ -23,5 +23,5 @@ AMCL Metrics
 5. Input Validity: `/scan`, `/odom`, and `/tf` should not be flaky otherwise AMCL tuning is waste of time.
 	- Scan Health: monitor `/rate`, `timestamp monotonicity`, and `frame_id` from '/scan`
 	- Odom Health: monitor `/rate`, `timestamp monotonicity`, and `frame_id` from '/odom`
-	- Scan Health: monitor all required transforms are available continuously from '/tf`,
+	- TF Health: monitor all required transforms are available continuously from '/tf`,
 			   `tf_static`

@@ -19,6 +19,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ControlMetric.msg"
   "msg/EpisodeEvent.msg"
   "msg/TrajectoryMetric.msg"
+  "msg/KidnapEvent.msg"
+  "srv/SetEntityPose.srv"
   DEPENDENCIES
     std_msgs
     geometry_msgs
