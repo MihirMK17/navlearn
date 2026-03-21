@@ -32,8 +32,7 @@ LocalizationMetrics::LocalizationMetrics(const std::string &name) : Node(name)
 {
     int timer_period_ = this->declare_parameter<int>("timer_period", 100);
 
-    csv_path_ = this->declare_parameter<std::string>("csv_path", 
-        "/home/mihirmk/robot_ws/src/navlearn_localization_eval/evaluations/localization_evaluation.csv");
+    csv_path_ = this->declare_parameter<std::string>("csv_path", "localization_evaluation.csv");
     scan_child_frame_ = this->declare_parameter<std::string>("scan_child_frame", "laser_link");
     odom_parent_frame_ = this->declare_parameter<std::string>("odom_parent_frame", "odom");
     odom_child_frame_ = this->declare_parameter<std::string>("odom_child_frame", "base_footprint");
