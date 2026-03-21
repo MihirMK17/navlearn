@@ -1,15 +1,17 @@
 control_metric:
   ros__parameters:
     controller_topic: /bumperbot_controller/cmd_vel
-    wheel_radius: 0.033 # m
-    wheel_separation: 0.16  # m
-    v_max: 0.25 
-    w_max: 1.0
-    saturation_tolerance: 0.98
-    eps_v: 0.05
-    eps_w: 0.05
-    buffer_span: 2.0  # sec
-    lambda: 0.5
+    wheel_radius: 0.033       # m; Bumperbot wheel radius; [0.01, 0.20]
+    wheel_separation: 0.16    # m; Bumperbot wheel separation; [0.05, 0.50]
+    v_max: 0.25               # m/s; max linear velocity (matches Nav2 config); [0.1, 2.0]
+    w_max: 1.0                # rad/s; max angular velocity; [0.1, 5.0]
+    saturation_tolerance: 0.98  # fraction; trigger saturation at 98% of v_max/w_max; [0.9, 1.0]
+    eps_v: 0.05               # m/s; deadband below which linear cmd is treated as zero; [0.0, 0.1]
+    eps_w: 0.05               # rad/s; deadband below which angular cmd is treated as zero; [0.0, 0.1]
+    buffer_span: 2.0          # sec; rolling window for slip buffer; [0.5, 10.0]
+    lambda: 0.5               # weight for control energy weighting (0=v only, 1=w only); [0.0, 1.0]
+    slip_buffer_max_size: 1000  # max samples in slip buffer (~20s at 50Hz); [100, 10000]
+    max_stale_dt_s: 0.30      # sec; max stale time before zero-order hold zeroes output; [0.05, 2.0]
 
     odom_topic: /bumperbot_controller/odom
     joint_states_topic: /joint_states
