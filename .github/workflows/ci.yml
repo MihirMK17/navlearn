@@ -41,6 +41,5 @@ jobs:
           # Build workspace
           colcon build --event-handlers console_cohesion+
 
-          # Run tests — bumperbot_utils skipped: lint errors tracked in GitHub issue
-          colcon test --packages-skip bumperbot_utils
+          colcon test
           colcon test-result --verbose
