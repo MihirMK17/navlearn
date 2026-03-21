@@ -58,7 +58,7 @@ target_include_directories(trajectory_metric PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 ament_target_dependencies(trajectory_metric
-  rclcpp nav_msgs unique_identifier_msgs navlearn_msgs sensor_msgs)
+  rclcpp nav_msgs geometry_msgs unique_identifier_msgs navlearn_msgs sensor_msgs)
 
 # ========= MetricsCompiler (standalone node) =========
 add_executable(metrics_compiler src/metrics_compiler.cpp)
