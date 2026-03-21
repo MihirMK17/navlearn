@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Multi-run benchmark harness for NavLearn.
+# Copyright 2026 NavLearn Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""
+Multi-run benchmark harness for NavLearn.
 
 Runs N episodes of the NavLearn benchmarking pipeline, each as a separate
 ros2 launch invocation. Each run gets a unique seed derived from BASE_SEED.
@@ -26,23 +40,46 @@ def parse_args() -> argparse.Namespace:
         description="NavLearn multi-run benchmark harness",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--episodes", type=int, default=10,
-                        help="Number of benchmark runs to execute")
-    parser.add_argument("--goals", type=int, default=5,
-                        help="Number of goals per run")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Base RNG seed; each run gets seed + run_index")
-    parser.add_argument("--output-dir", type=str, required=True,
-                        help="Directory to write CSV/JSON output files")
-    parser.add_argument("--profile", type=str, required=True,
-                        choices=["baseline", "aggressive"],
-                        help="Nav2 parameter profile to benchmark")
-    parser.add_argument("--goal-source", type=str, default="map_random",
-                        help="Goal source: map_random | fixed | stress")
-    parser.add_argument("--sleep", type=float, default=5.0,
-                        help="Seconds to sleep between runs (allows ROS cleanup)")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Print launch commands without executing them")
+    parser.add_argument(
+        "--episodes", type=int, default=10, help="Number of benchmark runs to execute"
+    )
+    parser.add_argument("--goals", type=int, default=5, help="Number of goals per run")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Base RNG seed; each run gets seed + run_index",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        required=True,
+        help="Directory to write CSV/JSON output files",
+    )
+    parser.add_argument(
+        "--profile",
+        type=str,
+        required=True,
+        choices=["baseline", "aggressive"],
+        help="Nav2 parameter profile to benchmark",
+    )
+    parser.add_argument(
+        "--goal-source",
+        type=str,
+        default="map_random",
+        help="Goal source: map_random | fixed | stress",
+    )
+    parser.add_argument(
+        "--sleep",
+        type=float,
+        default=5.0,
+        help="Seconds to sleep between runs (allows ROS cleanup)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print launch commands without executing them",
+    )
     return parser.parse_args()
 
 
@@ -51,17 +88,9 @@ def run_benchmark(
     args: argparse.Namespace,
     report_dir: pathlib.Path,
 ) -> None:
-    """Launch one benchmark run and fail-fast on non-zero exit.
-
-    Args:
-        episode_id: 1-indexed run number.
-        args: Parsed CLI arguments.
-        report_dir: Directory to write output files.
-
-    Raises:
-        SystemExit: If the subprocess exits with a non-zero return code.
-    """
+    """Launch one benchmark run and exit with non-zero status on failure."""
     import time as _time
+
     stamp = _time.strftime("%Y%m%d_%H%M%S")
     seed = args.seed + (episode_id - 1)
 
@@ -75,7 +104,10 @@ def run_benchmark(
     logging.info("JSON --> %s", json_path)
 
     cmd = [
-        "ros2", "launch", "navlearn_benchmarks", "benchmarks.launch.py",
+        "ros2",
+        "launch",
+        "navlearn_benchmarks",
+        "benchmarks.launch.py",
         f"goals_num:={args.goals}",
         f"goal_source:={args.goal_source}",
         f"goal_seed:={seed}",
@@ -93,7 +125,9 @@ def run_benchmark(
     if result.returncode != 0:
         logging.error(
             "Run %d/%d failed with exit code %d. Aborting harness.",
-            episode_id, args.episodes, result.returncode,
+            episode_id,
+            args.episodes,
+            result.returncode,
         )
         sys.exit(result.returncode)
 
@@ -116,7 +150,10 @@ def main() -> None:
 
     logging.info(
         "Starting harness: %d episodes × %d goals, seed=%d, profile=%s",
-        args.episodes, args.goals, args.seed, args.profile,
+        args.episodes,
+        args.goals,
+        args.seed,
+        args.profile,
     )
 
     for i in range(args.episodes):

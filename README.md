@@ -1,8 +1,76 @@
-# NavLearn: 
+# NavLearn
 
-_Reproducible Nav2-based navigation and benchmarking stack for real and simulated robots_
+**The first benchmarking framework to unify localization robustness metrics (TTC, TTR, ATE, RPE) with navigation efficiency (path length, SPL, control energy) and safety in a single reproducible ROS 2 / Nav2 pipeline.**
 
 ![CI](https://github.com/MihirMK17/navlearn/actions/workflows/ci.yml/badge.svg)
+
+Switch Nav2 profiles with one launch argument. No recompilation. Reproducible seeded goals. Per-episode CSV + JSON output.
+
+```bash
+# Run 10 benchmark episodes with the aggressive Nav2 profile
+python3 src/navlearn_benchmarks/scripts/multi_run_harness.py \
+  --episodes 10 --goals 5 --seed 42 \
+  --output-dir benchmark_reports/runs/aggressive \
+  --profile aggressive
+
+# Aggregate and get full statistics
+python3 src/navlearn_benchmarks/scripts/aggregate_runs.py \
+  --input-dir benchmark_reports/runs/aggressive
+```
+
+---
+
+## Why NavLearn?
+
+Existing navigation benchmarks measure success rate and path length. SLAM evaluation tools measure ATE and RPE. Neither connects localization quality to navigation performance.
+
+NavLearn measures all of them together:
+
+| Pillar | Metrics |
+|--------|---------|
+| Navigation efficiency | success rate, nav time, path length, SPL |
+| Control quality | RMS tracking error, saturation fraction, control energy, wheel slip |
+| Localization accuracy | ATE RMSE, RPE RMSE, TTC (time-to-converge), TTR (time-to-recover) |
+| Safety | collision count, min clearance |
+
+**Config-driven**: swap Nav2 profiles via `nav2_profile:=baseline` or `nav2_profile:=aggressive`. No code changes.
+
+**Reproducible**: seeded random goals mean identical conditions across runs and machines.
+
+**Typed contracts**: all inter-node data flows through `navlearn_msgs` — decouple and extend without breaking the pipeline.
+
+---
+
+## Key Results (MK1 — v0.1.0, Dec 2025)
+
+*Aggressive Nav2 profile, small_house world, 10 runs × 5 goals*
+
+| Metric | Value |
+|--------|-------|
+| Success rate | 100% |
+| Mean nav time | ~22.5 s |
+| Mean path length | ~6.5 m |
+| Control energy | *(MK2 pending)* |
+| SPL | *(MK2 pending)* |
+
+*Full MK2 results (baseline vs. aggressive + kidnap) coming in April 2026.*
+
+---
+
+## Architecture
+
+See [docs/architecture_diagram.md](docs/architecture_diagram.md) for the full Mermaid pipeline diagram.
+
+**4-node metric pipeline:**
+
+```
+EpisodeManager ──EpisodeEvent──► ControlMetric ──ControlMetric msg──►
+                              ► TrajectoryMetric ──TrajectoryMetric msg──►  MetricsCompiler ──► CSV + JSON
+/scan ──────────────────────────►TrajectoryMetric (min_clearance, ATE/RPE)
+/bumperbot/ground_truth ────────►TrajectoryMetric (ATE/RPE)
+```
+
+---
 
 NavLearn is a modular ROS 2 project for building and **benchmarking** autonomous mobile robot navigation pipelines across Gazebo and NVIDIA Isaac Sim, and mirroring them on real robots. It bundles SLAM, localization, planning, control, and a reproducible Nav2 benchmarking harness with planned extensions for reinforcement learning and multi-robot systems.
 
