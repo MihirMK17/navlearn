@@ -23,6 +23,9 @@ BOOTSTRAP_PROMPT.md
 files.zip
 files_extracted/
 
+# Git worktrees
+.worktrees/
+
 # Local scratch / temp output files
 navlearn-project/
 bench.txt
