@@ -24,11 +24,11 @@ LocalizationMetrics::LocalizationMetrics(const std::string &name) : Node(name)
     , error_x_threshold_(0.2)
     , error_y_threshold_(0.2)
     , error_yaw_threshold_(0.1)
-    , ttc_armed_(false)
-    , ttc_started_(false)
-    , ttc_converged_(false)
-    , ttc_completed_(false)
-    , ttc_incomplete_(false)
+    , ttc_state_(TtcState::IDLE)
+    , ttc_done_(false)
+    , ttr_state_(TtrState::IDLE)
+    , ttr_done_(false)
+    , ttr_attempted_(false)
 {
     int timer_period_ = this->declare_parameter<int>("timer_period", 100);
 
@@ -219,13 +219,10 @@ void LocalizationMetrics::reset_ttc_state()
   ttc_complete_time_  = rclcpp::Time(0, 0, ct);
 
   TTC = -1.0;
-  ttc_outcome_ = 255;          // pick a convention; 255 = unknown
+  ttc_outcome_ = 255;          // 255 = unknown/not yet determined
 
-  ttc_armed_ = false;
-  ttc_started_ = false;
-  ttc_converged_ = false;
-  ttc_completed_ = false;
-  ttc_incomplete_ = false;
+  ttc_state_ = TtcState::IDLE;
+  ttc_done_ = false;
 }
 
 void LocalizationMetrics::reset_ttr_state()
@@ -238,11 +235,9 @@ void LocalizationMetrics::reset_ttr_state()
     TTR = -1.0;
     ttr_outcome_ = 255;
 
+    ttr_state_ = TtrState::IDLE;
+    ttr_done_ = false;
     ttr_attempted_ = false;
-    ttr_started_ = false;
-    ttr_recovered_ = false;
-    ttr_completed_ = false;
-    ttr_incomplete_ = false;
 
     kidnap_distance_ = -1.0;
     kidnap_angle_ = -1.0;
@@ -267,11 +262,10 @@ void LocalizationMetrics::onEpisodeEvent(const navlearn_msgs::msg::EpisodeEvent 
         if (bad_init_test_)
         {
             if (ttc_arm_for_next_goal_) {
-                ttc_started_ = true;
-                ttc_armed_ = true;
+                ttc_state_ = TtcState::MEASURING;
                 ttc_start_time_ = t;
                 ttc_arm_for_next_goal_ = false;
-                RCLCPP_INFO(get_logger(), "TTC started at goal START t=%.3f", t.seconds());
+                RCLCPP_INFO(get_logger(), "TTC: ARMED -> MEASURING at t=%.3f", t.seconds());
             } else {
                 RCLCPP_WARN(get_logger(), "Goal started but TTC was NOT armed (no initialpose between goals).");
             }
@@ -296,12 +290,14 @@ void LocalizationMetrics::onEpisodeEvent(const navlearn_msgs::msg::EpisodeEvent 
         {
             double ttc_sec = -1.0;
 
-            if (ttc_completed_) {
+            if (ttc_done_ && ttc_state_ != TtcState::TIMED_OUT) {
+                // Converge + hold completed successfully
                 ttc_sec = (ttc_complete_time_ - ttc_start_time_).seconds();
                 ttc_outcome_ = 1;   // success
-            } else if (ttc_incomplete_) {
+            } else if (ttc_state_ == TtcState::TIMED_OUT) {
                 ttc_outcome_ = 0;   // timeout
-            } else if (ttc_started_) {
+            } else if (ttc_state_ == TtcState::MEASURING ||
+                       ttc_state_ == TtcState::CONVERGED) {
                 ttc_outcome_ = 2;   // ended early / not converged
             } else {
                 ttc_outcome_ = 3;   // not armed / not started
@@ -317,15 +313,18 @@ void LocalizationMetrics::onEpisodeEvent(const navlearn_msgs::msg::EpisodeEvent 
         if(kidnap_test_)
         {
             double ttr_sec_ = -1.0;
-            
+
             if(ttr_outcome_ == 4) {
                 ttr_sec_ = -1.0;
-            } else if(ttr_completed_) {
+            } else if(ttr_done_ && ttr_state_ != TtrState::TIMED_OUT) {
+                // Recovered + hold completed
                 ttr_sec_ = (ttr_complete_time_ - ttr_start_time_).seconds();
                 ttr_outcome_ = 1;
-            } else if(ttr_incomplete_) {
+            } else if(ttr_state_ == TtrState::TIMED_OUT) {
                 ttr_outcome_ = 0;
-            } else if(ttr_started_) {
+            } else if(ttr_state_ == TtrState::KIDNAPPED ||
+                      ttr_state_ == TtrState::RECOVERING ||
+                      ttr_state_ == TtrState::RECOVERED) {
                 ttr_outcome_ = 2;
             } else {
                 ttr_outcome_ = 3;
@@ -419,40 +418,47 @@ void LocalizationMetrics::onAMCLPose(const geometry_msgs::msg::PoseWithCovarianc
 
     if (bad_init_test_)
     {
-        if (!ttc_started_ || ttc_completed_ || ttc_incomplete_) return;
-        
-        if(!ttc_converged_ && ttc_started_)
+        // Only process TTC while actively measuring and not yet concluded
+        if (ttc_state_ != TtcState::MEASURING && ttc_state_ != TtcState::CONVERGED) return;
+        if (ttc_done_) return;
+
+        if(ttc_state_ == TtcState::MEASURING)
         {
             if(!linear_interpolate(gt_stats_, gt_matched_, t, 0.30 , 0.30)) return;
             double pose_error_x = gt_matched_.transform_x - curr_pose_.mean_x;
             double pose_error_y = gt_matched_.transform_y - curr_pose_.mean_y;
             double pose_error_yaw = wrap_to_pi(gt_matched_.transform_yaw - curr_pose_.mean_yaw);
 
-            RCLCPP_INFO(get_logger(), "TTC error thresholds are: ErrorX: %f || ErrorY: %f || ErrorYaw: %f", pose_error_x, pose_error_y, pose_error_yaw);
+            RCLCPP_INFO(get_logger(), "TTC error: ErrorX: %f || ErrorY: %f || ErrorYaw: %f", pose_error_x, pose_error_y, pose_error_yaw);
 
             if(std::fabs(pose_error_x) < error_x_threshold_ && std::fabs(pose_error_y) < error_y_threshold_ && std::fabs(pose_error_yaw) < error_yaw_threshold_)
             {
-                ttc_converged_ = true;
+                ttc_state_ = TtcState::CONVERGED;
                 ttc_converged_time_ = t;
+                RCLCPP_INFO(get_logger(), "TTC: MEASURING -> CONVERGED at t=%.3f", t.seconds());
                 return;
             }
         }
 
-        if((!ttc_completed_ && ttc_converged_) && ttc_started_)
+        if(ttc_state_ == TtcState::CONVERGED)
         {
             if((t - ttc_converged_time_).seconds() >= ttc_hold_sec_)
             {
-                ttc_completed_ = true;
+                ttc_done_ = true;
                 ttc_complete_time_ = t;
+                RCLCPP_INFO(get_logger(), "TTC: CONVERGED -> hold complete (done) at t=%.3f", t.seconds());
             }
         }
 
-        if(ttc_incomplete_ || ttc_completed_) return;
+        return;
     }
 
     if(!kidnap_test_) return;
-    if(!ttr_started_) return;
-    if(ttr_completed_ || ttr_incomplete_) return;
+    // Only process TTR while in an active measuring state and not yet concluded
+    if(ttr_state_ != TtrState::KIDNAPPED &&
+       ttr_state_ != TtrState::RECOVERING &&
+       ttr_state_ != TtrState::RECOVERED) return;
+    if(ttr_done_) return;
     if(ttr_outcome_ == 4) return;
 
     if(!linear_interpolate(gt_stats_, gt_matched_, t, 0.30, 0.30)) return;
@@ -468,26 +474,29 @@ void LocalizationMetrics::onAMCLPose(const geometry_msgs::msg::PoseWithCovarianc
         (std::fabs(err_pos) < ttr_error_pos_threshold_m_) &&
         (std::fabs(err_yaw) < ttr_error_yaw_threshold_rad_);
 
-    if(!ttr_recovered_ && ok)
+    if(ttr_state_ != TtrState::RECOVERED && ok)
     {
-        ttr_recovered_ = true;
+        ttr_state_ = TtrState::RECOVERED;
         ttr_recovered_time_ = t;
+        RCLCPP_INFO(get_logger(), "TTR: RECOVERING -> RECOVERED at t=%.3f", t.seconds());
         return;
     }
 
-    if(ttr_recovered_ && !ok)
+    if(ttr_state_ == TtrState::RECOVERED && !ok)
     {
-        ttr_recovered_ = false;
+        ttr_state_ = TtrState::RECOVERING;
         ttr_recovered_time_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
+        RCLCPP_INFO(get_logger(), "TTR: RECOVERED -> RECOVERING (threshold broken) at t=%.3f", t.seconds());
         return;
     }
 
-    if((!ttr_completed_ && ttr_recovered_) && ttr_started_)
+    if(ttr_state_ == TtrState::RECOVERED)
     {
         if((t - ttr_recovered_time_).seconds() >= ttr_hold_sec_)
         {
-            ttr_completed_ = true;
+            ttr_done_ = true;
             ttr_complete_time_ = t;
+            RCLCPP_INFO(get_logger(), "TTR: RECOVERED -> hold complete (done) at t=%.3f", t.seconds());
         }
     }
 }
@@ -638,8 +647,9 @@ void LocalizationMetrics::onInitialPose(const geometry_msgs::msg::PoseWithCovari
     const rclcpp::Time t(initial_pose.header.stamp, get_clock()->get_clock_type());
     ttc_arm_for_next_goal_ = true;
     last_initialpose_time_ = t;
-    
-    RCLCPP_INFO(get_logger(), "TTC armed for next goal (initialpose t=%.3f)", t.seconds());
+    ttc_state_ = TtcState::ARMED;
+
+    RCLCPP_INFO(get_logger(), "TTC: IDLE -> ARMED (initialpose t=%.3f)", t.seconds());
 }
 
 void LocalizationMetrics::onKidnapEvent(const navlearn_msgs::msg::KidnapEvent &kidnap_event)
@@ -655,20 +665,22 @@ void LocalizationMetrics::onKidnapEvent(const navlearn_msgs::msg::KidnapEvent &k
 
     if(kidnap_event.success)
     {
-        ttr_started_ = true;
+        ttr_state_ = TtrState::KIDNAPPED;
         ttr_start_time_ = t;
-        ttr_recovered_ = false;
-        ttr_completed_ = false;
-        ttr_incomplete_ = false;
 
         const double dx = ttr_stats_.goal_start_x_ - kidnap_event.kidnap_pose.position.x;
         const double dy = ttr_stats_.goal_start_y_ - kidnap_event.kidnap_pose.position.y;
         kidnap_distance_ = std::hypot(dx, dy);
-
         kidnap_angle_ = std::fabs(wrap_to_pi(ttr_stats_.goal_start_yaw_ - getYaw(kidnap_event.kidnap_pose.orientation)));
-    } else if(!kidnap_event.success) {
+
+        RCLCPP_INFO(get_logger(), "TTR: IDLE -> KIDNAPPED at t=%.3f (dist=%.2f m, angle=%.2f rad)",
+            t.seconds(), kidnap_distance_, kidnap_angle_);
+
+        // Immediately advance to RECOVERING — robot is actively recovering from this point
+        ttr_state_ = TtrState::RECOVERING;
+        RCLCPP_INFO(get_logger(), "TTR: KIDNAPPED -> RECOVERING at t=%.3f", t.seconds());
+    } else {
         ttr_outcome_ = 4;
-        ttr_started_ = false;
         TTR = -1.0;
         RCLCPP_WARN(get_logger(), "Kidnap event reported failure (success=false).");
     }
@@ -756,23 +768,28 @@ void LocalizationMetrics::timerCallback()
     const double odom_rate = (odom_stamp_.size() - 1) / odom_dt;
     const double tf_rate = (tf_stamp_.size() - 1) / tf_dt;
 
-    if(ttc_started_ && !ttc_incomplete_ && !ttc_completed_)
+    if((ttc_state_ == TtcState::MEASURING || ttc_state_ == TtcState::CONVERGED) && !ttc_done_)
     {
         if((t - ttc_start_time_).seconds() > ttc_timeout_sec_)
         {
-            RCLCPP_WARN(get_logger(), "TTC TIMEOUT: elapsed=%.3f", (t-ttc_start_time_).seconds());
+            RCLCPP_WARN(get_logger(), "TTC: MEASURING -> TIMED_OUT elapsed=%.3f", (t - ttc_start_time_).seconds());
+            ttc_state_ = TtcState::TIMED_OUT;
+            ttc_done_ = true;
             ttc_outcome_ = 0;
-            ttc_incomplete_ = true;
         }
     }
 
-    if(kidnap_test_ && ttr_started_ && !ttr_completed_ && !ttr_incomplete_ && ttr_outcome_ != 4)
+    if(kidnap_test_ &&
+       (ttr_state_ == TtrState::RECOVERING || ttr_state_ == TtrState::RECOVERED ||
+        ttr_state_ == TtrState::KIDNAPPED) &&
+       !ttr_done_ && ttr_outcome_ != 4)
     {
         if((t - ttr_start_time_).seconds() > ttr_timeout_sec_)
         {
-            RCLCPP_WARN(get_logger(), "TTR TIMEOUT: elapsed=%.3f", (t - ttr_start_time_).seconds());
+            RCLCPP_WARN(get_logger(), "TTR: RECOVERING -> TIMED_OUT elapsed=%.3f", (t - ttr_start_time_).seconds());
+            ttr_state_ = TtrState::TIMED_OUT;
+            ttr_done_ = true;
             ttr_outcome_ = 0;
-            ttr_incomplete_ = true;
         }
     }
 
