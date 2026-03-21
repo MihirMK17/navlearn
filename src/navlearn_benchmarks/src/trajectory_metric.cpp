@@ -16,6 +16,7 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   odom_topic_     = declare_parameter<std::string>("odom_topic", "/bumperbot_controller/odom");
   episode_event_topic_  = declare_parameter<std::string>("episode_event_topic", "/navlearn/episode_event");
   trajectory_metric_topic_  = declare_parameter<std::string>("trajectory_metric_topic", "/navlearn/trajectory_metric");
+  scan_topic_     = declare_parameter<std::string>("scan_topic", "/scan");
   ds_thresh_m_    = declare_parameter<double>("jitter_guard", 0.002); // ignore micro-jitter
   max_gap_s_      = declare_parameter<double>("max_gap_dt", 0.5);        // skip giant dt gaps
   rpe_delta_s_    = declare_parameter<double>("rpe_delta", 1.0);      // placeholder only
@@ -34,12 +35,18 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   RCLCPP_INFO(get_logger(), "TrajectoryMetric config: Jitter Guard (distance):%.2f, Jitter Guard (time):%.2f",
               ds_thresh_m_, max_gap_s_);
 
+  min_clearance_m_ = -1.0;
+
   // --- I/O ---
   odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(odom_topic_, rclcpp::SensorDataQoS(),
                 std::bind(&TrajectoryMetric::odomCallback, this, std::placeholders::_1));
 
   episode_sub_ = create_subscription<navlearn_msgs::msg::EpisodeEvent>(episode_event_topic_, rclcpp::QoS(10),
                   std::bind(&TrajectoryMetric::episodeCallback, this, std::placeholders::_1));
+
+  scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
+      scan_topic_, rclcpp::SensorDataQoS(),
+      std::bind(&TrajectoryMetric::scanCallback, this, std::placeholders::_1));
 
   traj_pub_ = create_publisher<navlearn_msgs::msg::TrajectoryMetric>(trajectory_metric_topic_, rclcpp::QoS(10));
 
@@ -94,6 +101,9 @@ void TrajectoryMetric::episodeCallback(navlearn_msgs::msg::EpisodeEvent::ConstSh
     msg_.path_length_m = 0.0;
     msg_.samples = 0;
 
+    // reset safety metric accumulator
+    min_clearance_m_ = std::numeric_limits<double>::max();
+
     // ensure we reseed odom integration
     have_last_odom_ = false;
     return;
@@ -111,8 +121,17 @@ void TrajectoryMetric::timerCallback() {
   // Keep timer for future periodic reporting if needed.
 }
 
-// TODO(MK3): collision_count and min_clearance_m will be implemented in this file (Phase 7).
-// goal_metric.cpp stub was removed — collision metrics belong in TrajectoryMetric, not a separate node.
+void TrajectoryMetric::scanCallback(sensor_msgs::msg::LaserScan::ConstSharedPtr scan)
+{
+  if (!active_) return;
+
+  for (const float r : scan->ranges) {
+    if (!std::isfinite(r) || r < scan->range_min || r > scan->range_max) continue;
+    if (static_cast<double>(r) < min_clearance_m_) {
+      min_clearance_m_ = static_cast<double>(r);
+    }
+  }
+}
 
 void TrajectoryMetric::publishReport(const rclcpp::Time & t_end)
 {
@@ -135,6 +154,10 @@ void TrajectoryMetric::publishReport(const rclcpp::Time & t_end)
   // Use literal 0 to avoid enum name churn if your .msg doesn't define REF_* constants
   msg_.ref_source        = 0;         // REF_NONE
   msg_.ref_frame         = "";
+
+  // Safety metric: minimum observed scan range; -1.0 if no valid scan was received
+  msg_.min_clearance_m = (min_clearance_m_ < std::numeric_limits<double>::max())
+      ? min_clearance_m_ : -1.0;
 
   traj_pub_->publish(msg_);
 
