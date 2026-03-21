@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "navlearn_benchmarks/metrics_compiler.hpp"
+#include "navlearn_benchmarks/navlearn_utils.hpp"
 
 namespace navlearn_benchmarks{
 
@@ -41,19 +42,9 @@ MetricsCompiler::MetricsCompiler(const std::string &name): Node(name)
   RCLCPP_INFO(get_logger(), "MetricsCompiler writing to %s", csv_path_.c_str());
 }
 
-std::string MetricsCompiler::uuid_to_string(const unique_identifier_msgs::msg::UUID & id)
-{
-  std::ostringstream oss;
-  oss << std::hex << std::setfill('0');
-  for (uint8_t b : id.uuid) {
-    oss << std::setw(2) << static_cast<int>(b);
-  }
-  return oss.str();
-}
-
 MetricsCompiler::EpisodeAggregate & MetricsCompiler::get_or_create(const unique_identifier_msgs::msg::UUID & id)
 {
-  const auto key = uuid_to_string(id);
+  const auto key = navlearn::uuid_to_string(id);
   return episodes_[key];  // default-construct if missing
 }
 
@@ -83,7 +74,7 @@ void MetricsCompiler::episodeCallback(navlearn_msgs::msg::EpisodeEvent::SharedPt
   episode.end_event = *msg;
   episode.have_end_event = true;
 
-  const auto key= uuid_to_string(msg->goal_id);
+  const auto key= navlearn::uuid_to_string(msg->goal_id);
   maybe_flush_episode(key, episode);
 }
 
@@ -93,7 +84,7 @@ void MetricsCompiler::controlCallback(navlearn_msgs::msg::ControlMetric::SharedP
   episode.control = *msg;
   episode.have_control = true;
 
-  const auto key = uuid_to_string(msg->goal_id);
+  const auto key = navlearn::uuid_to_string(msg->goal_id);
   maybe_flush_episode(key, episode);
 }
 
@@ -103,7 +94,7 @@ void MetricsCompiler::trajCallback(navlearn_msgs::msg::TrajectoryMetric::SharedP
   episode.traj = *msg;
   episode.have_trajectory = true;
 
-  const auto key = uuid_to_string(msg->goal_id);
+  const auto key = navlearn::uuid_to_string(msg->goal_id);
   maybe_flush_episode(key, episode);
 }
 

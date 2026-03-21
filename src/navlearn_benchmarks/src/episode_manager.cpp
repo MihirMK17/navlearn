@@ -7,6 +7,7 @@
 #include <cmath>
 
 #include "navlearn_benchmarks/episode_manager.hpp"
+#include "navlearn_benchmarks/navlearn_utils.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono_literals;
@@ -16,14 +17,6 @@ using namespace std::chrono_literals;
 #endif
 
 namespace navlearn_benchmarks{
-
-static inline double wrap_to_pi(double a)
-{
-    constexpr double kPi = 3.14159265358979323846;
-    while (a >  kPi) a -= 2.0 * kPi;
-    while (a < -kPi) a += 2.0 * kPi;
-    return a;
-}
 
 EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   : rclcpp::Node("episode_manager", options)
@@ -385,7 +378,7 @@ bool EpisodeManager::needCorrection(const geometry_msgs::msg::PoseStamped &groun
   double roll_est, pitch_est, yaw_est;
   tf2::Matrix3x3(q_est).getRPY(roll_est, pitch_est, yaw_est);
 
-  const double yaw_err = std::fabs(wrap_to_pi(yaw_gt - yaw_est));
+  const double yaw_err = std::fabs(navlearn::wrap_to_pi(yaw_gt - yaw_est));
 
   return (pos_err >= end_error_pos_threshold_m_) || (yaw_err >= end_error_yaw_threshold_rad_);
 }
@@ -475,7 +468,7 @@ bool EpisodeManager::isInitialPoseApplied(const geometry_msgs::msg::PoseWithCova
   double r2, p2, yaw_est;
   tf2::Matrix3x3(q_est).getRPY(r2, p2, yaw_est);
 
-  const double yaw_err = std::fabs(wrap_to_pi(yaw_tgt - yaw_est));
+  const double yaw_err = std::fabs(navlearn::wrap_to_pi(yaw_tgt - yaw_est));
 
   return (pos_err <= pose_apply_pos_tol_m_) && (yaw_err <= pose_apply_yaw_tol_rad_);
 }
@@ -691,7 +684,7 @@ bool EpisodeManager::isKidnapGTVerified_()
 
   const double yaw_gt = tf2::getYaw(gt.pose.orientation);
   const double yaw_tgt = tf2::getYaw(kidnap_target_pose_.orientation);
-  const double yaw_err = std::fabs(wrap_to_pi(yaw_gt - yaw_tgt));
+  const double yaw_err = std::fabs(navlearn::wrap_to_pi(yaw_gt - yaw_tgt));
 
   return (pos_err <= kidnap_verify_pos_tol_m_) && (yaw_err <= kidnap_verify_yaw_tol_rad_);
 }
