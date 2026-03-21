@@ -82,8 +82,6 @@ private:
 
   int success_count_;
 
-  static std::string uuid_to_string(const unique_identifier_msgs::msg::UUID & id);
-
   EpisodeAggregate & get_or_create(const unique_identifier_msgs::msg::UUID & id);
 
   std::string result_to_string(uint8_t result) const;
