@@ -7,31 +7,34 @@ using std::placeholders::_1;
 class TrajectoryDrawer : public rclcpp::Node
 {
 public:
-    TrajectoryDrawer() : Node("trajectory_drawer")
-    {
-        odom_sub_ = create_subscription<nav_msgs::msg::Odometry>("/bumperbot_controller/odom", 10, 
-                    std::bind(&TrajectoryDrawer::OdomCallback, this, _1));
-        trajectory_pub_ = create_publisher<nav_msgs::msg::Path>("/bumperbot_controller/trajectory", 10);
-    } 
+  TrajectoryDrawer()
+  : Node("trajectory_drawer")
+  {
+    odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+      "/bumperbot_controller/odom", 10,
+      std::bind(&TrajectoryDrawer::OdomCallback, this, _1));
+    trajectory_pub_ = create_publisher<nav_msgs::msg::Path>("/bumperbot_controller/trajectory", 10);
+  }
 
 private:
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr trajectory_pub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr trajectory_pub_;
 
-     void OdomCallback(const nav_msgs::msg::Odometry &odom_msg)
-    {
-        RCLCPP_INFO_STREAM(get_logger(), "Received odometry message:\n"
-                                         << "Position: ["
-                                         << odom_msg.pose.pose.position.x << ", "
-                                         << odom_msg.pose.pose.position.y << ", "
-                                         << odom_msg.pose.pose.position.z << "]\n"
-                                         << "Orientation: ["
-                                         << odom_msg.pose.pose.orientation.x << ", "
-                                         << odom_msg.pose.pose.orientation.y << ", "
-                                         << odom_msg.pose.pose.orientation.z << ", "
-                                         << odom_msg.pose.pose.orientation.w << "]\n"
-                                         << "Drawing bumperbot trajectory...");
-        // Create a PoseStamped message
+  void OdomCallback(const nav_msgs::msg::Odometry & odom_msg)
+  {
+    RCLCPP_INFO_STREAM(
+      get_logger(), "Received odometry message:\n"
+        << "Position: ["
+        << odom_msg.pose.pose.position.x << ", "
+        << odom_msg.pose.pose.position.y << ", "
+        << odom_msg.pose.pose.position.z << "]\n"
+        << "Orientation: ["
+        << odom_msg.pose.pose.orientation.x << ", "
+        << odom_msg.pose.pose.orientation.y << ", "
+        << odom_msg.pose.pose.orientation.z << ", "
+        << odom_msg.pose.pose.orientation.w << "]\n"
+        << "Drawing bumperbot trajectory...");
+    // Create a PoseStamped message
     geometry_msgs::msg::PoseStamped pose_stamped;
     pose_stamped.header.stamp = odom_msg.header.stamp;
     pose_stamped.header.frame_id = odom_msg.header.frame_id;
@@ -47,15 +50,15 @@ private:
     // Publish the path
     trajectory_pub_->publish(path_msg);
 
-    }
+  }
 };
 
-int main(int argc, char *argv[])
+int main(int argc, char * argv[])
 {
-    rclcpp::init(argc, argv);
-    auto node = std::make_shared<TrajectoryDrawer>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    
-    return 0;
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<TrajectoryDrawer>();
+  rclcpp::spin(node);
+  rclcpp::shutdown();
+
+  return 0;
 }
