@@ -85,6 +85,9 @@ private:
     double lambda_;
     double control_energy_;
 
+    int slip_buffer_max_size_;
+    double max_stale_dt_s_;
+
     std::string controller_topic_;
     std::string odom_topic_;
     std::string joint_states_topic_;
