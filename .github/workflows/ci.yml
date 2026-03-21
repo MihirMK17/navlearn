@@ -13,7 +13,14 @@ jobs:
       # 1 · Check out your code
       - uses: actions/checkout@v3
 
-      # 2 · Build and test in one shell (keeps the ROS env sourced)
+      # 2 · Lint Python scripts
+      - name: Lint Python scripts
+        run: |
+          pip3 install black flake8
+          black --check src/navlearn_benchmarks/scripts/
+          flake8 --max-line-length=100 src/navlearn_benchmarks/scripts/
+
+      # 3 · Build and test in one shell (keeps the ROS env sourced)
       - name: Build & Test
         shell: bash
         run: |
@@ -34,6 +41,6 @@ jobs:
           # Build workspace
           colcon build --event-handlers console_cohesion+
 
-          # Run tests — skip package with lint errors for now
+          # Run tests — bumperbot_utils skipped: lint errors tracked in GitHub issue
           colcon test --packages-skip bumperbot_utils
-          colcon test-result --verbose || true
+          colcon test-result --verbose
