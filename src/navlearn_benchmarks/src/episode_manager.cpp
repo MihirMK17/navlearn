@@ -873,6 +873,12 @@ void EpisodeManager::onGoalResponse(const rclcpp_action::ClientGoalHandle<nav2_m
   ev.nav_time.sec = 0;
   ev.nav_time.nanosec = 0;
 
+  // Compute Euclidean start-to-goal distance (optimal path approximation)
+  const auto & goal_pose = goal_poses_[idx_];
+  const double dx = goal_pose.pose.position.x - start_pose_.pose.position.x;
+  const double dy = goal_pose.pose.position.y - start_pose_.pose.position.y;
+  ev.optimal_path_m = std::hypot(dx, dy);
+
   stamp_received_ = rclcpp::Time(ev.stamp_received);
 
   episode_pub_->publish(ev);
@@ -917,6 +923,11 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
   ev.goal_id = goal_id_;
   ev.goal_pose  = goal_poses_[idx_];
   ev.start_pose = start_pose_;
+
+  // Copy optimal_path_m to END event so MetricsCompiler can use it
+  const double dx_end = goal_poses_[idx_].pose.position.x - start_pose_.pose.position.x;
+  const double dy_end = goal_poses_[idx_].pose.position.y - start_pose_.pose.position.y;
+  ev.optimal_path_m = std::hypot(dx_end, dy_end);
 
   ev.stamp_received = stamp_received_;
   ev.stamp_terminated = ev.header.stamp;

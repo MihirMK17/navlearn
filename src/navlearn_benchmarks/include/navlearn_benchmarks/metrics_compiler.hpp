@@ -61,6 +61,8 @@ private:
     double total_path_traveled = 0.0;
 
     double total_control_energy = 0.0;
+
+    double total_spl = 0.0;
   };
 
   RunAccumulator run_acc_;

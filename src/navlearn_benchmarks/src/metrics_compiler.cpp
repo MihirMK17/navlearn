@@ -120,7 +120,8 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
     csv_ << "Goal_ID,Reference Frame,"
          << "Start Pose_X (m),Start Pose_Y (m),Start Pose_Yaw (deg),Goal Pose_X (m),Goal Pose_Y (m),Goal Pose_Yaw (deg),Goal Result Code,Goal Result,Success Count,Nav Time (sec),Nav Time Start (sec),Nav Time End (sec),"
          << "Tracking RMS_V (m/s),Tracking RMS_W (rad/s),Saturation Frac_V,Saturation Frac_W,Slip Mean,Slip Std Deviation,Slip 95_Percentile,Control Energy,Control Samples,"
-         << "Path Length (m),Absolute Path Error RMS (m),Relative Pose Error (Drift),Min Clearance (m),Trajectory Samples"
+         << "Path Length (m),Absolute Path Error RMS (m),Relative Pose Error (Drift),Min Clearance (m),Trajectory Samples,"
+         << "SPL"
          << "\n";
     header_written_ = true;
   }
@@ -194,7 +195,16 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
        << tm.ate_rmse_m << ","
        << tm.rpe_trans_rmse_m << ","
        << tm.min_clearance_m << ","
-       << tm.samples
+       << tm.samples << ","
+
+       // SPL: success * optimal_path / max(actual_path, optimal_path)
+       << [&]() -> double {
+            if (ev.result == navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED
+                && ev.optimal_path_m > 0.0) {
+              return ev.optimal_path_m / std::max(tm.path_length_m, ev.optimal_path_m);
+            }
+            return 0.0;
+          }()
        << "\n";
 
   csv_.flush();
@@ -237,6 +247,11 @@ void MetricsCompiler::update_run_accumulator(const navlearn_msgs::msg::EpisodeEv
   // control energy
   const double Ectrl = cm.control_energy;
   run_acc_.total_control_energy += Ectrl;
+
+  // SPL: success * optimal_path / max(actual_path, optimal_path)
+  if (ev.result == E::RESULT_SUCCEEDED && ev.optimal_path_m > 0.0) {
+    run_acc_.total_spl += ev.optimal_path_m / std::max(L, ev.optimal_path_m);
+  }
 }
 
 void MetricsCompiler::write_run_json()
@@ -266,6 +281,9 @@ void MetricsCompiler::write_run_json()
 
   js << "  \"control_energy_mean\": " << run_acc_.total_control_energy / static_cast<double>(N) << ",\n";
   js << "  \"total_control_energy\": "  << run_acc_.total_control_energy << ",\n";
+
+  js << "  \"spl_mean\": "            << run_acc_.total_spl / static_cast<double>(N) << ",\n";
+  js << "  \"total_spl\": "           << run_acc_.total_spl << ",\n";
 
   js << "  \"csv_path\": "            << "\"" << csv_path_ << "\"\n";
   js << "}\n";
