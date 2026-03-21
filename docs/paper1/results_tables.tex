@@ -1,0 +1,87 @@
+% NavLearn Paper 1 — Results Tables
+% Populate with MK2 final benchmark data (Phase 7.7)
+% Target: IEEE RA-L (letter format, 6 pages)
+
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{siunitx}
+
+% ===================================================
+% Table 1: Navigation Efficiency (Baseline vs. Aggressive)
+% ===================================================
+\begin{table}[t]
+\centering
+\caption{Navigation efficiency: baseline vs.\ aggressive Nav2 profile.
+10 runs $\times$ 5 goals. Values are mean $\pm$ std (p50 / p95).}
+\label{tab:nav_efficiency}
+\begin{tabular}{lccc}
+\toprule
+Metric & Baseline & Aggressive & $p$-value \\
+\midrule
+Success rate [\%]    & -- & -- & -- \\
+Nav time [s]         & -- $\pm$ -- (-- / --) & -- $\pm$ -- (-- / --) & -- \\
+Path length [m]      & -- $\pm$ -- (-- / --) & -- $\pm$ -- (-- / --) & -- \\
+Control energy       & -- $\pm$ -- (-- / --) & -- $\pm$ -- (-- / --) & -- \\
+SPL                  & -- $\pm$ -- (-- / --) & -- $\pm$ -- (-- / --) & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ===================================================
+% Table 2: Safety Metrics
+% ===================================================
+\begin{table}[t]
+\centering
+\caption{Safety metrics: baseline vs.\ aggressive.}
+\label{tab:safety}
+\begin{tabular}{lccc}
+\toprule
+Metric & Baseline & Aggressive & $p$-value \\
+\midrule
+Collision count (per episode)      & -- $\pm$ -- & -- $\pm$ -- & -- \\
+Min clearance [m] (mean $\pm$ std) & -- $\pm$ -- & -- $\pm$ -- & -- \\
+Min clearance [m] (p5)             & --           & --           & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ===================================================
+% Table 3: Localization Accuracy
+% ===================================================
+\begin{table}[t]
+\centering
+\caption{Localization accuracy: baseline vs.\ aggressive.
+ATE and RPE computed against Gazebo ground truth.}
+\label{tab:localization}
+\begin{tabular}{lccc}
+\toprule
+Metric & Baseline & Aggressive & $p$-value \\
+\midrule
+ATE RMSE [m]         & -- $\pm$ -- & -- $\pm$ -- & -- \\
+RPE RMSE [m] ($\Delta t = \SI{1}{s}$) & -- $\pm$ -- & -- $\pm$ -- & -- \\
+\midrule
+TTC [s] (bad-init)   & -- $\pm$ -- & -- $\pm$ -- & -- \\
+TTC success rate [\%] & --          & --          & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ===================================================
+% Table 4: Kidnap Recovery (TTR)
+% ===================================================
+\begin{table}[t]
+\centering
+\caption{Kidnap recovery (TTR): both profiles under teleportation scenario.
+10 runs $\times$ 5 goals; kidnap injected once per run.}
+\label{tab:kidnap}
+\begin{tabular}{lccc}
+\toprule
+Metric & Baseline & Aggressive & $p$-value \\
+\midrule
+TTR [s] (mean $\pm$ std) & -- $\pm$ -- & -- $\pm$ -- & -- \\
+TTR p50 / p95 [s]         & -- / --     & -- / --     & -- \\
+Recovery rate [\%]         & --          & --          & -- \\
+TTR timeout rate [\%]      & --          & --          & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
