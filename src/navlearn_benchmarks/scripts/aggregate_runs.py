@@ -38,13 +38,25 @@ def parse_args() -> argparse.Namespace:
         description="Aggregate NavLearn multi-run benchmark results",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--input-dir", type=str, required=True,
-                        help="Directory containing navlearn_run_report_run_*.json files")
-    parser.add_argument("--output-format", type=str, choices=["text", "csv", "json"],
-                        default="text",
-                        help="Output format for the summary table")
-    parser.add_argument("--precision", type=int, default=3,
-                        help="Decimal places for floating-point values")
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        required=True,
+        help="Directory containing navlearn_run_report_run_*.json files",
+    )
+    parser.add_argument(
+        "--output-format",
+        type=str,
+        choices=["text", "csv", "json"],
+        default="text",
+        help="Output format for the summary table",
+    )
+    parser.add_argument(
+        "--precision",
+        type=int,
+        default=3,
+        help="Decimal places for floating-point values",
+    )
     return parser.parse_args()
 
 
@@ -84,8 +96,17 @@ def compute_stats(values: List[float]) -> Dict[str, float]:
     valid = [v for v in values if not math.isnan(v)]
     if not valid:
         nan = float("nan")
-        return {"mean": nan, "std": nan, "min": nan, "max": nan,
-                "p25": nan, "p50": nan, "p75": nan, "p95": nan, "count": 0}
+        return {
+            "mean": nan,
+            "std": nan,
+            "min": nan,
+            "max": nan,
+            "p25": nan,
+            "p50": nan,
+            "p75": nan,
+            "p95": nan,
+            "count": 0,
+        }
     n = len(valid)
     mean = sum(valid) / n
     variance = sum((x - mean) ** 2 for x in valid) / n if n > 1 else 0.0
@@ -113,12 +134,15 @@ def detect_outliers(values: List[float], threshold: float = 2.0) -> List[int]:
     if std == 0.0:
         return []
     return [
-        i for i, v in enumerate(values)
+        i
+        for i, v in enumerate(values)
         if not math.isnan(v) and abs(v - mean) > threshold * std
     ]
 
 
-def compute_spl(success: bool, optimal_path_m: float, actual_path_m: float) -> Optional[float]:
+def compute_spl(
+    success: bool, optimal_path_m: float, actual_path_m: float
+) -> Optional[float]:
     """
     Compute Success weighted by inverse Path Length (SPL).
 
@@ -216,10 +240,12 @@ def print_text_report(agg: Dict[str, Any], precision: int = 3) -> None:
     print(f"\n{'='*60}")
     print(f"NavLearn Benchmark Aggregation — {agg['runs']} runs")
     print(f"{'='*60}")
-    print(f"  Goals:     {agg['total_goals']} total  "
-          f"({agg['total_succeeded']} succeeded, "
-          f"{agg['total_failed']} failed, "
-          f"{agg['total_canceled']} canceled)")
+    print(
+        f"  Goals:     {agg['total_goals']} total  "
+        f"({agg['total_succeeded']} succeeded, "
+        f"{agg['total_failed']} failed, "
+        f"{agg['total_canceled']} canceled)"
+    )
     print(f"  Success rate: {agg['success_rate']:.1%}")
 
     print(format_stats("Nav Time [s]", agg["nav_time_s"], precision))
@@ -243,16 +269,32 @@ def print_csv_report(agg: Dict[str, Any], precision: int = 3) -> None:
     if "spl" in agg:
         metrics.append("spl")
 
-    header = ["metric", "mean", "std", "min", "p25", "p50", "p75", "p95", "max", "count"]
+    header = [
+        "metric",
+        "mean",
+        "std",
+        "min",
+        "p25",
+        "p50",
+        "p75",
+        "p95",
+        "max",
+        "count",
+    ]
     print(",".join(header))
     fmt = f".{precision}f"
     for m in metrics:
         s = agg[m]
         row = [
             m,
-            f"{s['mean']:{fmt}}", f"{s['std']:{fmt}}",
-            f"{s['min']:{fmt}}", f"{s['p25']:{fmt}}", f"{s['p50']:{fmt}}",
-            f"{s['p75']:{fmt}}", f"{s['p95']:{fmt}}", f"{s['max']:{fmt}}",
+            f"{s['mean']:{fmt}}",
+            f"{s['std']:{fmt}}",
+            f"{s['min']:{fmt}}",
+            f"{s['p25']:{fmt}}",
+            f"{s['p50']:{fmt}}",
+            f"{s['p75']:{fmt}}",
+            f"{s['p95']:{fmt}}",
+            f"{s['max']:{fmt}}",
             str(s["count"]),
         ]
         print(",".join(row))
@@ -287,6 +329,7 @@ def main() -> None:
         print_csv_report(agg, precision=args.precision)
     elif args.output_format == "json":
         import json as _json
+
         print(_json.dumps(agg, indent=2, default=str))
 
 
