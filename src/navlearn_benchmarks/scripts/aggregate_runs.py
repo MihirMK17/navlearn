@@ -117,7 +117,13 @@ def aggregate_summaries(
     summaries: List[Tuple[str, Dict[str, Any]]],
     precision: int = 3,
 ) -> Dict[str, Any]:
-    """Aggregate all run summaries into per-metric statistics."""
+    """Aggregate all run summaries into per-metric statistics.
+
+    Note: min_clearance_m is available per-goal in the per-run CSV output
+    (written by MetricsCompiler), but is not yet included in the run summary
+    JSON files. To aggregate min_clearance_m across goals/runs, read the CSV
+    files directly. This will be added to the JSON summary in a future pass.
+    """
     nav_times: List[float] = []
     path_lengths: List[float] = []
     ctrl_energies: List[float] = []

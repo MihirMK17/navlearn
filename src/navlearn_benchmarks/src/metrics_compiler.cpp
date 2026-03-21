@@ -120,7 +120,7 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
     csv_ << "Goal_ID,Reference Frame,"
          << "Start Pose_X (m),Start Pose_Y (m),Start Pose_Yaw (deg),Goal Pose_X (m),Goal Pose_Y (m),Goal Pose_Yaw (deg),Goal Result Code,Goal Result,Success Count,Nav Time (sec),Nav Time Start (sec),Nav Time End (sec),"
          << "Tracking RMS_V (m/s),Tracking RMS_W (rad/s),Saturation Frac_V,Saturation Frac_W,Slip Mean,Slip Std Deviation,Slip 95_Percentile,Control Energy,Control Samples,"
-         << "Path Length (m),Absolute Path Error RMS (m),Relative Pose Error (Drift),Trajectory Samples"
+         << "Path Length (m),Absolute Path Error RMS (m),Relative Pose Error (Drift),Min Clearance (m),Trajectory Samples"
          << "\n";
     header_written_ = true;
   }
@@ -193,6 +193,7 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
        << tm.path_length_m << ","
        << tm.ate_rmse_m << ","
        << tm.rpe_trans_rmse_m << ","
+       << tm.min_clearance_m << ","
        << tm.samples
        << "\n";
 
