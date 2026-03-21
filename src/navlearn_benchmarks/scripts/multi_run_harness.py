@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Multi-run benchmark harness for NavLearn.
+# Copyright 2026 NavLearn Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""
+Multi-run benchmark harness for NavLearn.
 
 Runs N episodes of the NavLearn benchmarking pipeline, each as a separate
 ros2 launch invocation. Each run gets a unique seed derived from BASE_SEED.
@@ -51,16 +65,7 @@ def run_benchmark(
     args: argparse.Namespace,
     report_dir: pathlib.Path,
 ) -> None:
-    """Launch one benchmark run and fail-fast on non-zero exit.
-
-    Args:
-        episode_id: 1-indexed run number.
-        args: Parsed CLI arguments.
-        report_dir: Directory to write output files.
-
-    Raises:
-        SystemExit: If the subprocess exits with a non-zero return code.
-    """
+    """Launch one benchmark run and exit with non-zero status on failure."""
     import time as _time
     stamp = _time.strftime("%Y%m%d_%H%M%S")
     seed = args.seed + (episode_id - 1)

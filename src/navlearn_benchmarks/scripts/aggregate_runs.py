@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Aggregate NavLearn benchmark results across multiple runs.
+# Copyright 2026 NavLearn Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""
+Aggregate NavLearn benchmark results across multiple runs.
 
 Reads all navlearn_run_report_run_*.json files from an input directory,
 computes per-metric statistics (mean, std, percentiles, outliers),
@@ -98,11 +112,15 @@ def detect_outliers(values: List[float], threshold: float = 2.0) -> List[int]:
     std = math.sqrt(sum((x - mean) ** 2 for x in valid) / len(valid))
     if std == 0.0:
         return []
-    return [i for i, v in enumerate(values) if not math.isnan(v) and abs(v - mean) > threshold * std]
+    return [
+        i for i, v in enumerate(values)
+        if not math.isnan(v) and abs(v - mean) > threshold * std
+    ]
 
 
 def compute_spl(success: bool, optimal_path_m: float, actual_path_m: float) -> Optional[float]:
-    """Compute Success weighted by inverse Path Length (SPL).
+    """
+    Compute Success weighted by inverse Path Length (SPL).
 
     Returns None if optimal_path_m is missing (-1) or zero.
     """
@@ -117,7 +135,8 @@ def aggregate_summaries(
     summaries: List[Tuple[str, Dict[str, Any]]],
     precision: int = 3,
 ) -> Dict[str, Any]:
-    """Aggregate all run summaries into per-metric statistics.
+    """
+    Aggregate all run summaries into per-metric statistics.
 
     Note: min_clearance_m is available per-goal in the per-run CSV output
     (written by MetricsCompiler), but is not yet included in the run summary
