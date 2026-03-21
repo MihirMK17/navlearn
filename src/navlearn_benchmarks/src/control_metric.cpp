@@ -39,6 +39,8 @@ ControlMetric::ControlMetric(const std::string &name) : Node(name)
   eps_w_ = this->declare_parameter<double>("eps_w", 0.05);
   buffer_span_s_ = this->declare_parameter<double>("buffer_span", 2.0);
   lambda_ = this->declare_parameter<double>("lambda", 0.5);
+  slip_buffer_max_size_ = this->declare_parameter<int>("slip_buffer_max_size", 1000);
+  max_stale_dt_s_ = this->declare_parameter<double>("max_stale_dt_s", 0.30);
 
   if(wheel_radius_ < 0)
   {
@@ -214,8 +216,8 @@ void ControlMetric::timerCallback()
   const rclcpp::Time tk = this->now();
 
   double v_cmd, w_cmd;
-  if (!zero_order_hold(buf_v_cmd_, tk, 0.30, v_cmd)) return;
-  if (!zero_order_hold(buf_w_cmd_, tk, 0.30, w_cmd)) return;
+  if (!zero_order_hold(buf_v_cmd_, tk, max_stale_dt_s_, v_cmd)) return;
+  if (!zero_order_hold(buf_w_cmd_, tk, max_stale_dt_s_, w_cmd)) return;
 
   double v_base, w_base, v_wheel;
   if (!sample_interp_or_hold(buf_v_base_,  tk, v_base))  return;
@@ -237,7 +239,7 @@ void ControlMetric::timerCallback()
 
   sum_s_  += slip;
   sum_s2_ += slip * slip;
-  if (slip_abs_buf_.size() >= 1000) slip_abs_buf_.pop_front();
+  if (slip_abs_buf_.size() >= static_cast<size_t>(slip_buffer_max_size_)) slip_abs_buf_.pop_front();
   slip_abs_buf_.push_back(std::abs(slip));
 
   control_energy_ += (v_base*v_base) + (lambda_)*(w_base*w_base);
