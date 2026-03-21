@@ -111,6 +111,9 @@ void TrajectoryMetric::timerCallback() {
   // Keep timer for future periodic reporting if needed.
 }
 
+// TODO(MK3): collision_count and min_clearance_m will be implemented in this file (Phase 7).
+// goal_metric.cpp stub was removed — collision metrics belong in TrajectoryMetric, not a separate node.
+
 void TrajectoryMetric::publishReport(const rclcpp::Time & t_end)
 {
   // Header & frames
