@@ -4,6 +4,7 @@
 #include <limits>
 
 #include "navlearn_benchmarks/trajectory_metric.hpp"
+#include "navlearn_benchmarks/navlearn_utils.hpp"
 
 using namespace std::chrono_literals;
 
@@ -17,9 +18,10 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   episode_event_topic_  = declare_parameter<std::string>("episode_event_topic", "/navlearn/episode_event");
   trajectory_metric_topic_  = declare_parameter<std::string>("trajectory_metric_topic", "/navlearn/trajectory_metric");
   scan_topic_     = declare_parameter<std::string>("scan_topic", "/scan");
+  gt_topic_       = declare_parameter<std::string>("gt_topic", "/bumperbot/ground_truth");
   ds_thresh_m_    = declare_parameter<double>("jitter_guard", 0.002); // ignore micro-jitter
   max_gap_s_      = declare_parameter<double>("max_gap_dt", 0.5);        // skip giant dt gaps
-  rpe_delta_s_    = declare_parameter<double>("rpe_delta", 1.0);      // placeholder only
+  rpe_delta_s_    = declare_parameter<double>("rpe_delta", 1.0);      // time interval for RPE
 
   if(ds_thresh_m_ < 0)
   {
@@ -35,6 +37,7 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   RCLCPP_INFO(get_logger(), "TrajectoryMetric config: Jitter Guard (distance):%.2f, Jitter Guard (time):%.2f",
               ds_thresh_m_, max_gap_s_);
 
+  have_gt_ = false;
   min_clearance_m_ = -1.0;
 
   // --- I/O ---
@@ -47,6 +50,10 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
       scan_topic_, rclcpp::SensorDataQoS(),
       std::bind(&TrajectoryMetric::scanCallback, this, std::placeholders::_1));
+
+  gt_sub_ = create_subscription<geometry_msgs::msg::TransformStamped>(
+      gt_topic_, rclcpp::SensorDataQoS(),
+      std::bind(&TrajectoryMetric::gtCallback, this, std::placeholders::_1));
 
   traj_pub_ = create_publisher<navlearn_msgs::msg::TrajectoryMetric>(trajectory_metric_topic_, rclcpp::QoS(10));
 
@@ -84,6 +91,13 @@ void TrajectoryMetric::odomCallback(nav_msgs::msg::Odometry::ConstSharedPtr odom
 
   last_odom_ = *odom;
   ++msg_.samples;
+
+  // Accumulate pose sample for ATE/RPE computation
+  PoseSample s;
+  s.x = odom->pose.pose.position.x;
+  s.y = odom->pose.pose.position.y;
+  s.t = rclcpp::Time(odom->header.stamp).seconds();
+  odom_path_.push_back(s);
 }
 
 void TrajectoryMetric::episodeCallback(navlearn_msgs::msg::EpisodeEvent::ConstSharedPtr ev)
@@ -103,6 +117,11 @@ void TrajectoryMetric::episodeCallback(navlearn_msgs::msg::EpisodeEvent::ConstSh
 
     // reset safety metric accumulator
     min_clearance_m_ = std::numeric_limits<double>::max();
+
+    // reset ATE/RPE accumulators
+    gt_path_.clear();
+    odom_path_.clear();
+    have_gt_ = false;
 
     // ensure we reseed odom integration
     have_last_odom_ = false;
@@ -145,15 +164,23 @@ void TrajectoryMetric::publishReport(const rclcpp::Time & t_end)
   msg_.duration.sec     = static_cast<int32_t>(dur.seconds());
   msg_.duration.nanosec = static_cast<uint32_t>(dur.nanoseconds() % 1000000000LL);
 
-  // Placeholders for ATE/RPE (not available yet)
-  msg_.ate_rmse_m        = std::numeric_limits<double>::quiet_NaN();
-  msg_.ate_count         = 0;
-  msg_.rpe_delta_s       = rpe_delta_s_;
-  msg_.rpe_trans_rmse_m  = std::numeric_limits<double>::quiet_NaN();
-  msg_.rpe_count         = 0;
-  // Use literal 0 to avoid enum name churn if your .msg doesn't define REF_* constants
-  msg_.ref_source        = 0;         // REF_NONE
-  msg_.ref_frame         = "";
+  // ATE/RPE: compute from accumulated paths if GT available
+  msg_.rpe_delta_s = rpe_delta_s_;
+  if (have_gt_ && gt_path_.size() >= 2 && odom_path_.size() >= 2) {
+    msg_.ate_rmse_m       = computeAte();
+    msg_.ate_count        = static_cast<uint32_t>(odom_path_.size());
+    msg_.rpe_trans_rmse_m = computeRpe();
+    msg_.rpe_count        = static_cast<uint32_t>(gt_path_.size());
+    msg_.ref_source       = navlearn::REF_GROUND_TRUTH;
+    msg_.ref_frame        = "world";
+  } else {
+    msg_.ate_rmse_m       = std::numeric_limits<double>::quiet_NaN();
+    msg_.ate_count        = 0;
+    msg_.rpe_trans_rmse_m = std::numeric_limits<double>::quiet_NaN();
+    msg_.rpe_count        = 0;
+    msg_.ref_source       = navlearn::REF_NONE;
+    msg_.ref_frame        = "";
+  }
 
   // Safety metric: minimum observed scan range; -1.0 if no valid scan was received
   msg_.min_clearance_m = (min_clearance_m_ < std::numeric_limits<double>::max())
@@ -163,9 +190,94 @@ void TrajectoryMetric::publishReport(const rclcpp::Time & t_end)
 
   RCLCPP_INFO(
     get_logger(),
-    "TrajectoryMetric: samples=%u path=%.3f m",
-    msg_.samples, msg_.path_length_m
+    "TrajectoryMetric: samples=%u path=%.3f m  ATE=%.4f m  RPE=%.4f m",
+    msg_.samples, msg_.path_length_m,
+    std::isnan(msg_.ate_rmse_m) ? -1.0 : msg_.ate_rmse_m,
+    std::isnan(msg_.rpe_trans_rmse_m) ? -1.0 : msg_.rpe_trans_rmse_m
   );
+}
+
+void TrajectoryMetric::gtCallback(geometry_msgs::msg::TransformStamped::ConstSharedPtr msg)
+{
+  /// Accumulate ground-truth pose samples while an episode is active.
+  if (!active_) return;
+  PoseSample s;
+  s.x = msg->transform.translation.x;
+  s.y = msg->transform.translation.y;
+  s.t = rclcpp::Time(msg->header.stamp).seconds();
+  gt_path_.push_back(s);
+  have_gt_ = true;
+}
+
+double TrajectoryMetric::computeAte() const
+{
+  /// Match each odom sample to the nearest-in-time GT sample; return RMSE of position errors.
+  if (gt_path_.size() < 2 || odom_path_.size() < 2) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+
+  double sum_sq = 0.0;
+  int count = 0;
+
+  for (const auto & os : odom_path_) {
+    double best_dt = std::numeric_limits<double>::max();
+    size_t best_idx = 0;
+    for (size_t i = 0; i < gt_path_.size(); ++i) {
+      double dt = std::fabs(gt_path_[i].t - os.t);
+      if (dt < best_dt) { best_dt = dt; best_idx = i; }
+    }
+    if (best_dt > 0.5) continue;  // skip if no nearby GT sample
+
+    double ex = os.x - gt_path_[best_idx].x;
+    double ey = os.y - gt_path_[best_idx].y;
+    sum_sq += ex * ex + ey * ey;
+    ++count;
+  }
+
+  if (count < 2) return std::numeric_limits<double>::quiet_NaN();
+  return std::sqrt(sum_sq / static_cast<double>(count));
+}
+
+double TrajectoryMetric::computeRpe() const
+{
+  /// Compute RPE: relative translation errors over rpe_delta_s_ time intervals.
+  if (gt_path_.size() < 2) return std::numeric_limits<double>::quiet_NaN();
+
+  double sum_sq = 0.0;
+  int count = 0;
+  const double delta = rpe_delta_s_;
+
+  auto nearest_odom = [&](double t) -> PoseSample {
+    size_t best = 0;
+    double best_dt = std::numeric_limits<double>::max();
+    for (size_t k = 0; k < odom_path_.size(); ++k) {
+      double dt = std::fabs(odom_path_[k].t - t);
+      if (dt < best_dt) { best_dt = dt; best = k; }
+    }
+    return odom_path_[best];
+  };
+
+  for (size_t i = 0; i < gt_path_.size(); ++i) {
+    size_t j = i + 1;
+    while (j < gt_path_.size() && (gt_path_[j].t - gt_path_[i].t) < delta) ++j;
+    if (j >= gt_path_.size()) break;
+
+    double gt_dx = gt_path_[j].x - gt_path_[i].x;
+    double gt_dy = gt_path_[j].y - gt_path_[i].y;
+
+    auto oi = nearest_odom(gt_path_[i].t);
+    auto oj = nearest_odom(gt_path_[j].t);
+    double odom_dx = oj.x - oi.x;
+    double odom_dy = oj.y - oi.y;
+
+    double ex = odom_dx - gt_dx;
+    double ey = odom_dy - gt_dy;
+    sum_sq += ex * ex + ey * ey;
+    ++count;
+  }
+
+  if (count < 2) return std::numeric_limits<double>::quiet_NaN();
+  return std::sqrt(sum_sq / static_cast<double>(count));
 }
 }
 

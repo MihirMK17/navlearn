@@ -28,12 +28,20 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <navlearn_msgs/msg/trajectory_metric.hpp>
 #include <navlearn_msgs/msg/episode_event.hpp>
 #include <unique_identifier_msgs/msg/uuid.hpp>
 #include <builtin_interfaces/msg/duration.hpp>
+#include <vector>
 
 namespace navlearn_benchmarks{
+
+struct PoseSample {
+    double x;
+    double y;
+    double t;  // seconds since epoch
+};
 
 class TrajectoryMetric : public rclcpp::Node
 {
@@ -44,6 +52,7 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<navlearn_msgs::msg::EpisodeEvent>::SharedPtr episode_sub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr gt_sub_;
     rclcpp::Publisher<navlearn_msgs::msg::TrajectoryMetric>::SharedPtr traj_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
 
@@ -52,6 +61,7 @@ private:
     std::string episode_event_topic_;
     std::string trajectory_metric_topic_;
     std::string scan_topic_;
+    std::string gt_topic_;
     double ds_thresh_m_;
     double max_gap_s_;
     double rpe_delta_s_;
@@ -67,15 +77,25 @@ private:
 
     navlearn_msgs::msg::TrajectoryMetric msg_;
 
+    // --- Ground truth ATE/RPE ---
+    std::vector<PoseSample> gt_path_;   // GT poses accumulated per episode
+    std::vector<PoseSample> odom_path_; // Odom poses accumulated per episode (in odom frame)
+    bool have_gt_;                       // any GT received this episode
+
     void odomCallback(nav_msgs::msg::Odometry::ConstSharedPtr odom);
 
     void episodeCallback(navlearn_msgs::msg::EpisodeEvent::ConstSharedPtr ev);
 
     void scanCallback(sensor_msgs::msg::LaserScan::ConstSharedPtr scan);
 
+    void gtCallback(geometry_msgs::msg::TransformStamped::ConstSharedPtr msg);
+
     void timerCallback();
 
     void publishReport(const rclcpp::Time & t_end);
+
+    double computeAte() const;
+    double computeRpe() const;
 };
 }
 
