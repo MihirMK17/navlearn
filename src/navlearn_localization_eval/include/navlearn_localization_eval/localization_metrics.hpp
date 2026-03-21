@@ -119,11 +119,15 @@ private:
     double ttc_hold_sec_;
     double ttc_timeout_sec_;
 
-    bool ttc_armed_;
-    bool ttc_started_;
-    bool ttc_converged_;
-    bool ttc_completed_;
-    bool ttc_incomplete_;
+    enum class TtcState {
+        IDLE,       // no episode active
+        ARMED,      // initial pose received; waiting for episode START
+        MEASURING,  // measuring time-to-converge
+        CONVERGED,  // within thresholds for hold duration
+        TIMED_OUT   // ttc_timeout_sec_ exceeded
+    };
+    TtcState ttc_state_;
+    bool ttc_done_;     // set when measurement concluded (success or timeout)
 
     double error_x_threshold_;
     double error_y_threshold_;
@@ -155,11 +159,16 @@ private:
     double ttr_hold_sec_;
     double ttr_timeout_sec_;
 
-    bool ttr_attempted_;
-    bool ttr_started_;
-    bool ttr_recovered_;
-    bool ttr_completed_;
-    bool ttr_incomplete_;
+    enum class TtrState {
+        IDLE,        // no kidnap attempted
+        KIDNAPPED,   // kidnap teleport confirmed; recovery measuring started
+        RECOVERING,  // robot recovering, not yet within thresholds
+        RECOVERED,   // within thresholds for hold duration
+        TIMED_OUT    // ttr_timeout_sec_ exceeded
+    };
+    TtrState ttr_state_;
+    bool ttr_done_;         // set when measurement concluded (success or timeout)
+    bool ttr_attempted_;    // guards against duplicate kidnap events per goal
 
     double ttr_error_pos_threshold_m_;
     double ttr_error_yaw_threshold_rad_;
