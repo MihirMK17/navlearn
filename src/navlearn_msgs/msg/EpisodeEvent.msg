@@ -19,3 +19,5 @@ geometry_msgs/PoseStamped start_pose
 geometry_msgs/PoseStamped goal_pose
 
 int16 recoveries
+uint32 collision_count      # contacts with static/dynamic obstacles during episode; 0 if not measured
+float64 optimal_path_m      # shortest Euclidean start-to-goal distance [m]; -1.0 if unknown

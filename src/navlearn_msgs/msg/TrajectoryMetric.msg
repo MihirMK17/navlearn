@@ -12,3 +12,6 @@ float64 rpe_trans_rmse_m
 uint32  rpe_count
 uint8 ref_source
 string ref_frame
+
+# Safety metrics
+float64 min_clearance_m     # minimum laser scan range observed during episode [m]; -1.0 if not measured
