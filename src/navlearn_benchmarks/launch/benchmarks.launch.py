@@ -1,8 +1,23 @@
+# Copyright 2026 NavLearn Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction, RegisterEventHandler, EmitEvent
+from launch.actions import (
+    DeclareLaunchArgument, TimerAction, RegisterEventHandler, EmitEvent)
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 from launch.events import Shutdown
@@ -11,20 +26,20 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    
-    episode_start_delay_arg = DeclareLaunchArgument("episode_start_delay", default_value="2.0")
+    episode_start_delay_arg = DeclareLaunchArgument(
+        "episode_start_delay", default_value="2.0")
     episode_start_delay = LaunchConfiguration("episode_start_delay")
 
-    use_sim_time_arg = DeclareLaunchArgument("use_sim_time",default_value="True")
+    use_sim_time_arg = DeclareLaunchArgument("use_sim_time", default_value="True")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
     goal_seed_arg = DeclareLaunchArgument("goal_seed", default_value="42")
     goal_seed = LaunchConfiguration("goal_seed")
 
-    goals_num_arg = DeclareLaunchArgument("goals_num",default_value="15")
+    goals_num_arg = DeclareLaunchArgument("goals_num", default_value="15")
     goals_num = LaunchConfiguration("goals_num")
 
-    goal_source_arg = DeclareLaunchArgument("goal_source",default_value="map_random")
+    goal_source_arg = DeclareLaunchArgument("goal_source", default_value="map_random")
     goal_source = LaunchConfiguration("goal_source")
 
     csv_path_arg = DeclareLaunchArgument(
@@ -47,7 +62,9 @@ def generate_launch_description():
     )
     json_path = LaunchConfiguration("json_path")
 
-    episode_manager_config_arg = DeclareLaunchArgument("episode_manager_config", default_value="episode_manager_1mSquare.yaml")
+    episode_manager_config_arg = DeclareLaunchArgument(
+        "episode_manager_config",
+        default_value="episode_manager_1mSquare.yaml")
     episode_manager_config = LaunchConfiguration("episode_manager_config")
 
     bad_init_test_arg = DeclareLaunchArgument('bad_init_test', default_value='false')
@@ -56,51 +73,54 @@ def generate_launch_description():
     kidnap_enabled_arg = DeclareLaunchArgument('kidnap_enabled', default_value='true')
     kidnap_test = LaunchConfiguration('kidnap_enabled')
 
-    kidnap_max_distance_m_arg = DeclareLaunchArgument('kidnap_max_distance_m', default_value='1.1')
+    kidnap_max_distance_m_arg = DeclareLaunchArgument(
+        'kidnap_max_distance_m', default_value='1.1')
     kidnap_max_distance_m = LaunchConfiguration('kidnap_max_distance_m')
 
-    kidnap_distance_m_arg = DeclareLaunchArgument('kidnap_distance_m', default_value='0.20')
+    kidnap_distance_m_arg = DeclareLaunchArgument(
+        'kidnap_distance_m', default_value='0.20')
     kidnap_distance_m = LaunchConfiguration('kidnap_distance_m')
 
-    world_name_arg = DeclareLaunchArgument("world_name", default_value="small_house",
+    world_name_arg = DeclareLaunchArgument(
+        "world_name",
+        default_value="small_house",
         description="Gazebo world name")
-    world_name = LaunchConfiguration("world_name")
 
-    nav2_profile_arg = DeclareLaunchArgument("nav2_profile", default_value="aggressive",
+    nav2_profile_arg = DeclareLaunchArgument(
+        "nav2_profile",
+        default_value="aggressive",
         description="Nav2 parameter profile: baseline | aggressive")
-    nav2_profile = LaunchConfiguration("nav2_profile")
 
     localization_eval_enabled_arg = DeclareLaunchArgument(
-        "localization_eval_enabled", default_value="false",
+        "localization_eval_enabled",
+        default_value="false",
         description="Enable localization_eval node alongside benchmarks")
-    localization_eval_enabled = LaunchConfiguration("localization_eval_enabled")
 
-    log_level_arg = DeclareLaunchArgument("log_level", default_value="info",
+    log_level_arg = DeclareLaunchArgument(
+        "log_level",
+        default_value="info",
         description="ROS 2 log level: debug | info | warn | error")
-    log_level = LaunchConfiguration("log_level")
-
 
     episode_manager_config_path = PathJoinSubstitution([
         FindPackageShare("navlearn_benchmarks"),
         "config",
         episode_manager_config
-        ]
-    )
+    ])
 
-    compiler = Node(    
+    compiler = Node(
         package='navlearn_benchmarks',
         executable='metrics_compiler',
         name='metrics_compiler',
         output='log',
         parameters=[
             os.path.join(
-                get_package_share_directory("navlearn_benchmarks"), 
-                "config", 
+                get_package_share_directory("navlearn_benchmarks"),
+                "config",
                 "metrics_compiler.yaml"
             ),
             {"use_sim_time": use_sim_time,
-             "csv_path" : csv_path,
-             "json_path" : json_path}
+             "csv_path": csv_path,
+             "json_path": json_path}
         ]
     )
 
@@ -111,8 +131,8 @@ def generate_launch_description():
         output='log',
         parameters=[
             os.path.join(
-                get_package_share_directory("navlearn_benchmarks"), 
-                "config", 
+                get_package_share_directory("navlearn_benchmarks"),
+                "config",
                 "control_metric.yaml"
             ),
             {"use_sim_time": use_sim_time}
@@ -126,8 +146,8 @@ def generate_launch_description():
         output='log',
         parameters=[
             os.path.join(
-                get_package_share_directory("navlearn_benchmarks"), 
-                "config", 
+                get_package_share_directory("navlearn_benchmarks"),
+                "config",
                 "trajectory_metric.yaml"
             ),
             {"use_sim_time": use_sim_time}
@@ -136,19 +156,19 @@ def generate_launch_description():
 
     episode_manager = Node(
         package='navlearn_benchmarks',
-        executable='episode_manager_node',   
+        executable='episode_manager_node',
         name='episode_manager',
         output='log',
         parameters=[
             episode_manager_config_path,
             {"use_sim_time": use_sim_time,
-             "goal_seed" : goal_seed,
-             "goals_num" : goals_num,
-             "goal_source" : goal_source,
-             "bad_init_test" : bad_init_test,
-             "kidnap_enabled" : kidnap_test,
-             "kidnap_max_distance_m" : kidnap_max_distance_m,
-             "kidnap_distance_m" : kidnap_distance_m}
+             "goal_seed": goal_seed,
+             "goals_num": goals_num,
+             "goal_source": goal_source,
+             "bad_init_test": bad_init_test,
+             "kidnap_enabled": kidnap_test,
+             "kidnap_max_distance_m": kidnap_max_distance_m,
+             "kidnap_distance_m": kidnap_distance_m}
         ]
     )
 
