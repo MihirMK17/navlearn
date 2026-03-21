@@ -1,0 +1,78 @@
+# NavLearn EpisodeManager — full parameter reference
+# This file documents all parameters with their defaults.
+# Override per-run by passing individual parameters to the launch file.
+
+episode_manager:
+  ros__parameters:
+
+    # --- Goals ---
+    goals_num: 4              # number of goals per episode; must be > 0
+    goal_source: map_random   # map_random | fixed | stress
+    goal_seed: 42             # RNG seed for reproducible goal sampling
+    dwell_sec: 5.0            # seconds to wait at goal before dispatching next
+
+    goal_poses_x: []          # fixed goal X positions [m] (used when goal_source=fixed)
+    goal_poses_y: []          # fixed goal Y positions [m]
+    goal_poses_yaw: []        # fixed goal yaw angles [deg]
+
+    # --- Goal Sampling (map_random) ---
+    goal_min_clearance_m: 0.75  # min distance from obstacle for sampled goals [m]; [0.1, 2.0]
+    goal_occ_thresh: 50          # occupancy grid threshold for "occupied" cell; [1, 100]
+    goal_reject_unknown: true    # reject goals in unknown cells
+
+    # --- Navigation ---
+    action_server: /navigate_to_pose
+    episode_pub_topic: /navlearn/episode_event
+    fixed_frame: map
+    robot_frame: base_link
+
+    # --- QoS ---
+    reliability: Reliable
+    durability: Transient
+
+    # --- Bad Init Test ---
+    bad_init_test: false
+    bad_init_pose_topic: /navlearn/bad_initialpose_event
+    set_initial_pose_srv: /set_initial_pose
+    bad_init_lin_range_m: 0.10    # linear offset range for bad init [m]; [0.0, 1.0]
+    bad_init_yaw_range_rad: 0.20  # yaw offset range for bad init [rad]; [0.0, 1.57]
+    initial_pose_seed: 1337
+
+    # --- Pose Application (bad init) ---
+    pose_apply_pos_tol_m: 0.02    # tolerance for confirming pose was applied [m]; [0.005, 0.1]
+    pose_apply_yaw_tol_rad: 0.02  # tolerance for confirming pose yaw [rad]; [0.005, 0.1]
+    pose_apply_timeout_sec: 2.0   # timeout waiting for pose to be applied [s]; [0.5, 10.0]
+    pose_sequence_timeout_sec: 6.0 # total timeout for pose sequence [s]; [1.0, 30.0]
+
+    # --- Covariance (bad init) ---
+    correct_cov_xy: 1.0e-6   # tight covariance for "correct" init
+    correct_cov_yaw: 1.0e-4
+    bad_cov_xy: 0.25         # loose covariance for "bad" init
+    bad_cov_yaw: 0.25
+
+    # --- Pose Error Thresholds ---
+    est_error_frame: base_footprint
+    gt_error_frame: base_footprint_gt
+    end_error_pos_threshold_m: 0.10   # acceptable position error at goal end [m]; [0.01, 0.5]
+    end_error_yaw_threshold_rad: 0.10  # acceptable yaw error at goal end [rad]; [0.01, 0.5]
+
+    # --- Kidnap Scenario ---
+    kidnap_enabled: false
+    kidnap_event_topic: /navlearn/kidnap_event
+
+    kidnap_delay_sec: 0.0          # deprecated, kept for config compatibility
+    kidnap_delay_min_sec: 1.0      # min delay after goal start before kidnap [s]; [0.5, 30.0]
+    kidnap_delay_max_sec: 5.0      # max delay after goal start before kidnap [s]; [1.0, 60.0]
+    kidnap_distance_m: 0.20        # teleport distance [m]; [0.05, 5.0]
+    kidnap_min_travel_m: 0.25      # robot must travel this far before kidnap triggers [m]; [0.0, 2.0]
+    kidnap_max_distance_m: 3.0     # max allowed teleport distance (sampling bound) [m]; [0.1, 10.0]
+    kidnap_z: 0.01                 # Z height for kidnap pose (Gazebo) [m]
+    kidnap_seed: 4242              # RNG seed for kidnap sampling
+    kidnap_max_sample_tries: 1500  # max rejection sampling attempts; [100, 10000]
+
+    # --- Kidnap Verification ---
+    set_pose_service: /gz_set_pose_server/set_entity_pose
+    entity_name: bumperbot
+    kidnap_verify_pos_tol_m: 0.05    # tolerance for confirming kidnap was applied [m]; [0.01, 0.2]
+    kidnap_verify_yaw_tol_rad: 0.05  # tolerance for confirming kidnap yaw [rad]; [0.01, 0.2]
+    kidnap_verify_timeout_sec: 1.0   # timeout waiting for kidnap verification [s]; [0.1, 5.0]
