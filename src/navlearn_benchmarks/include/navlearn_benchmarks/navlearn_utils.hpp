@@ -9,6 +9,10 @@
 
 namespace navlearn {
 
+/// ref_source values for TrajectoryMetric.msg
+constexpr uint8_t REF_NONE = 0;
+constexpr uint8_t REF_GROUND_TRUTH = 1;
+
 /// Wrap angle to [-π, π]
 inline double wrap_to_pi(double angle)
 {
