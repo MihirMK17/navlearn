@@ -14,8 +14,8 @@ MetricsCompiler::MetricsCompiler(const std::string &name): Node(name)
 , success_count_(0)
 {
   // Parameter: where to write the CSV
-  csv_path_ = this->declare_parameter<std::string>("csv_path", "/home/mihirmk/robot_ws/src/navlearn_benchmarks/benchmark_reports/navlearn_metrics.csv");
-  json_path_ = this->declare_parameter<std::string>("json_path", "/home/mihirmk/robot_ws/src/navlearn_benchmarks/benchmark_reports/navlearn_run_report.json");
+  csv_path_ = this->declare_parameter<std::string>("csv_path", "navlearn_metrics.csv");
+  json_path_ = this->declare_parameter<std::string>("json_path", "navlearn_run_report.json");
   episode_event_topic_ = this->declare_parameter<std::string>("episode_event_topic", "/navlearn/episode_event");
   control_metric_topic_ = this->declare_parameter<std::string>("control_metric_topic", "/navlearn/control_metric");
   trajectory_metric_topic_ = this->declare_parameter<std::string>("trajectory_metric_topic", "/navlearn/trajectory_metric");
@@ -200,8 +200,8 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
        << cm.samples << ","
 
        << tm.path_length_m << ","
-       << 0 << ","
-       << 0 << ","
+       << tm.ate_rmse_m << ","
+       << tm.rpe_trans_rmse_m << ","
        << tm.samples
        << "\n";
 
