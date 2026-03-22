@@ -18,7 +18,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument, TimerAction, RegisterEventHandler, EmitEvent)
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
 from launch_ros.substitutions import FindPackageShare
 from launch.events import Shutdown
 from launch.event_handlers import OnProcessExit
@@ -172,6 +172,47 @@ def generate_launch_description():
         ]
     )
 
+    world_name = LaunchConfiguration("world_name")
+
+    # ros_gz_bridge: bridge Ignition contact sensor → ROS 2 ros_gz_interfaces/msg/Contacts
+    # Topic format: /world/{world}/model/bumperbot/link/base_link/sensor/contact_sensor/contact
+    contact_bridge_topic = [
+        TextSubstitution(text='/world/'),
+        world_name,
+        TextSubstitution(
+            text='/model/bumperbot/link/base_link/sensor/contact_sensor/contact'
+                 '@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts'),
+    ]
+
+    collision_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='collision_contact_bridge',
+        arguments=[contact_bridge_topic],
+        output='log',
+    )
+
+    collision_monitor = Node(
+        package='navlearn_benchmarks',
+        executable='collision_monitor',
+        name='collision_monitor',
+        output='log',
+        parameters=[
+            os.path.join(
+                get_package_share_directory("navlearn_benchmarks"),
+                "config",
+                "collision_monitor.yaml"
+            ),
+            # Override contacts_topic to match the current world_name at runtime
+            {"contacts_topic": [
+                TextSubstitution(text='/world/'),
+                world_name,
+                TextSubstitution(
+                    text='/model/bumperbot/link/base_link/sensor/contact_sensor/contact'),
+            ]},
+        ]
+    )
+
     delayed_episode_manager = TimerAction(
         period=episode_start_delay,
         actions=[episode_manager],
@@ -204,6 +245,8 @@ def generate_launch_description():
         compiler,
         control_metric,
         trajectory_metric,
+        collision_bridge,
+        collision_monitor,
         delayed_episode_manager,
         shutdown_on_episode_done,
     ])

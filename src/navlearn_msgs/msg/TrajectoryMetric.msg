@@ -15,3 +15,4 @@ string ref_frame
 
 # Safety metrics
 float64 min_clearance_m     # minimum laser scan range observed during episode [m]; -1.0 if not measured
+uint32 collision_count      # number of contact events (rising-edge) detected during episode; 0 if not measured

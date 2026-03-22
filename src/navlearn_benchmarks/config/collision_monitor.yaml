@@ -1,0 +1,12 @@
+collision_monitor:
+  ros__parameters:
+    # ROS 2 topic published by ros_gz_bridge (parameter_bridge) from the Ignition
+    # contact sensor. The world name segment must match the Gazebo world in use.
+    # Format: /world/{world_name}/model/bumperbot/link/base_link/sensor/contact_sensor/contact
+    # This is overridden at launch time via the contacts_topic launch argument.
+    contacts_topic: /world/small_house/model/bumperbot/link/base_link/sensor/contact_sensor/contact
+
+    # Abstracted collision event topic consumed by trajectory_metric.
+    # For Isaac Sim: publish std_msgs/Empty to this topic from the OmniGraph extension
+    # (see docs/isaac_sim/collision_adapter.py) — this node is not used in Isaac Sim.
+    collision_topic: /navlearn/collision

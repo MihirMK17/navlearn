@@ -77,6 +77,8 @@ private:
     double total_control_energy = 0.0;
 
     double total_spl = 0.0;
+
+    uint32_t total_collisions = 0;
   };
 
   RunAccumulator run_acc_;
