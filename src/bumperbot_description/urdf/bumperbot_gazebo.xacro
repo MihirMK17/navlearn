@@ -127,16 +127,12 @@
     </sensor>
   </gazebo>
 
-  <!-- Contact Sensor (Ignition/Fortress) — used by navlearn_benchmarks collision_monitor -->
-  <gazebo reference="base_link">
-    <sensor name="contact_sensor" type="contact">
-      <always_on>true</always_on>
-      <update_rate>50</update_rate>
-      <contact>
-        <collision>base_link_collision</collision>
-      </contact>
-    </sensor>
-  </gazebo>
+  <!-- Contact Sensor (Ignition/Fortress) — DISABLED.                                          -->
+  <!-- The ignition-gazebo-contact-system world plugin is required for contact sensors to fire, -->
+  <!-- but adding it to the world SDF causes Ignition to pre-process ALL mesh collision        -->
+  <!-- geometry in the scene at startup (~6 min hang → spawn timeout → no controller/map).    -->
+  <!-- Collision counting instead uses scan-based detection in trajectory_metric (threshold    -->
+  <!-- on minimum LiDAR range). See collision_scan_threshold_m in trajectory_metric.yaml.     -->
 
   <!-- 2D Laser Sensor -->
   <gazebo reference="laser_link">

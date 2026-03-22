@@ -14,6 +14,12 @@ trajectory_metric:
     # If not running either adapter, collision_count will remain 0 for all episodes.
     collision_topic: /navlearn/collision
 
+    # Scan-based collision detection threshold [m].
+    # A rising-edge collision is counted when the minimum valid LiDAR range <= this value.
+    # 0.15 m ≈ robot radius (0.13 m) + sensor noise buffer.
+    # Set to 0.0 to disable scan-based detection (use only /navlearn/collision topic events).
+    collision_scan_threshold_m: 0.15
+
     # Ground truth pose topic (geometry_msgs/TransformStamped).
     # For Gazebo Ignition: published by navlearn_localization_eval/ground_truth_publisher
     #   (enabled via localization_eval_enabled:=true at launch).

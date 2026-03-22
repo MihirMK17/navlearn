@@ -9,10 +9,6 @@
       <real_time_update_rate>1000</real_time_update_rate>
     </physics>
 
-    <!-- Required for contact sensor events (navlearn collision_monitor) -->
-    <plugin filename="ignition-gazebo-contact-system"
-            name="ignition::gazebo::systems::Contact">
-    </plugin>
 
         <model name="aws_robomaker_warehouse_ShelfF_01_001">
         <include>

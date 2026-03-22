@@ -39,6 +39,7 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   max_gap_s_      = declare_parameter<double>("max_gap_dt", 0.5);        // skip giant dt gaps
   rpe_delta_s_    = declare_parameter<double>("rpe_delta", 1.0);      // time interval for RPE
   collision_topic_ = declare_parameter<std::string>("collision_topic", "/navlearn/collision");
+  collision_scan_threshold_m_ = declare_parameter<double>("collision_scan_threshold_m", 0.15);
 
   if(ds_thresh_m_ < 0)
   {
@@ -167,11 +168,25 @@ void TrajectoryMetric::scanCallback(sensor_msgs::msg::LaserScan::ConstSharedPtr 
 {
   if (!active_) return;
 
+  float min_range = std::numeric_limits<float>::max();
   for (const float r : scan->ranges) {
     if (!std::isfinite(r) || r < scan->range_min || r > scan->range_max) continue;
     if (static_cast<double>(r) < min_clearance_m_) {
       min_clearance_m_ = static_cast<double>(r);
     }
+    if (r < min_range) min_range = r;
+  }
+
+  // Scan-based collision detection (rising-edge).
+  // Fires when any valid scan range <= collision_scan_threshold_m_.
+  // Set collision_scan_threshold_m: 0 to disable.
+  if (collision_scan_threshold_m_ > 0.0 && min_range < std::numeric_limits<float>::max()) {
+    const bool in_contact = (static_cast<double>(min_range) <= collision_scan_threshold_m_);
+    if (in_contact && !was_in_contact_) {
+      ++collision_count_;
+      RCLCPP_DEBUG(get_logger(), "Scan collision: range=%.3f m, count=%u", min_range, collision_count_);
+    }
+    was_in_contact_ = in_contact;
   }
 }
 
