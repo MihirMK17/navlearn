@@ -6,6 +6,11 @@
             <max_step_size>0.01</max_step_size>
         </physics>
 
+        <!-- Required for contact sensor events (navlearn collision_monitor) -->
+        <plugin filename="ignition-gazebo-contact-system"
+                name="ignition::gazebo::systems::Contact">
+        </plugin>
+
   <model name='AirconditionerA_01_001'>
         <static>true</static>
         <include>
