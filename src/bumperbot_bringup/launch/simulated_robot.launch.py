@@ -19,12 +19,16 @@ def generate_launch_description():
     nav2_profile_arg = DeclareLaunchArgument("nav2_profile", default_value="baseline")
     nav2_profile = LaunchConfiguration("nav2_profile")
 
+    world_name_arg = DeclareLaunchArgument("world_name", default_value="small_house")
+    world_name = LaunchConfiguration("world_name")
+
     gazebo = IncludeLaunchDescription(
         os.path.join(
             get_package_share_directory("bumperbot_description"),
             "launch",
             "gazebo.launch.py"
         ),
+        launch_arguments={"world_name": world_name}.items(),
     )
     
     controller = IncludeLaunchDescription(
@@ -114,6 +118,7 @@ def generate_launch_description():
     return LaunchDescription([
         use_slam_arg,
         nav2_profile_arg,
+        world_name_arg,
         gazebo,
         controller,
         joystick,
