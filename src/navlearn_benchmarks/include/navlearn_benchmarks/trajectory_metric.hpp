@@ -15,25 +15,26 @@
 /**
  * Node: TrajectoryMetric
  * Role:
- *  - Measures the path length for each trajectory from start pose --> goal pose
- *  - Measures the Absolute Path Error over each trajectory   (planned)
- *  - Measures the Relative Pose Error i.e. RMS drift over each trajectory (planned)
- *  - Measures minimum laser scan range observed during each episode (safety metric)
+ *  - Measures path length, ATE, RPE, min clearance, and collision count per episode.
  *
  * Subscribes:
- *  - /bumperbot_controller/odom :  nav_msgs::msg::Odometry
- *  - /scan                      :  sensor_msgs::msg::LaserScan (configurable)
- *  - /ground_truth/pose_topic  :  Motion Capture / Any Other ground truth (planned)
+ *  - odom_topic          : nav_msgs::msg::Odometry
+ *  - scan_topic          : sensor_msgs::msg::LaserScan
+ *  - gt_topic            : geometry_msgs::msg::TransformStamped (ground truth)
+ *  - collision_topic     : std_msgs::msg::Empty (one msg = one collision event)
+ *  - episode_event_topic : navlearn_msgs::msg::EpisodeEvent
  *
  * Publishes:
- *  - /navlearn/trajectory_metric : navlearn_msgs::msg::TrajectoryMetric
+ *  - trajectory_metric_topic : navlearn_msgs::msg::TrajectoryMetric
  *
  * Parameters:
- *  - odom_topic (string)      : Odometry topic [default: /bumperbot_controller/odom]
- *  - scan_topic (string)      : Laser scan topic [default: /scan]
- *  - ds_thresh_m_ (double)    : Micro movement jitter guard
- *  - max_gap_s_ (double)      : Skipping giant dt gaps
- *  - rpe_delta_s_ (double)    : [Placeholder] (planned)
+ *  - odom_topic (string)       : [default: /bumperbot_controller/odom]
+ *  - scan_topic (string)       : [default: /scan]
+ *  - gt_topic (string)         : [default: /bumperbot/ground_truth]
+ *  - collision_topic (string)  : [default: /navlearn/collision]
+ *  - jitter_guard (double)     : Minimum distance step to count [m]
+ *  - max_gap_dt (double)       : Skip odom samples with dt > this [s]
+ *  - rpe_delta (double)        : RPE time interval [s]
  */
 
 #ifndef TRAJECTORY_METRIC_HPP
@@ -43,6 +44,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <std_msgs/msg/empty.hpp>
 #include <navlearn_msgs/msg/trajectory_metric.hpp>
 #include <navlearn_msgs/msg/episode_event.hpp>
 #include <unique_identifier_msgs/msg/uuid.hpp>
@@ -67,6 +69,7 @@ private:
     rclcpp::Subscription<navlearn_msgs::msg::EpisodeEvent>::SharedPtr episode_sub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
     rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr gt_sub_;
+    rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr collision_sub_;
     rclcpp::Publisher<navlearn_msgs::msg::TrajectoryMetric>::SharedPtr traj_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
 
@@ -76,6 +79,7 @@ private:
     std::string trajectory_metric_topic_;
     std::string scan_topic_;
     std::string gt_topic_;
+    std::string collision_topic_;
     double ds_thresh_m_;
     double max_gap_s_;
     double rpe_delta_s_;
@@ -88,6 +92,8 @@ private:
     unique_identifier_msgs::msg::UUID goal_id_;
     rclcpp::Time t_start_;
     double min_clearance_m_;
+    uint32_t collision_count_;
+    bool was_in_contact_;
 
     navlearn_msgs::msg::TrajectoryMetric msg_;
 
@@ -103,6 +109,8 @@ private:
     void scanCallback(sensor_msgs::msg::LaserScan::ConstSharedPtr scan);
 
     void gtCallback(geometry_msgs::msg::TransformStamped::ConstSharedPtr msg);
+
+    void collisionCallback(std_msgs::msg::Empty::ConstSharedPtr msg);
 
     void timerCallback();
 

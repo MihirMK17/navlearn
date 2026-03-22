@@ -20,6 +20,8 @@ find_package(navlearn_msgs REQUIRED)
 find_package(unique_identifier_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(ros_gz_interfaces REQUIRED)
 
 add_library(episode_manager SHARED src/episode_manager.cpp)
 target_include_directories(episode_manager PRIVATE
@@ -58,7 +60,15 @@ target_include_directories(trajectory_metric PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 ament_target_dependencies(trajectory_metric
-  rclcpp nav_msgs geometry_msgs unique_identifier_msgs navlearn_msgs sensor_msgs)
+  rclcpp nav_msgs geometry_msgs unique_identifier_msgs navlearn_msgs sensor_msgs std_msgs)
+
+# ========= CollisionMonitor (Gazebo Ignition adapter) =========
+add_executable(collision_monitor src/collision_monitor.cpp)
+target_include_directories(collision_monitor PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+ament_target_dependencies(collision_monitor
+  rclcpp ros_gz_interfaces std_msgs)
 
 # ========= MetricsCompiler (standalone node) =========
 add_executable(metrics_compiler src/metrics_compiler.cpp)
@@ -74,6 +84,7 @@ install(TARGETS
   control_metric
   trajectory_metric
   metrics_compiler
+  collision_monitor
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}

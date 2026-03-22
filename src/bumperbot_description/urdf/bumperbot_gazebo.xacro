@@ -127,6 +127,17 @@
     </sensor>
   </gazebo>
 
+  <!-- Contact Sensor (Ignition/Fortress) — used by navlearn_benchmarks collision_monitor -->
+  <gazebo reference="base_link">
+    <sensor name="contact_sensor" type="contact">
+      <always_on>true</always_on>
+      <update_rate>50</update_rate>
+      <contact>
+        <collision>base_link_collision</collision>
+      </contact>
+    </sensor>
+  </gazebo>
+
   <!-- 2D Laser Sensor -->
   <gazebo reference="laser_link">
     <sensor name="lidar" type="gpu_lidar">

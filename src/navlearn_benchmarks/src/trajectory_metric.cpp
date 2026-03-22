@@ -27,6 +27,8 @@ namespace navlearn_benchmarks{
 TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
     , have_last_odom_(false)
     , active_(false)
+    , collision_count_(0)
+    , was_in_contact_(false)
 {
   odom_topic_     = declare_parameter<std::string>("odom_topic", "/bumperbot_controller/odom");
   episode_event_topic_  = declare_parameter<std::string>("episode_event_topic", "/navlearn/episode_event");
@@ -36,6 +38,7 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   ds_thresh_m_    = declare_parameter<double>("jitter_guard", 0.002); // ignore micro-jitter
   max_gap_s_      = declare_parameter<double>("max_gap_dt", 0.5);        // skip giant dt gaps
   rpe_delta_s_    = declare_parameter<double>("rpe_delta", 1.0);      // time interval for RPE
+  collision_topic_ = declare_parameter<std::string>("collision_topic", "/navlearn/collision");
 
   if(ds_thresh_m_ < 0)
   {
@@ -68,6 +71,10 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   gt_sub_ = create_subscription<geometry_msgs::msg::TransformStamped>(
       gt_topic_, rclcpp::SensorDataQoS(),
       std::bind(&TrajectoryMetric::gtCallback, this, std::placeholders::_1));
+
+  collision_sub_ = create_subscription<std_msgs::msg::Empty>(
+      collision_topic_, rclcpp::QoS(10),
+      std::bind(&TrajectoryMetric::collisionCallback, this, std::placeholders::_1));
 
   traj_pub_ = create_publisher<navlearn_msgs::msg::TrajectoryMetric>(trajectory_metric_topic_, rclcpp::QoS(10));
 
@@ -129,8 +136,10 @@ void TrajectoryMetric::episodeCallback(navlearn_msgs::msg::EpisodeEvent::ConstSh
     msg_.path_length_m = 0.0;
     msg_.samples = 0;
 
-    // reset safety metric accumulator
+    // reset safety metric accumulators
     min_clearance_m_ = std::numeric_limits<double>::max();
+    collision_count_ = 0;
+    was_in_contact_ = false;
 
     // reset ATE/RPE accumulators
     gt_path_.clear();
@@ -200,6 +209,9 @@ void TrajectoryMetric::publishReport(const rclcpp::Time & t_end)
   msg_.min_clearance_m = (min_clearance_m_ < std::numeric_limits<double>::max())
       ? min_clearance_m_ : -1.0;
 
+  // Safety metric: collision count (0 if collision_monitor not running)
+  msg_.collision_count = collision_count_;
+
   traj_pub_->publish(msg_);
 
   RCLCPP_INFO(
@@ -209,6 +221,15 @@ void TrajectoryMetric::publishReport(const rclcpp::Time & t_end)
     std::isnan(msg_.ate_rmse_m) ? -1.0 : msg_.ate_rmse_m,
     std::isnan(msg_.rpe_trans_rmse_m) ? -1.0 : msg_.rpe_trans_rmse_m
   );
+}
+
+void TrajectoryMetric::collisionCallback(std_msgs::msg::Empty::ConstSharedPtr /*msg*/)
+{
+  // Each Empty message = one rising-edge collision event (published by collision_monitor
+  // for Gazebo, or by the Isaac Sim OmniGraph extension for Isaac Sim).
+  if (!active_) return;
+  ++collision_count_;
+  RCLCPP_DEBUG(get_logger(), "Collision count this episode: %u", collision_count_);
 }
 
 void TrajectoryMetric::gtCallback(geometry_msgs::msg::TransformStamped::ConstSharedPtr msg)

@@ -7,3 +7,16 @@ trajectory_metric:
 
     episode_event_topic: /navlearn/episode_event
     trajectory_metric_topic: /navlearn/trajectory_metric
+
+    # Collision events: one std_msgs/Empty per contact event (rising-edge).
+    # For Gazebo Ignition: published by collision_monitor (launched alongside benchmarks).
+    # For Isaac Sim: published by the OmniGraph extension in docs/isaac_sim/.
+    # If not running either adapter, collision_count will remain 0 for all episodes.
+    collision_topic: /navlearn/collision
+
+    # Ground truth pose topic (geometry_msgs/TransformStamped).
+    # For Gazebo Ignition: published by navlearn_localization_eval/ground_truth_publisher
+    #   (enabled via localization_eval_enabled:=true at launch).
+    # For Isaac Sim: publish TransformStamped directly to this topic via the Isaac ROS bridge.
+    # If not running a GT source, ATE/RPE will report NaN (safe default).
+    gt_topic: /bumperbot/ground_truth
