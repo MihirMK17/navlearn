@@ -16,8 +16,9 @@ src/gz_ros2_control/
 .vscode/
 src/.vscode/
 
-# O-1 visa strategy docs (personal, not for public repo)
+# Personal docs — not for public repo
 docs/o1/
+docs/paper1/
 SESSION_LOG.md
 BOOTSTRAP_PROMPT.md
 CLAUDE.md
