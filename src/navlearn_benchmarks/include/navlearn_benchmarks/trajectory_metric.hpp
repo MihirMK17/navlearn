@@ -80,6 +80,7 @@ private:
     std::string scan_topic_;
     std::string gt_topic_;
     std::string collision_topic_;
+    double collision_scan_threshold_m_;
     double ds_thresh_m_;
     double max_gap_s_;
     double rpe_delta_s_;
