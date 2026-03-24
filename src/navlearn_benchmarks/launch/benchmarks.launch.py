@@ -91,11 +91,6 @@ def generate_launch_description():
         default_value="aggressive",
         description="Nav2 parameter profile: baseline | aggressive")
 
-    localization_eval_enabled_arg = DeclareLaunchArgument(
-        "localization_eval_enabled",
-        default_value="false",
-        description="Enable localization_eval node alongside benchmarks")
-
     log_level_arg = DeclareLaunchArgument(
         "log_level",
         default_value="info",
@@ -264,7 +259,6 @@ def generate_launch_description():
         episode_manager_config_arg,
         world_name_arg,
         nav2_profile_arg,
-        localization_eval_enabled_arg,
         log_level_arg,
         collision_scan_threshold_m_arg,
         compiler,
