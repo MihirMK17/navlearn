@@ -18,7 +18,6 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument, TimerAction, RegisterEventHandler, EmitEvent)
-from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
 from launch_ros.substitutions import FindPackageShare
 from launch.events import Shutdown
@@ -214,8 +213,6 @@ def generate_launch_description():
         ]
     )
 
-    localization_eval_enabled = LaunchConfiguration("localization_eval_enabled")
-
     ground_truth_publisher = Node(
         package='navlearn_localization_eval',
         executable='ground_truth_publisher',
@@ -229,7 +226,6 @@ def generate_launch_description():
             ]),
             {'use_sim_time': use_sim_time}
         ],
-        condition=IfCondition(localization_eval_enabled),
     )
 
     delayed_episode_manager = TimerAction(
