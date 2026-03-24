@@ -34,7 +34,7 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   episode_event_topic_  = declare_parameter<std::string>("episode_event_topic", "/navlearn/episode_event");
   trajectory_metric_topic_  = declare_parameter<std::string>("trajectory_metric_topic", "/navlearn/trajectory_metric");
   scan_topic_     = declare_parameter<std::string>("scan_topic", "/scan");
-  gt_topic_       = declare_parameter<std::string>("gt_topic", "/bumperbot/ground_truth");
+  gt_topic_       = declare_parameter<std::string>("gt_topic", "/bumperbot/ground_truth_pose");
   ds_thresh_m_    = declare_parameter<double>("jitter_guard", 0.002); // ignore micro-jitter
   max_gap_s_      = declare_parameter<double>("max_gap_dt", 0.5);        // skip giant dt gaps
   rpe_delta_s_    = declare_parameter<double>("rpe_delta", 1.0);      // time interval for RPE

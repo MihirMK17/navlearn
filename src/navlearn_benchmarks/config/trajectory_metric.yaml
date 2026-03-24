@@ -25,4 +25,4 @@ trajectory_metric:
     #   (enabled via localization_eval_enabled:=true at launch).
     # For Isaac Sim: publish TransformStamped directly to this topic via the Isaac ROS bridge.
     # If not running a GT source, ATE/RPE will report NaN (safe default).
-    gt_topic: /bumperbot/ground_truth
+    gt_topic: /bumperbot/ground_truth_pose

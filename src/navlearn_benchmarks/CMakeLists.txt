@@ -99,6 +99,12 @@ install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Install empty benchmark_reports dir so the default csv_path/json_path from
+# benchmarks.launch.py (FindPackageShare + "benchmark_reports/...") is always valid.
+install(DIRECTORY
+  DESTINATION share/${PROJECT_NAME}/benchmark_reports
+)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_cpplint_FOUND TRUE)
