@@ -1,0 +1,20 @@
+episode_manager:
+  ros__parameters:
+    dwell_sec: 3.0  # sec
+    # Fixed goals chosen from MK2 baseline data (small_house, seed 42).
+    # Expected behaviour at collision_scan_threshold_m:=0.55:
+    #   Goal 1 (5.825, -2.175)  → CLEAN   (observed min_clearance 1.848 m)
+    #   Goal 2 (3.625, -2.425)  → COLLISION (observed min_clearance 0.415 m)
+    #   Goal 3 (-6.075, -0.025) → COLLISION (observed min_clearance 0.498 m)
+    #   Goal 4 (-8.375, -2.575) → COLLISION (observed min_clearance 0.390–0.500 m, 2 runs)
+    #   Goal 5 (7.425, -2.525)  → CLEAN   (observed min_clearance 1.238 m)
+    goal_source: static
+    goal_poses_x: [5.825, 3.625, -6.075, -8.375, 7.425]
+    goal_poses_y: [-2.175, -2.425, -0.025, -2.575, -2.525]
+    goal_poses_yaw: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+    goals_num: 5
+    action_server: /navigate_to_pose
+    episode_pub_topic: /navlearn/episode_event
+    fixed_frame: map
+    robot_frame: base_link

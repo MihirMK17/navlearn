@@ -101,6 +101,14 @@ def generate_launch_description():
         default_value="info",
         description="ROS 2 log level: debug | info | warn | error")
 
+    collision_scan_threshold_m_arg = DeclareLaunchArgument(
+        "collision_scan_threshold_m",
+        default_value="0.15",
+        description="LiDAR range threshold for scan-based collision detection [m]. "
+                    "Default 0.15. Set to 0.55 for collision counter integration test."
+    )
+    collision_scan_threshold_m = LaunchConfiguration("collision_scan_threshold_m")
+
     episode_manager_config_path = PathJoinSubstitution([
         FindPackageShare("navlearn_benchmarks"),
         "config",
@@ -150,7 +158,8 @@ def generate_launch_description():
                 "config",
                 "trajectory_metric.yaml"
             ),
-            {"use_sim_time": use_sim_time}
+            {"use_sim_time": use_sim_time,
+             "collision_scan_threshold_m": collision_scan_threshold_m}
         ]
     )
 
@@ -257,6 +266,7 @@ def generate_launch_description():
         nav2_profile_arg,
         localization_eval_enabled_arg,
         log_level_arg,
+        collision_scan_threshold_m_arg,
         compiler,
         control_metric,
         trajectory_metric,
