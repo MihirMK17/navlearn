@@ -1,16 +1,16 @@
 episode_manager:
   ros__parameters:
     dwell_sec: 3.0  # sec
-    # Fixed goals chosen from MK2 baseline data (small_house, seed 42).
+    # Goals derived from map BFS distance analysis (small_house, map.pgm).
     # Expected behaviour at collision_scan_threshold_m:=0.55:
-    #   Goal 1 (5.825, -2.175)  → CLEAN   (observed min_clearance 1.848 m)
-    #   Goal 2 (3.625, -2.425)  → COLLISION (observed min_clearance 0.415 m)
-    #   Goal 3 (-6.075, -0.025) → COLLISION (observed min_clearance 0.498 m)
-    #   Goal 4 (-8.375, -2.575) → COLLISION (observed min_clearance 0.390–0.500 m, 2 runs)
-    #   Goal 5 (7.425, -2.525)  → CLEAN   (observed min_clearance 1.238 m)
+    #   Goal 1 (-9.000, -1.200) → COLLISION (map dist_to_wall=0.283 m)
+    #   Goal 2 (-8.550, -4.500) → COLLISION (map dist_to_wall=0.283 m)
+    #   Goal 3 (-4.950,  0.850) → COLLISION (map dist_to_wall=0.283 m)
+    #   Goal 4 ( 4.650, -1.950) → CLEAN     (map dist_to_wall=2.509 m)
+    #   Goal 5 ( 6.900, -3.050) → CLEAN     (map dist_to_wall=1.750 m)
     goal_source: static
-    goal_poses_x: [5.825, 3.625, -6.075, -8.375, 7.425]
-    goal_poses_y: [-2.175, -2.425, -0.025, -2.575, -2.525]
+    goal_poses_x: [-9.000, -8.550, -4.950, 4.650, 6.900]
+    goal_poses_y: [-1.200, -4.500,  0.850, -1.950, -3.050]
     goal_poses_yaw: [0.0, 0.0, 0.0, 0.0, 0.0]
 
     goals_num: 5
