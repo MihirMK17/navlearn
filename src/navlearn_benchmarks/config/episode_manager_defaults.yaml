@@ -19,6 +19,7 @@ episode_manager:
     goal_min_clearance_m: 0.75  # min distance from obstacle for sampled goals [m]; [0.1, 2.0]
     goal_occ_thresh: 50          # occupancy grid threshold for "occupied" cell; [1, 100]
     goal_reject_unknown: true    # reject goals in unknown cells
+    goal_min_distance_m: 0.0     # min distance from spawn (goal 0) or previous goal (goals 1+) [m]; 0.0 = disabled; [0.0, 20.0]
 
     # --- Navigation ---
     action_server: /navigate_to_pose

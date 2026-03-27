@@ -181,6 +181,10 @@ private:
     double goal_min_clearance_m_;
     int goal_occ_thresh_;
     bool goal_reject_unknown_;
+    double goal_min_distance_m_;
+
+    geometry_msgs::msg::PoseStamped spawn_pose_;
+    bool have_spawn_pose_;
 
     std::vector<double> goal_poses_x_;
     std::vector<double> goal_poses_y_;

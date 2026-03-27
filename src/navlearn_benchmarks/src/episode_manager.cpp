@@ -63,6 +63,8 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   goal_min_clearance_m_ = declare_parameter<double>("goal_min_clearance_m", 0.75);
   goal_occ_thresh_      = declare_parameter<int>("goal_occ_thresh", 50);
   goal_reject_unknown_  = declare_parameter<bool>("goal_reject_unknown", true);
+  goal_min_distance_m_  = declare_parameter<double>("goal_min_distance_m", 0.0);
+  have_spawn_pose_      = false;
 
   bad_init_test_ = declare_parameter<bool>("bad_init_test", false);
   bad_init_pose_topic_ = declare_parameter<std::string>("bad_init_pose_topic", "/navlearn/bad_initialpose_event");
@@ -306,6 +308,14 @@ void EpisodeManager::loadGoals() {
           if(inExclusionZone(x,y)) continue;
           if(!hasClearanceCell(col, row, width, height, res, data)) continue;
 
+          if (goal_min_distance_m_ > 0.0) {
+            const geometry_msgs::msg::PoseStamped & ref =
+              goal_poses_.empty() ? spawn_pose_ : goal_poses_.back();
+            const double dx = x - ref.pose.position.x;
+            const double dy = y - ref.pose.position.y;
+            if (std::hypot(dx, dy) < goal_min_distance_m_) continue;
+          }
+
           cell_index = idx;
           break;
         }
@@ -359,7 +369,17 @@ void EpisodeManager::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr m
 {
   have_map_ = true;
   latest_map_ = *map;
-  
+
+  if (!have_spawn_pose_) {
+    if (sampleStartPoseAt(this->get_clock()->now(), spawn_pose_)) {
+      have_spawn_pose_ = true;
+      RCLCPP_INFO(get_logger(), "Spawn pose captured: (x=%.2f, y=%.2f)",
+                  spawn_pose_.pose.position.x, spawn_pose_.pose.position.y);
+    } else {
+      RCLCPP_WARN(get_logger(), "mapCallback: could not capture spawn pose yet (TF not ready)");
+    }
+  }
+
   RCLCPP_DEBUG(get_logger(), "Map received: %u x %u, res=%.3f", latest_map_.info.width, latest_map_.info.height, latest_map_.info.resolution);
 
   if (goal_source_ == "map_random" && goal_poses_.empty()) {
@@ -804,6 +824,14 @@ void EpisodeManager::timerCallback() {
   if (!client_->wait_for_action_server(0s)) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "NavigateToPose server not ready");
     return;
+  }
+
+  if (!have_spawn_pose_ && have_map_) {
+    if (sampleStartPoseAt(this->get_clock()->now(), spawn_pose_)) {
+      have_spawn_pose_ = true;
+      RCLCPP_INFO(get_logger(), "Spawn pose captured (timer retry): (x=%.2f, y=%.2f)",
+                  spawn_pose_.pose.position.x, spawn_pose_.pose.position.y);
+    }
   }
 
   const auto now = this->get_clock()->now();
