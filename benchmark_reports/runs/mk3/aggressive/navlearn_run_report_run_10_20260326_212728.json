@@ -1,0 +1,17 @@
+{
+  "goals_total": 5,
+  "goals_succeeded": 5,
+  "goals_failed": 0,
+  "goals_canceled": 0,
+  "nav_time_mean": 13.418,
+  "total_nav_time": 67.09,
+  "path_length_mean": 3.8235,
+  "total_path_traveled": 19.1175,
+  "control_energy_mean": 546.743,
+  "total_control_energy": 2733.72,
+  "spl_mean": 0.873612,
+  "total_spl": 4.36806,
+  "total_collisions": 0,
+  "collisions_per_goal": 0,
+  "csv_path": "benchmark_reports/runs/mk3/aggressive/navlearn_metrics_run_10_20260326_212728.csv"
+}
