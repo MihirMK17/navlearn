@@ -163,6 +163,20 @@ private:
 
     rclcpp::Client<navlearn_msgs::srv::SetEntityPose>::SharedFuture kidnap_future_;
 
+    // Recovery-on-failure state machine (async, driven by timerCallback)
+    enum class RecoveryStage : int
+    {
+        IDLE = 0,
+        TELEPORT_PENDING,
+        REINIT_PENDING,
+        WAIT_CONVERGENCE,
+        DONE
+    };
+
+    RecoveryStage recovery_stage_;
+    rclcpp::Time recovery_start_time_;
+    double recovery_timeout_sec_;
+
     // Goals / episode state
     std::vector<geometry_msgs::msg::PoseStamped> goal_poses_;
 
@@ -271,6 +285,9 @@ private:
     bool setEntityPose_(double x, double y, double z, double yaw);
     void maybeKidnap(const rclcpp::Time & now);
     void callReinitGlobalLocalization();
+    void forceReinitGlobalLocalization();
+    void initiateRecoveryTeleport(const geometry_msgs::msg::PoseStamped & goal_pose);
+    void advanceRecovery(const rclcpp::Time & now);
 };
 }
 
