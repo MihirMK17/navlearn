@@ -36,9 +36,9 @@ LocalizationMetrics::LocalizationMetrics(const std::string & name)
   , is_first_scan_(true)
   , is_first_odom_(true)
   , is_first_gt_(true)
-  , error_x_threshold_(0.2)
-  , error_y_threshold_(0.2)
-  , error_yaw_threshold_(0.1)
+  , error_x_threshold_(0.0)
+  , error_y_threshold_(0.0)
+  , error_yaw_threshold_(0.0)
   , ttc_state_(TtcState::IDLE)
   , ttc_done_(false)
   , ttr_state_(TtrState::IDLE)
@@ -63,6 +63,10 @@ LocalizationMetrics::LocalizationMetrics(const std::string & name)
   ttr_error_pos_threshold_m_ = this->declare_parameter<double>("ttr_error_pos_threshold_m", 0.20);
   ttr_error_yaw_threshold_rad_ =
     this->declare_parameter<double>("ttr_error_yaw_threshold_rad", 0.10);
+
+  error_x_threshold_ = this->declare_parameter<double>("ttc_error_x_threshold_m", 0.2);
+  error_y_threshold_ = this->declare_parameter<double>("ttc_error_y_threshold_m", 0.2);
+  error_yaw_threshold_ = this->declare_parameter<double>("ttc_error_yaw_threshold_rad", 0.1);
 
   episode_topic = this->declare_parameter<std::string>("episode_topic", "/navlearn/episode_event");
   amcl_topic_ = this->declare_parameter<std::string>("amcl_topic", "/amcl_pose");
