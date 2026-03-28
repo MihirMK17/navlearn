@@ -309,7 +309,6 @@ def generate_launch_description():
                 "recovery_timeout_sec": recovery_timeout_sec,
                 "bad_init_lin_range_m": bad_init_lin_range_m,
                 "bad_init_yaw_range_rad": bad_init_yaw_range_rad,
-                "kidnap_max_distance_m": kidnap_max_distance_m,
             },
         ],
     )

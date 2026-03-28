@@ -27,7 +27,7 @@ Expected directory structure::
         *localization*.csv
 
 CSV columns expected (per row / trial):
-    {mode}_outcome   -- int, 0 = success
+    {mode_upper} Outcome -- int, 1 = success, 0 = timeout, 2 = ended early, 3 = not armed
     {mode}_time_sec  -- float, recovery time in seconds
 
 Usage::
@@ -135,6 +135,14 @@ def parse_localization_csv(
     """
     Parse a single localization CSV and extract outcomes and recovery times.
 
+    The CSV is in long (tidy) format written by ``localization_metrics``::
+
+        GoalID,Metric Class,Metric Source,Metric Name,Metric Value,Timestamp
+
+    Metric names of interest (case-insensitive match):
+      - ``TTC Outcome`` / ``TTR Outcome`` — integer outcome code (1 = success)
+      - ``TTC`` / ``TTR`` — recovery/convergence time in seconds
+
     Parameters
     ----------
     csv_path:
@@ -145,50 +153,64 @@ def parse_localization_csv(
     Returns
     -------
     outcomes:
-        List of integer outcome values (0 = success).
+        List of integer outcome values (1 = success).
     times:
-        List of recovery time values in seconds; ``None`` if column absent or blank.
+        List of recovery time values in seconds; ``None`` if not available.
 
     """
-    outcome_col = f"{mode}_outcome"
-    time_col = f"{mode}_time_sec"
+    mode_upper = mode.upper()
+    outcome_metric = f"{mode_upper} Outcome"
+    time_metric = mode_upper  # "TTC" or "TTR"
 
-    outcomes: List[int] = []
-    times: List[Optional[float]] = []
+    # Collect per-goal data: {goal_id: {"outcome": int, "time": float|None}}
+    goal_data: Dict[str, Dict[str, object]] = {}
 
     with csv_path.open(newline="") as fh:
         reader = csv.DictReader(fh)
         if reader.fieldnames is None:
             LOG.warning("CSV has no header: %s", csv_path)
-            return outcomes, times
+            return [], []
 
-        has_outcome = outcome_col in reader.fieldnames
-        has_time = time_col in reader.fieldnames
-
-        if not has_outcome:
+        # Verify this is the expected long-format schema
+        required = {"GoalID", "Metric Name", "Metric Value"}
+        if not required.issubset(set(reader.fieldnames)):
             LOG.warning(
-                "Column '%s' missing in %s — file skipped", outcome_col, csv_path
+                "CSV missing required columns %s in %s — file skipped",
+                required - set(reader.fieldnames),
+                csv_path,
             )
-            return outcomes, times
+            return [], []
 
         for row in reader:
-            raw_outcome = row.get(outcome_col, "").strip()
-            if raw_outcome == "":
-                continue
-            try:
-                outcomes.append(int(raw_outcome))
-            except ValueError:
-                LOG.debug("Non-integer outcome '%s' in %s", raw_outcome, csv_path)
+            metric_name = row.get("Metric Name", "").strip()
+            goal_id = row.get("GoalID", "").strip()
+            raw_value = row.get("Metric Value", "").strip()
+
+            if not goal_id or not raw_value:
                 continue
 
-            if has_time:
-                raw_time = row.get(time_col, "").strip()
+            if goal_id not in goal_data:
+                goal_data[goal_id] = {}
+
+            if metric_name == outcome_metric:
                 try:
-                    times.append(float(raw_time) if raw_time else None)
+                    goal_data[goal_id]["outcome"] = int(float(raw_value))
                 except ValueError:
-                    times.append(None)
-            else:
-                times.append(None)
+                    pass
+            elif metric_name == time_metric:
+                try:
+                    goal_data[goal_id]["time"] = float(raw_value)
+                except ValueError:
+                    pass
+
+    outcomes: List[int] = []
+    times: List[Optional[float]] = []
+
+    for gid in sorted(goal_data.keys()):
+        entry = goal_data[gid]
+        if "outcome" in entry:
+            outcomes.append(entry["outcome"])
+            times.append(entry.get("time"))
 
     return outcomes, times
 
@@ -238,10 +260,10 @@ def collect_phase_data(
 
 
 def compute_success_rate(outcomes: List[int]) -> Optional[float]:
-    """Return success rate as a percentage (0 = success outcome), or None if no data."""
+    """Return success rate as a percentage (1 = success outcome), or None if no data."""
     if not outcomes:
         return None
-    successes = sum(1 for o in outcomes if o == 0)
+    successes = sum(1 for o in outcomes if o == 1)
     return 100.0 * successes / len(outcomes)
 
 
@@ -292,7 +314,7 @@ def write_tidy_csv(
                     outcomes: List[int] = cell["outcomes"]
                     times: List[float] = cell["times"]
 
-                    successes = sum(1 for o in outcomes if o == 0)
+                    successes = sum(1 for o in outcomes if o == 1)
                     total = len(outcomes)
                     sr = (100.0 * successes / total) if total > 0 else ""
                     mean_t = _mean(times) if times else ""
