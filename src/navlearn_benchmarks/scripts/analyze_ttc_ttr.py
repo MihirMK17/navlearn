@@ -304,9 +304,9 @@ def write_tidy_csv(
                             "success_rate_pct": f"{sr:.2f}" if sr != "" else "",
                             "successes": successes,
                             "total": total,
-                            "mean_recovery_time_s": f"{mean_t:.4f}"
-                            if mean_t != ""
-                            else "",
+                            "mean_recovery_time_s": (
+                                f"{mean_t:.4f}" if mean_t != "" else ""
+                            ),
                         }
                     )
 
