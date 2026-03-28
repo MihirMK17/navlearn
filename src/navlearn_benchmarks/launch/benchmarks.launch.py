@@ -17,8 +17,11 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import (
-    DeclareLaunchArgument, TimerAction, RegisterEventHandler, EmitEvent)
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
+    DeclareLaunchArgument, OpaqueFunction, TimerAction, RegisterEventHandler,
+    EmitEvent)
+from launch.conditions import IfCondition
+from launch.substitutions import (
+    LaunchConfiguration, PathJoinSubstitution, PythonExpression, TextSubstitution)
 from launch_ros.substitutions import FindPackageShare
 from launch.events import Shutdown
 from launch.event_handlers import OnProcessExit
@@ -104,10 +107,50 @@ def generate_launch_description():
     )
     collision_scan_threshold_m = LaunchConfiguration("collision_scan_threshold_m")
 
+    perturbation_level_arg = DeclareLaunchArgument(
+        "perturbation_level",
+        default_value="medium",
+        description="Perturbation preset for TTC/TTR: easy | medium | hard | extreme")
+    perturbation_level = LaunchConfiguration("perturbation_level")
+
+    goal_min_distance_m_arg = DeclareLaunchArgument(
+        "goal_min_distance_m",
+        default_value="0.0",
+        description="Min Euclidean distance between consecutive goals [m]. "
+                    "Set to 4.0 for TTC/TTR experiments.")
+    goal_min_distance_m = LaunchConfiguration("goal_min_distance_m")
+
+    ttc_timeout_sec_arg = DeclareLaunchArgument(
+        "ttc_timeout_sec", default_value="10.0",
+        description="TTC convergence timeout passed to localization_metrics [s]")
+    ttc_timeout_sec = LaunchConfiguration("ttc_timeout_sec")
+
+    ttr_timeout_sec_arg = DeclareLaunchArgument(
+        "ttr_timeout_sec", default_value="10.0",
+        description="TTR recovery timeout passed to localization_metrics [s]")
+    ttr_timeout_sec = LaunchConfiguration("ttr_timeout_sec")
+
+    recovery_timeout_sec_arg = DeclareLaunchArgument(
+        "recovery_timeout_sec", default_value="15.0",
+        description="Recovery convergence timeout for episode_manager [s]")
+    recovery_timeout_sec = LaunchConfiguration("recovery_timeout_sec")
+
     episode_manager_config_path = PathJoinSubstitution([
         FindPackageShare("navlearn_benchmarks"),
         "config",
         episode_manager_config
+    ])
+
+    localization_metrics_yaml = PathJoinSubstitution([
+        FindPackageShare("navlearn_localization_eval"),
+        "config",
+        "localization_metrics.yaml"
+    ])
+
+    gz_set_pose_yaml = PathJoinSubstitution([
+        FindPackageShare("navlearn_localization_eval"),
+        "config",
+        "gz_set_pose_server.yaml"
     ])
 
     compiler = Node(
@@ -172,7 +215,9 @@ def generate_launch_description():
              "bad_init_test": bad_init_test,
              "kidnap_enabled": kidnap_test,
              "kidnap_max_distance_m": kidnap_max_distance_m,
-             "kidnap_distance_m": kidnap_distance_m}
+             "kidnap_distance_m": kidnap_distance_m,
+             "goal_min_distance_m": goal_min_distance_m,
+             "recovery_timeout_sec": recovery_timeout_sec}
         ]
     )
 
@@ -232,6 +277,42 @@ def generate_launch_description():
         ],
     )
 
+    localization_metrics_node = Node(
+        condition=IfCondition(
+            PythonExpression([
+                "'", bad_init_test, "' == 'true' or '",
+                kidnap_test, "' == 'true'"
+            ])
+        ),
+        package='navlearn_localization_eval',
+        executable='localization_metrics',
+        name='localization_metrics',
+        output='log',
+        parameters=[
+            localization_metrics_yaml,
+            {'use_sim_time': use_sim_time,
+             'bad_init_test': bad_init_test,
+             'kidnap_test': kidnap_test,
+             'ttc_timeout_sec': ttc_timeout_sec,
+             'ttr_timeout_sec': ttr_timeout_sec},
+        ],
+    )
+
+    gz_set_pose_server_node = Node(
+        condition=IfCondition(
+            PythonExpression(["'", kidnap_test, "' == 'true'"])
+        ),
+        package='navlearn_localization_eval',
+        executable='gz_set_pose_server',
+        name='gz_set_pose_server',
+        output='log',
+        parameters=[
+            gz_set_pose_yaml,
+            {'use_sim_time': use_sim_time,
+             'world_name': world_name},
+        ],
+    )
+
     delayed_episode_manager = TimerAction(
         period=episode_start_delay,
         actions=[episode_manager],
@@ -261,12 +342,19 @@ def generate_launch_description():
         nav2_profile_arg,
         log_level_arg,
         collision_scan_threshold_m_arg,
+        perturbation_level_arg,
+        goal_min_distance_m_arg,
+        ttc_timeout_sec_arg,
+        ttr_timeout_sec_arg,
+        recovery_timeout_sec_arg,
         compiler,
         control_metric,
         trajectory_metric,
         collision_bridge,
         collision_monitor,
         ground_truth_publisher,
+        localization_metrics_node,
+        gz_set_pose_server_node,
         delayed_episode_manager,
         shutdown_on_episode_done,
     ])
