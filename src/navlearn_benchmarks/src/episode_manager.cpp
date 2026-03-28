@@ -63,6 +63,8 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   goal_min_clearance_m_ = declare_parameter<double>("goal_min_clearance_m", 0.75);
   goal_occ_thresh_      = declare_parameter<int>("goal_occ_thresh", 50);
   goal_reject_unknown_  = declare_parameter<bool>("goal_reject_unknown", true);
+  goal_min_distance_m_  = declare_parameter<double>("goal_min_distance_m", 0.0);
+  have_spawn_pose_      = false;
 
   bad_init_test_ = declare_parameter<bool>("bad_init_test", false);
   bad_init_pose_topic_ = declare_parameter<std::string>("bad_init_pose_topic", "/navlearn/bad_initialpose_event");
@@ -111,6 +113,9 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   kidnap_verify_timeout_sec_ = this->declare_parameter<double>("kidnap_verify_timeout_sec", 1.0);
 
   kidnap_event_topic_ = this->declare_parameter<std::string>("kidnap_event_topic", "/navlearn/kidnap_event");
+
+  recovery_timeout_sec_ = declare_parameter<double>("recovery_timeout_sec", 15.0);
+  recovery_stage_ = RecoveryStage::IDLE;
 
   if(goals_num_ <= 0) 
   {
@@ -306,6 +311,14 @@ void EpisodeManager::loadGoals() {
           if(inExclusionZone(x,y)) continue;
           if(!hasClearanceCell(col, row, width, height, res, data)) continue;
 
+          if (goal_min_distance_m_ > 0.0) {
+            const geometry_msgs::msg::PoseStamped & ref =
+              goal_poses_.empty() ? spawn_pose_ : goal_poses_.back();
+            const double dx = x - ref.pose.position.x;
+            const double dy = y - ref.pose.position.y;
+            if (std::hypot(dx, dy) < goal_min_distance_m_) continue;
+          }
+
           cell_index = idx;
           break;
         }
@@ -359,7 +372,17 @@ void EpisodeManager::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr m
 {
   have_map_ = true;
   latest_map_ = *map;
-  
+
+  if (!have_spawn_pose_) {
+    if (sampleStartPoseAt(this->get_clock()->now(), spawn_pose_)) {
+      have_spawn_pose_ = true;
+      RCLCPP_INFO(get_logger(), "Spawn pose captured: (x=%.2f, y=%.2f)",
+                  spawn_pose_.pose.position.x, spawn_pose_.pose.position.y);
+    } else {
+      RCLCPP_WARN(get_logger(), "mapCallback: could not capture spawn pose yet (TF not ready)");
+    }
+  }
+
   RCLCPP_DEBUG(get_logger(), "Map received: %u x %u, res=%.3f", latest_map_.info.width, latest_map_.info.height, latest_map_.info.resolution);
 
   if (goal_source_ == "map_random" && goal_poses_.empty()) {
@@ -806,10 +829,24 @@ void EpisodeManager::timerCallback() {
     return;
   }
 
+  if (!have_spawn_pose_ && have_map_) {
+    if (sampleStartPoseAt(this->get_clock()->now(), spawn_pose_)) {
+      have_spawn_pose_ = true;
+      RCLCPP_INFO(get_logger(), "Spawn pose captured (timer retry): (x=%.2f, y=%.2f)",
+                  spawn_pose_.pose.position.x, spawn_pose_.pose.position.y);
+    }
+  }
+
   const auto now = this->get_clock()->now();
 
   if (active_) {
     maybeKidnap(now);
+    return;
+  }
+
+  // Recovery-on-failure state machine (async)
+  if (recovery_stage_ != RecoveryStage::IDLE) {
+    advanceRecovery(now);
     return;
   }
 
@@ -968,22 +1005,32 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
               (rclcpp::Time(ev.stamp_terminated) - stamp_received_).seconds());
 
   active_ = false;
-  idx_++;
-  next_allowed_send_ = this->get_clock()->now() + rclcpp::Duration::from_seconds(dwell_sec_);
 
-  goal_id_.uuid.fill(0);
-  start_pose_ = geometry_msgs::msg::PoseStamped();
+  if (ev.result != navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED &&
+      (bad_init_test_ || kidnap_enabled_)) {
+    // Recovery: teleport to current goal, re-localize, then advance
+    RCLCPP_WARN(get_logger(), "Goal %zu FAILED during TTC/TTR experiment. Initiating recovery.", idx_);
+    recovery_stage_ = RecoveryStage::TELEPORT_PENDING;
+    recovery_start_time_ = this->get_clock()->now();
+    initiateRecoveryTeleport(goal_poses_[idx_]);
+  } else {
+    idx_++;
+    next_allowed_send_ = this->get_clock()->now() + rclcpp::Duration::from_seconds(dwell_sec_);
 
-  pose_sequence_pending_ = false;
-  pose_seq_stage_ = PoseSeqStage::IDLE;
+    goal_id_.uuid.fill(0);
+    start_pose_ = geometry_msgs::msg::PoseStamped();
 
-  kidnap_stage_ = KidnapStage::IDLE;
-  have_start_gt_ = false;
-  kidnap_sampled_delay_sec_ = 0.0;
+    pose_sequence_pending_ = false;
+    pose_seq_stage_ = PoseSeqStage::IDLE;
 
-  if (idx_ >= goal_poses_.size()) {
-    RCLCPP_INFO(get_logger(), "All goals done");
-    rclcpp::shutdown();
+    kidnap_stage_ = KidnapStage::IDLE;
+    have_start_gt_ = false;
+    kidnap_sampled_delay_sec_ = 0.0;
+
+    if (idx_ >= goal_poses_.size()) {
+      RCLCPP_INFO(get_logger(), "All goals done");
+      rclcpp::shutdown();
+    }
   }
 }
 
@@ -1018,9 +1065,130 @@ void EpisodeManager::callReinitGlobalLocalization()
     req,
     [this](SharedFuture /*future*/) {
       reinit_in_flight_ = false;
-      RCLCPP_INFO(this->get_logger(), "Called /reinitialize_global_localization.");
+      RCLCPP_INFO(this->get_logger(), "Called /reinitialize_global_localization (with cooldown).");
     }
   );
+}
+
+void EpisodeManager::forceReinitGlobalLocalization()
+{
+  if (!reinit_global_loc_client_->service_is_ready()) {
+    RCLCPP_WARN(get_logger(),
+                "Recovery: /reinitialize_global_localization not ready; skipping reinit.");
+    return;
+  }
+
+  auto req = std::make_shared<std_srvs::srv::Empty::Request>();
+
+  using SharedFuture = rclcpp::Client<std_srvs::srv::Empty>::SharedFuture;
+
+  reinit_global_loc_client_->async_send_request(
+    req,
+    [this](SharedFuture /*future*/) {
+      RCLCPP_INFO(get_logger(), "Recovery: forced AMCL global reinit (cooldown bypassed).");
+    }
+  );
+
+  last_reinit_time_ = this->get_clock()->now();
+}
+
+void EpisodeManager::initiateRecoveryTeleport(
+    const geometry_msgs::msg::PoseStamped & goal_pose)
+{
+  RCLCPP_INFO(get_logger(),
+              "Recovery: teleporting robot to goal (%.2f, %.2f) for re-localization.",
+              goal_pose.pose.position.x, goal_pose.pose.position.y);
+
+  const double yaw = tf2::getYaw(goal_pose.pose.orientation);
+  if (!setEntityPose_(goal_pose.pose.position.x,
+                      goal_pose.pose.position.y,
+                      kidnap_z_,
+                      yaw)) {
+    RCLCPP_ERROR(get_logger(), "Recovery: setEntityPose_ failed. Skipping recovery.");
+    recovery_stage_ = RecoveryStage::DONE;
+  }
+}
+
+void EpisodeManager::advanceRecovery(const rclcpp::Time & now)
+{
+  switch (recovery_stage_) {
+    case RecoveryStage::TELEPORT_PENDING:
+    {
+      // Wait for set_pose service future to complete.
+      // setEntityPose_ is fire-and-forget via async; wait a fixed 0.5s for Gazebo.
+      if ((now - recovery_start_time_).seconds() > 0.5) {
+        RCLCPP_INFO(get_logger(), "Recovery: teleport assumed complete, reinitializing AMCL.");
+        recovery_stage_ = RecoveryStage::REINIT_PENDING;
+      }
+      break;
+    }
+
+    case RecoveryStage::REINIT_PENDING:
+    {
+      forceReinitGlobalLocalization();
+
+      // Publish correct initial pose at teleport location
+      geometry_msgs::msg::PoseWithCovarianceStamped correct_pose =
+          buildPoseWithCovariance(goal_poses_[idx_], correct_cov_xy_, correct_cov_yaw_);
+      sendInitialPoseRequest(correct_pose);
+
+      recovery_start_time_ = now;  // reset timer for convergence wait
+      recovery_stage_ = RecoveryStage::WAIT_CONVERGENCE;
+      RCLCPP_INFO(get_logger(), "Recovery: waiting for AMCL convergence (timeout %.1fs).",
+                  recovery_timeout_sec_);
+      break;
+    }
+
+    case RecoveryStage::WAIT_CONVERGENCE:
+    {
+      geometry_msgs::msg::PoseStamped gt_pose, est_pose;
+      bool have_gt = lookupPose(gt_error_frame_, now, gt_pose);
+      bool have_est = lookupPose(est_error_frame_, now, est_pose);
+
+      if (have_gt && have_est && !needCorrection(gt_pose, est_pose)) {
+        RCLCPP_INFO(get_logger(), "Recovery: AMCL converged after %.2fs.",
+                    (now - recovery_start_time_).seconds());
+        recovery_stage_ = RecoveryStage::DONE;
+        break;
+      }
+
+      if ((now - recovery_start_time_).seconds() > recovery_timeout_sec_) {
+        RCLCPP_WARN(get_logger(),
+                    "Recovery: convergence timed out after %.1fs. Proceeding anyway.",
+                    recovery_timeout_sec_);
+        recovery_stage_ = RecoveryStage::DONE;
+        break;
+      }
+      break;
+    }
+
+    case RecoveryStage::DONE:
+    {
+      RCLCPP_INFO(get_logger(), "Recovery: complete. Advancing to next goal.");
+      idx_++;
+      recovery_stage_ = RecoveryStage::IDLE;
+
+      // Reset state for next goal
+      next_allowed_send_ = now + rclcpp::Duration::from_seconds(dwell_sec_);
+      goal_id_.uuid.fill(0);
+      start_pose_ = geometry_msgs::msg::PoseStamped();
+      pose_sequence_pending_ = false;
+      pose_seq_stage_ = PoseSeqStage::IDLE;
+      kidnap_stage_ = KidnapStage::IDLE;
+      have_start_gt_ = false;
+      kidnap_sampled_delay_sec_ = 0.0;
+
+      if (idx_ >= goal_poses_.size()) {
+        RCLCPP_INFO(get_logger(), "All goals done");
+        rclcpp::shutdown();
+      }
+      break;
+    }
+
+    case RecoveryStage::IDLE:
+    default:
+      break;
+  }
 }
 
 }
