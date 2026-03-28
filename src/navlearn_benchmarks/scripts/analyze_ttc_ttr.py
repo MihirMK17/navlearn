@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
+r"""
 Analyze TTC/TTR localization experiment results and produce degradation curves.
 
 Reads localization CSV files from structured experiment directories and produces:
@@ -148,6 +148,7 @@ def parse_localization_csv(
         List of integer outcome values (0 = success).
     times:
         List of recovery time values in seconds; ``None`` if column absent or blank.
+
     """
     outcome_col = f"{mode}_outcome"
     time_col = f"{mode}_time_sec"
