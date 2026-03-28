@@ -19,6 +19,7 @@ episode_manager:
     goal_min_clearance_m: 0.75  # min distance from obstacle for sampled goals [m]; [0.1, 2.0]
     goal_occ_thresh: 50          # occupancy grid threshold for "occupied" cell; [1, 100]
     goal_reject_unknown: true    # reject goals in unknown cells
+    goal_min_distance_m: 0.0     # min distance from spawn (goal 0) or previous goal (goals 1+) [m]; 0.0 = disabled; [0.0, 20.0]
 
     # --- Navigation ---
     action_server: /navigate_to_pose
@@ -76,3 +77,6 @@ episode_manager:
     kidnap_verify_pos_tol_m: 0.05    # tolerance for confirming kidnap was applied [m]; [0.01, 0.2]
     kidnap_verify_yaw_tol_rad: 0.05  # tolerance for confirming kidnap yaw [rad]; [0.01, 0.2]
     kidnap_verify_timeout_sec: 1.0   # timeout waiting for kidnap verification [s]; [0.1, 5.0]
+
+    # --- Recovery on Failure (TTC/TTR) ---
+    recovery_timeout_sec: 15.0   # max time to wait for AMCL convergence during recovery [s]; [5.0, 60.0]

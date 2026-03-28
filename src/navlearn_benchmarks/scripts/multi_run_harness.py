@@ -80,6 +80,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print launch commands without executing them",
     )
+    parser.add_argument(
+        "--extra-arg",
+        action="append",
+        default=[],
+        help="Additional launch arg passed to benchmarks.launch.py (repeatable), "
+        "e.g. --extra-arg bad_init_test:=true --extra-arg perturbation_level:=easy",
+    )
     return parser.parse_args()
 
 
@@ -115,6 +122,7 @@ def run_benchmark(
         f"csv_path:={csv_path}",
         f"json_path:={json_path}",
     ]
+    cmd.extend(args.extra_arg)
 
     if args.dry_run:
         logging.info("[DRY RUN] Would execute: %s", " ".join(cmd))
