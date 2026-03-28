@@ -28,6 +28,34 @@ from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
 
 
+def apply_perturbation_presets(context, *args, **kwargs):
+    """Map perturbation_level string to concrete parameter values.
+
+    Always overrides kidnap_distance_m, kidnap_max_distance_m,
+    bad_init_lin_range_m, and bad_init_yaw_range_rad based on the
+    perturbation_level. If a user wants custom values, they should
+    NOT set perturbation_level and instead pass params directly.
+    """
+    level = context.launch_configurations.get('perturbation_level', 'medium')
+
+    presets = {
+        'easy':    {'bad_init_lin_range_m': '0.25', 'bad_init_yaw_range_rad': '0.087',
+                    'kidnap_distance_m': '0.3',  'kidnap_max_distance_m': '0.5'},
+        'medium':  {'bad_init_lin_range_m': '0.50', 'bad_init_yaw_range_rad': '0.262',
+                    'kidnap_distance_m': '0.8',  'kidnap_max_distance_m': '1.2'},
+        'hard':    {'bad_init_lin_range_m': '1.00', 'bad_init_yaw_range_rad': '0.524',
+                    'kidnap_distance_m': '1.5',  'kidnap_max_distance_m': '2.5'},
+        'extreme': {'bad_init_lin_range_m': '2.00', 'bad_init_yaw_range_rad': '0.785',
+                    'kidnap_distance_m': '2.5',  'kidnap_max_distance_m': '4.0'},
+    }
+
+    if level in presets:
+        for key, val in presets[level].items():
+            context.launch_configurations[key] = val
+
+    return []
+
+
 def generate_launch_description():
     episode_start_delay_arg = DeclareLaunchArgument(
         "episode_start_delay", default_value="2.0")
@@ -84,6 +112,16 @@ def generate_launch_description():
         'kidnap_distance_m', default_value='0.20')
     kidnap_distance_m = LaunchConfiguration('kidnap_distance_m')
 
+    bad_init_lin_range_m_arg = DeclareLaunchArgument(
+        "bad_init_lin_range_m", default_value="0.50",
+        description="TTC position perturbation half-range [m]")
+    bad_init_lin_range_m = LaunchConfiguration("bad_init_lin_range_m")
+
+    bad_init_yaw_range_rad_arg = DeclareLaunchArgument(
+        "bad_init_yaw_range_rad", default_value="0.262",
+        description="TTC yaw perturbation half-range [rad]")
+    bad_init_yaw_range_rad = LaunchConfiguration("bad_init_yaw_range_rad")
+
     world_name_arg = DeclareLaunchArgument(
         "world_name",
         default_value="small_house",
@@ -111,7 +149,6 @@ def generate_launch_description():
         "perturbation_level",
         default_value="medium",
         description="Perturbation preset for TTC/TTR: easy | medium | hard | extreme")
-    perturbation_level = LaunchConfiguration("perturbation_level")
 
     goal_min_distance_m_arg = DeclareLaunchArgument(
         "goal_min_distance_m",
@@ -217,7 +254,10 @@ def generate_launch_description():
              "kidnap_max_distance_m": kidnap_max_distance_m,
              "kidnap_distance_m": kidnap_distance_m,
              "goal_min_distance_m": goal_min_distance_m,
-             "recovery_timeout_sec": recovery_timeout_sec}
+             "recovery_timeout_sec": recovery_timeout_sec,
+             "bad_init_lin_range_m": bad_init_lin_range_m,
+             "bad_init_yaw_range_rad": bad_init_yaw_range_rad,
+             "kidnap_max_distance_m": kidnap_max_distance_m}
         ]
     )
 
@@ -330,6 +370,8 @@ def generate_launch_description():
         kidnap_enabled_arg,
         kidnap_max_distance_m_arg,
         kidnap_distance_m_arg,
+        bad_init_lin_range_m_arg,
+        bad_init_yaw_range_rad_arg,
         episode_start_delay_arg,
         use_sim_time_arg,
         goal_seed_arg,
@@ -343,6 +385,7 @@ def generate_launch_description():
         log_level_arg,
         collision_scan_threshold_m_arg,
         perturbation_level_arg,
+        OpaqueFunction(function=apply_perturbation_presets),
         goal_min_distance_m_arg,
         ttc_timeout_sec_arg,
         ttr_timeout_sec_arg,
