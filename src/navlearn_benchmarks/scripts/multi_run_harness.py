@@ -85,7 +85,7 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=[],
         help="Additional launch arg passed to benchmarks.launch.py (repeatable), "
-             "e.g. --extra-arg bad_init_test:=true --extra-arg perturbation_level:=easy",
+        "e.g. --extra-arg bad_init_test:=true --extra-arg perturbation_level:=easy",
     )
     return parser.parse_args()
 

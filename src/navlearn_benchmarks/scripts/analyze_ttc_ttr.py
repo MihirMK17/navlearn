@@ -79,6 +79,7 @@ LOG = logging.getLogger(__name__)
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the TTC/TTR analysis script."""
     parser = argparse.ArgumentParser(
@@ -115,6 +116,7 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
+
 
 def find_csv_files(base_dir: pathlib.Path, mode: str, level: str) -> List[pathlib.Path]:
     """Return all localization CSV files under {base_dir}/{mode}_{level}/."""
@@ -233,6 +235,7 @@ def collect_phase_data(
 # Statistics helpers
 # ---------------------------------------------------------------------------
 
+
 def compute_success_rate(outcomes: List[int]) -> Optional[float]:
     """Return success rate as a percentage (0 = success outcome), or None if no data."""
     if not outcomes:
@@ -249,6 +252,7 @@ def _mean(values: List[float]) -> Optional[float]:
 # ---------------------------------------------------------------------------
 # Output generators
 # ---------------------------------------------------------------------------
+
 
 def write_tidy_csv(
     phase1_data: Dict,
@@ -300,7 +304,9 @@ def write_tidy_csv(
                             "success_rate_pct": f"{sr:.2f}" if sr != "" else "",
                             "successes": successes,
                             "total": total,
-                            "mean_recovery_time_s": f"{mean_t:.4f}" if mean_t != "" else "",
+                            "mean_recovery_time_s": f"{mean_t:.4f}"
+                            if mean_t != ""
+                            else "",
                         }
                     )
 
@@ -492,6 +498,7 @@ def _plot_recovery_box_plots(
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     """Run the TTC/TTR analysis pipeline and return an exit code."""
