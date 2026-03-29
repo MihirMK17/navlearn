@@ -1,4 +1,4 @@
-amcl_eval:
+localization_metrics:
   ros__parameters:
     csv_path: /home/mihirmk/robot_ws/src/navlearn_localization_eval/evaluations/localization_evaluation.csv
     scan_child_frame: laser_link

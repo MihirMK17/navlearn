@@ -393,6 +393,7 @@ def generate_launch_description():
                 "kidnap_test": kidnap_test,
                 "ttc_timeout_sec": ttc_timeout_sec,
                 "ttr_timeout_sec": ttr_timeout_sec,
+                "csv_path": csv_path,
             },
         ],
     )
