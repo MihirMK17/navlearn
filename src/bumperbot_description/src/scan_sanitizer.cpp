@@ -30,7 +30,7 @@ public:
 
     sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       input_topic_,
-      rclcpp::SensorDataQoS(),
+      rclcpp::SensorDataQoS().keep_last(5),
       std::bind(&ScanSanitizer::onScan, this, std::placeholders::_1)
     );
 
