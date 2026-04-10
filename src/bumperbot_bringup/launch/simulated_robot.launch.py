@@ -22,6 +22,17 @@ def generate_launch_description():
     world_name_arg = DeclareLaunchArgument("world_name", default_value="small_house")
     world_name = LaunchConfiguration("world_name")
 
+    amcl_config_arg = DeclareLaunchArgument(
+        name="amcl_config",
+        default_value=os.path.join(
+            get_package_share_directory("bumperbot_localization"),
+            "config",
+            "amcl.yaml"
+        ),
+        description="Path to AMCL config YAML. Use amcl_phase2.yaml for Phase 2 experiments."
+    )
+    amcl_config = LaunchConfiguration("amcl_config")
+
     gazebo = IncludeLaunchDescription(
         os.path.join(
             get_package_share_directory("bumperbot_description"),
@@ -55,12 +66,13 @@ def generate_launch_description():
     )
 
     localization = IncludeLaunchDescription(
-       os.path.join(
-           get_package_share_directory("bumperbot_localization"),
-           "launch",
-           "global_localization.launch.py"
-           ),
-           condition=UnlessCondition(use_slam)
+        os.path.join(
+            get_package_share_directory("bumperbot_localization"),
+            "launch",
+            "global_localization.launch.py"
+        ),
+        launch_arguments={"amcl_config": amcl_config}.items(),
+        condition=UnlessCondition(use_slam)
     )
 
     slam = IncludeLaunchDescription(
@@ -119,6 +131,7 @@ def generate_launch_description():
         use_slam_arg,
         nav2_profile_arg,
         world_name_arg,
+        amcl_config_arg,
         gazebo,
         controller,
         joystick,
