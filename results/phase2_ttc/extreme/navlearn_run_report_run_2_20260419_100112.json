@@ -1,0 +1,17 @@
+{
+  "goals_total": 5,
+  "goals_succeeded": 5,
+  "goals_failed": 0,
+  "goals_canceled": 0,
+  "nav_time_mean": 24.474,
+  "total_nav_time": 122.37,
+  "path_length_mean": 6.98312,
+  "total_path_traveled": 34.9156,
+  "control_energy_mean": 639.279,
+  "total_control_energy": 3196.4,
+  "spl_mean": 0.847633,
+  "total_spl": 4.23817,
+  "total_collisions": 0,
+  "collisions_per_goal": 0,
+  "csv_path": "/home/mihirmk/robot_ws/results/phase2_ttc/extreme/navlearn_metrics_run_2_20260419_100112.csv"
+}

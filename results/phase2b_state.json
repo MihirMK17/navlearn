@@ -1,0 +1,13 @@
+{
+  "status": "complete",
+  "completed": [
+    "ttr_easy",
+    "ttr_medium",
+    "ttr_hard",
+    "ttr_extreme"
+  ],
+  "pending": [],
+  "current": null,
+  "started_at": "2026-04-19T12:36:47.745447",
+  "last_updated": "2026-04-19T12:52:46.256030"
+}

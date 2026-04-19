@@ -23,12 +23,13 @@ Reads localization CSV files from structured experiment directories and produces
 
 Expected directory structure::
 
-    {base_dir}/{mode}_{level}/  (e.g. ttc_easy/, ttr_medium/)
-        *localization*.csv
+    {base_dir}_{mode}/{level}/  (e.g. results/phase1_ttc/easy/)
+        *metrics*.csv            (localization_metrics_*.csv or navlearn_metrics_*.csv)
 
-CSV columns expected (per row / trial):
-    {mode_upper} Outcome -- int, 1 = success, 0 = timeout, 2 = ended early, 3 = not armed
-    {mode}_time_sec  -- float, recovery time in seconds
+CSV format: long/tidy with columns GoalID, Metric Class, Metric Source, Metric Name,
+Metric Value, Timestamp.  Relevant metric names (case-sensitive):
+    {MODE} Outcome -- int, 1 = converged/success, 0 = timeout, 2 = ended early, 3 = not armed
+    {MODE}         -- float, convergence/recovery time in seconds
 
 Usage::
 
@@ -119,14 +120,27 @@ def parse_args() -> argparse.Namespace:
 
 
 def find_csv_files(base_dir: pathlib.Path, mode: str, level: str) -> List[pathlib.Path]:
-    """Return all localization CSV files under {base_dir}/{mode}_{level}/."""
-    subdir = base_dir / f"{mode}_{level}"
-    if not subdir.is_dir():
-        LOG.debug("Subdirectory not found: %s", subdir)
-        return []
-    files = sorted(subdir.glob("*localization*.csv"))
-    LOG.debug("Found %d CSV file(s) in %s", len(files), subdir)
-    return files
+    """
+    Return all localization/metrics CSV files for the given mode and level.
+
+    Checks two directory conventions:
+      1. {base_dir}_{mode}/{level}/  (e.g. results/phase1_ttc/easy/)
+      2. {base_dir}/{mode}_{level}/ (legacy flat layout)
+    """
+    candidates = [
+        base_dir.parent / f"{base_dir.name}_{mode}" / level,
+        base_dir / f"{mode}_{level}",
+    ]
+    for subdir in candidates:
+        if subdir.is_dir():
+            files = sorted(subdir.glob("*metrics*.csv"))
+            LOG.debug("Found %d CSV file(s) in %s", len(files), subdir)
+            return files
+
+    LOG.debug(
+        "No subdirectory found for mode=%s level=%s under %s", mode, level, base_dir
+    )
+    return []
 
 
 def parse_localization_csv(

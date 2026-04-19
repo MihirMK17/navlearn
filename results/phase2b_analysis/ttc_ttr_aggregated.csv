@@ -1,0 +1,17 @@
+phase,mode,level,success_rate_pct,successes,total,mean_recovery_time_s
+phase1,ttc,easy,100.00,25,25,2.6112
+phase1,ttc,medium,96.00,24,25,2.9720
+phase1,ttc,hard,100.00,25,25,3.9344
+phase1,ttc,extreme,52.00,13,25,1.6152
+phase1,ttr,easy,56.00,14,25,4.4416
+phase1,ttr,medium,28.00,7,25,2.4492
+phase1,ttr,hard,44.00,11,25,3.7108
+phase1,ttr,extreme,48.00,12,25,4.0268
+phase2,ttc,easy,,0,0,
+phase2,ttc,medium,,0,0,
+phase2,ttc,hard,,0,0,
+phase2,ttc,extreme,,0,0,
+phase2,ttr,easy,56.00,14,25,5.7164
+phase2,ttr,medium,24.00,6,25,2.0428
+phase2,ttr,hard,28.00,7,25,2.5356
+phase2,ttr,extreme,40.00,10,25,3.9512
