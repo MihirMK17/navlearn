@@ -136,7 +136,9 @@ def find_csv_files(base_dir: pathlib.Path, mode: str, level: str) -> List[pathli
             LOG.debug("Found %d CSV file(s) in %s", len(files), subdir)
             return files
 
-    LOG.debug("No subdirectory found for mode=%s level=%s under %s", mode, level, base_dir)
+    LOG.debug(
+        "No subdirectory found for mode=%s level=%s under %s", mode, level, base_dir
+    )
     return []
 
 
