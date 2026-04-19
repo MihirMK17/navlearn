@@ -120,7 +120,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def find_csv_files(base_dir: pathlib.Path, mode: str, level: str) -> List[pathlib.Path]:
-    """Return all localization/metrics CSV files for the given mode and level.
+    """
+    Return all localization/metrics CSV files for the given mode and level.
 
     Checks two directory conventions:
       1. {base_dir}_{mode}/{level}/  (e.g. results/phase1_ttc/easy/)
