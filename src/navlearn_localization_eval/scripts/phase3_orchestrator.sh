@@ -145,22 +145,23 @@ print(' '.join(pending))
 kill_sim() {
     log "--- SIM TEARDOWN ---"
     local procs="simulated_robot.launch.py|benchmarks.launch.py|gz_sim|gzserver|gzclient|ign gazebo|ros_gz_bridge|parameter_bridge|rviz2|nav2|amcl|lifecycle_manager|map_server|planner_server|controller_server|bt_navigator|behavior_server|waypoint_follower|smoother_server|velocity_smoother|collision_monitor|episode_manager|metrics_compiler|control_metric|trajectory_metric|localization_metrics|ground_truth_publisher|gz_set_pose|navlearn_benchmarks|navlearn_localization_eval|joy_node|joy_teleop|joystick_relay|twist_mux|twist_marker|twist_relay|scan_sanitizer|noisy_controller|safety_stop|robot_state_publisher|controller_manager|spawner"
-    log "SIGTERM to ROS/Gazebo processes..."
-    { ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' | xargs -r kill -TERM; } 2>/dev/null || true
+    local self_pid=$$
+    log "SIGTERM to ROS/Gazebo processes (excluding PID ${self_pid})..."
+    { ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' | grep -v "^${self_pid}$" | xargs -r kill -TERM; } 2>/dev/null || true
     sleep "$KILL_GRACE"
     local survivors
-    survivors=$(ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' || true)
+    survivors=$(ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' | grep -v "^${self_pid}$" || true)
     if [[ -n "$survivors" ]]; then
         log "SIGKILL survivors: $survivors"
         echo "$survivors" | xargs -r kill -KILL 2>/dev/null || true
         sleep 4
     fi
     local remaining=0
-    remaining=$(ps aux | grep -E "$procs" | grep -v grep | wc -l 2>/dev/null) || remaining=0
+    remaining=$(ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' | grep -v "^${self_pid}$" | wc -l 2>/dev/null) || remaining=0
     remaining=$(echo "$remaining" | tr -d ' ')
     if [[ "${remaining:-0}" -gt 0 ]]; then
         log "WARNING: $remaining processes still alive after SIGKILL:"
-        ps aux | grep -E "$procs" | grep -v grep
+        ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' | grep -v "^${self_pid}$"
         die "Sim teardown incomplete — cannot start next run."
     fi
     log "Sim teardown CLEAN."
