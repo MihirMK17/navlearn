@@ -12,9 +12,9 @@ set -eo pipefail
 WS="$HOME/robot_ws"
 STATE_FILE="$WS/results/phase3_state.json"
 AMCL_CONFIG="$WS/install/bumperbot_localization/share/bumperbot_localization/config/amcl_phase2.yaml"
-EPISODES=5
-GOALS=5
-SEED=42
+EPISODES=${EPISODES:-5}
+GOALS=${GOALS:-5}
+SEED=${SEED:-42}
 SIM_LOG="/tmp/phase3_sim.log"
 KILL_GRACE=8
 SIM_WARMUP=50
