@@ -317,15 +317,14 @@ main() {
         log "====== START: $entry ($nav2_profile / $mode / $level) ======"
         update_state "$entry" start
 
-        kill_sim
-
-        # Only relaunch sim if nav2_profile changed (avoids re-warmup for same profile)
+        # Relaunch sim when profile changes; keep sim alive across levels of same profile
         if [[ "$nav2_profile" != "$prev_nav2_profile" ]]; then
+            kill_sim
             start_sim "$nav2_profile"
             verify_stack
             prev_nav2_profile="$nav2_profile"
         else
-            log "Same nav2_profile ($nav2_profile) — skipping re-launch, re-verifying stack..."
+            log "Same nav2_profile ($nav2_profile) — keeping sim, re-verifying stack..."
             verify_stack
         fi
 
