@@ -145,23 +145,32 @@ print(' '.join(pending))
 kill_sim() {
     log "--- SIM TEARDOWN ---"
     local procs="simulated_robot.launch.py|benchmarks.launch.py|gz_sim|gzserver|gzclient|ign gazebo|ros_gz_bridge|parameter_bridge|rviz2|nav2|amcl|lifecycle_manager|map_server|planner_server|controller_server|bt_navigator|behavior_server|waypoint_follower|smoother_server|velocity_smoother|collision_monitor|episode_manager|metrics_compiler|control_metric|trajectory_metric|localization_metrics|ground_truth_publisher|gz_set_pose|navlearn_benchmarks|navlearn_localization_eval|joy_node|joy_teleop|joystick_relay|twist_mux|twist_marker|twist_relay|scan_sanitizer|noisy_controller|safety_stop|robot_state_publisher|controller_manager|spawner"
-    local self_pid=$$
-    log "SIGTERM to ROS/Gazebo processes (excluding PID ${self_pid})..."
-    { ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' | grep -v "^${self_pid}$" | xargs -r kill -TERM; } 2>/dev/null || true
+    # Collect PIDs of this orchestrator and its entire process group to avoid self-kill
+    local self_pgid
+    self_pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ') || self_pgid=$$
+    _safe_pids() {
+        ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' \
+            | while read -r pid; do
+                local pg; pg=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ') || continue
+                [[ "$pg" != "$self_pgid" ]] && echo "$pid"
+              done
+    }
+    log "SIGTERM to ROS/Gazebo processes (pgid ${self_pgid} excluded)..."
+    { _safe_pids | xargs -r kill -TERM; } 2>/dev/null || true
     sleep "$KILL_GRACE"
     local survivors
-    survivors=$(ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' | grep -v "^${self_pid}$" || true)
+    survivors=$(_safe_pids || true)
     if [[ -n "$survivors" ]]; then
         log "SIGKILL survivors: $survivors"
         echo "$survivors" | xargs -r kill -KILL 2>/dev/null || true
         sleep 4
     fi
     local remaining=0
-    remaining=$(ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' | grep -v "^${self_pid}$" | wc -l 2>/dev/null) || remaining=0
+    remaining=$(_safe_pids | wc -l 2>/dev/null) || remaining=0
     remaining=$(echo "$remaining" | tr -d ' ')
     if [[ "${remaining:-0}" -gt 0 ]]; then
         log "WARNING: $remaining processes still alive after SIGKILL:"
-        ps aux | grep -E "$procs" | grep -v grep | awk '{print $2}' | grep -v "^${self_pid}$"
+        _safe_pids
         die "Sim teardown incomplete — cannot start next run."
     fi
     log "Sim teardown CLEAN."
