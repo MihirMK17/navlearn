@@ -109,6 +109,11 @@ if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_cpplint_FOUND TRUE)
   set(ament_cmake_uncrustify_FOUND TRUE)
+  # Disable ament_pep257: it enforces D213 (multi-line summary on the 2nd line),
+  # which conflicts with the first-line-summary (D212) style used throughout these
+  # scripts and is ignored by pydocstyle's own default convention. flake8 (run in
+  # CI and respecting --max-line-length=100) covers real Python issues.
+  set(ament_cmake_pep257_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 

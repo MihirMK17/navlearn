@@ -121,7 +121,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         nargs="+",
         type=str,
-        help="Labels for --phase3-dirs entries (must match count; defaults to phase3_0, phase3_1…)",
+        help="Labels for --phase3-dirs (must match count; default phase3_0, phase3_1…)",
     )
     parser.add_argument(
         "--output-dir",
