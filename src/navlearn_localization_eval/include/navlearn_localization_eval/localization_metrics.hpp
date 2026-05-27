@@ -213,6 +213,7 @@ private:
   uint32_t scan_monotonicity_violations_;
   uint32_t scan_frame_mismatch_count_;
   std::deque<rclcpp::Time> scan_stamp_;
+  double last_valid_beam_fraction_;  // fraction of finite, in-range beams in the most recent scan
 
   // Odometry  Health
   bool is_first_odom_;

@@ -240,6 +240,7 @@ void LocalizationMetrics::reset_episode_state()
   scan_monotonicity_violations_ = 0;
   scan_frame_mismatch_count_ = 0;
   scan_stamp_.clear();
+  last_valid_beam_fraction_ = -1.0;  // sentinel until first scan of the episode
 
   // Odom
   is_first_odom_ = true;
@@ -463,6 +464,21 @@ void LocalizationMetrics::onAMCLPose(
       {"CovYY", curr_pose_.cov_yy},
       {"CovYawYaw", curr_pose_.cov_yawyaw}
     }, t);
+
+  // Ground-truth pose interpolated to this AMCL timestamp and emitted
+  // index-aligned with the Mean/Cov row above, so downstream analysis can pair
+  // estimate vs truth per sample (enables true-pose spatial binning of where
+  // localization actually degrades, not just the goal-start pose). Logged in
+  // every regime (plain/TTC/TTR) whenever ground truth is available. The
+  // re-interpolation in the TTC/TTR blocks below is idempotent for this t.
+  if (linear_interpolate(gt_stats_, gt_matched_, t, 0.30, 0.30)) {
+    write_csv(
+      "Localization Quality", "GroundTruth", boost::unordered_map<std::string, double> {
+        {"GTX", gt_matched_.transform_x},
+        {"GTY", gt_matched_.transform_y},
+        {"GTYaw", gt_matched_.transform_yaw}
+      }, t);
+  }
 
   if (bad_init_test_) {
     // Only process TTC while actively measuring and not yet concluded
@@ -752,6 +768,20 @@ void LocalizationMetrics::onScan(const sensor_msgs::msg::LaserScan & scan)
 {
   if (!is_active_) {return;}
 
+  // Input-validity: fraction of beams the filter can actually use this scan
+  // (finite and within [range_min, range_max]). In Gazebo, out-of-range hits
+  // return inf and are discarded by AMCL, so this fraction drops in open space
+  // (the open-space inf-collapse hypothesis). Computed before the timing/frame
+  // early-returns so every received scan updates it.
+  if (!scan.ranges.empty()) {
+    std::size_t valid = 0;
+    for (const float r : scan.ranges) {
+      if (std::isfinite(r) && r >= scan.range_min && r <= scan.range_max) {++valid;}
+    }
+    last_valid_beam_fraction_ =
+      static_cast<double>(valid) / static_cast<double>(scan.ranges.size());
+  }
+
   const rclcpp::Time t(scan.header.stamp, get_clock()->get_clock_type());
 
   scan_stamp_.push_back(t);
@@ -851,7 +881,8 @@ void LocalizationMetrics::timerCallback()
 
   write_csv(
     "Input Validity", "Lidar", boost::unordered_map<std::string, double> {
-      {"Lidar Rate", lidar_rate}
+      {"Lidar Rate", lidar_rate},
+      {"Valid Beam Fraction", last_valid_beam_fraction_}
     }, t);
 
   write_csv(

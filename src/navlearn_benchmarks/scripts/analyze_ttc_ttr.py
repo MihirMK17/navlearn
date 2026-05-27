@@ -101,6 +101,29 @@ def parse_args() -> argparse.Namespace:
         help="Root directory for Phase 2 experiment results (optional overlay)",
     )
     parser.add_argument(
+        "--phase2b-dir",
+        required=False,
+        default=None,
+        type=str,
+        help="Root directory for Phase 2b ablation results (optional)",
+    )
+    parser.add_argument(
+        "--phase3-dirs",
+        required=False,
+        default=None,
+        nargs="+",
+        type=str,
+        help="Root directories for Phase 3 MPPI results (one per profile, optional)",
+    )
+    parser.add_argument(
+        "--phase3-labels",
+        required=False,
+        default=None,
+        nargs="+",
+        type=str,
+        help="Labels for --phase3-dirs (must match count; default phase3_0, phase3_1…)",
+    )
+    parser.add_argument(
         "--output-dir",
         required=True,
         type=str,
@@ -292,16 +315,10 @@ def _mean(values: List[float]) -> Optional[float]:
 
 
 def write_tidy_csv(
-    phase1_data: Dict,
-    phase2_data: Optional[Dict],
+    phases: List[Tuple[str, Dict]],
     output_dir: pathlib.Path,
 ) -> pathlib.Path:
-    """
-    Write a tidy aggregated CSV with one row per (phase, mode, level).
-
-    Columns: phase, mode, level, success_rate_pct, successes, total,
-             mean_recovery_time_s
-    """
+    """Write a tidy aggregated CSV with one row per (phase, mode, level)."""
     out_path = output_dir / "ttc_ttr_aggregated.csv"
     fieldnames = [
         "phase",
@@ -312,10 +329,6 @@ def write_tidy_csv(
         "total",
         "mean_recovery_time_s",
     ]
-
-    phases = [("phase1", phase1_data)]
-    if phase2_data is not None:
-        phases.append(("phase2", phase2_data))
 
     with out_path.open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -352,60 +365,62 @@ def write_tidy_csv(
 
 
 def write_comparison_table(
-    phase1_data: Dict,
-    phase2_data: Optional[Dict],
+    phases: List[Tuple[str, Dict]],
     output_dir: pathlib.Path,
 ) -> pathlib.Path:
-    """
-    Write a Markdown comparison table: Phase 1 vs Phase 2 success rates with delta.
-
-    Columns: Mode | Level | P1 Success% | P2 Success% | Delta
-    """
+    """Write a Markdown comparison table: success rates across all phases with deltas vs phase1."""
     out_path = output_dir / "ttc_ttr_comparison.md"
+
+    phase_labels = [label for label, _ in phases]
+    # Header: Mode | Level | P1 | P2 | Delta(P2-P1) | P3 | Delta(P3-P1) ...
+    header_cols = ["Mode", "Level"]
+    sep_cols = ["------|", "-------|"]
+    for i, label in enumerate(phase_labels):
+        header_cols.append(f"{label.upper()} (%)")
+        sep_cols.append("--------------|")
+        if i > 0:
+            header_cols.append(f"Δ vs {phase_labels[0].upper()} (pp)")
+            sep_cols.append("------------|")
 
     lines = [
         "# TTC/TTR Phase Comparison\n",
-        "| Mode | Level | P1 Success (%) | P2 Success (%) | Delta (pp) |",
-        "|------|-------|---------------|----------------|-----------|",
+        "| " + " | ".join(header_cols) + " |",
+        "|" + "".join(sep_cols),
     ]
 
+    baseline_data = phases[0][1]
     for mode in MODES:
         for level in LEVELS:
-            outcomes1 = phase1_data[mode][level]["outcomes"]
-            sr1 = compute_success_rate(outcomes1)
-            sr1_str = f"{sr1:.1f}" if sr1 is not None else "—"
-
-            sr2_str = "—"
-            delta_str = "—"
-            if phase2_data is not None:
-                outcomes2 = phase2_data[mode][level]["outcomes"]
-                sr2 = compute_success_rate(outcomes2)
-                sr2_str = f"{sr2:.1f}" if sr2 is not None else "—"
-                if sr1 is not None and sr2 is not None:
-                    delta = sr2 - sr1
-                    sign = "+" if delta >= 0 else ""
-                    delta_str = f"{sign}{delta:.1f}"
-
-            lines.append(
-                f"| {mode.upper()} | {level.capitalize()} | {sr1_str} | {sr2_str} | {delta_str} |"
-            )
+            sr_baseline = compute_success_rate(baseline_data[mode][level]["outcomes"])
+            row = [mode.upper(), level.capitalize()]
+            for i, (label, phase_data) in enumerate(phases):
+                outcomes = phase_data[mode][level]["outcomes"]
+                sr = compute_success_rate(outcomes)
+                row.append(f"{sr:.1f}" if sr is not None else "—")
+                if i > 0:
+                    if sr is not None and sr_baseline is not None:
+                        delta = sr - sr_baseline
+                        sign = "+" if delta >= 0 else ""
+                        row.append(f"{sign}{delta:.1f}")
+                    else:
+                        row.append("—")
+            lines.append("| " + " | ".join(row) + " |")
 
     out_path.write_text("\n".join(lines) + "\n")
     LOG.info("Comparison table written: %s", out_path)
     return out_path
 
 
+_PLOT_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
+_PLOT_MARKERS = ["o", "s", "^", "D", "v", "P"]
+_PLOT_STYLES = ["-", "--", "-.", ":", "-", "--"]
+
+
 def _plot_degradation_curves(
-    phase1_data: Dict,
-    phase2_data: Optional[Dict],
+    phases: List[Tuple[str, Dict]],
     output_dir: pathlib.Path,
 ) -> None:
-    """
-    Plot success rate vs perturbation level for TTC and TTR.
-
-    Generates one PNG per mode (ttc_degradation.png, ttr_degradation.png).
-    Phase 1 is always plotted; Phase 2 is overlaid when available.
-    """
+    """Plot success rate vs perturbation level for all phases and modes."""
     if not HAS_MATPLOTLIB:
         LOG.warning("Skipping degradation curve plots — matplotlib unavailable")
         return
@@ -416,36 +431,20 @@ def _plot_degradation_curves(
     for mode in MODES:
         fig, ax = plt.subplots(figsize=(7, 4))
 
-        # Phase 1
-        sr1_vals = []
-        for level in LEVELS:
-            sr = compute_success_rate(phase1_data[mode][level]["outcomes"])
-            sr1_vals.append(sr if sr is not None else float("nan"))
-
-        ax.plot(
-            x_positions,
-            sr1_vals,
-            marker="o",
-            linewidth=2,
-            label="Phase 1",
-            color="#1f77b4",
-        )
-
-        # Phase 2 overlay
-        if phase2_data is not None:
-            sr2_vals = []
+        for i, (label, phase_data) in enumerate(phases):
+            sr_vals = []
             for level in LEVELS:
-                sr = compute_success_rate(phase2_data[mode][level]["outcomes"])
-                sr2_vals.append(sr if sr is not None else float("nan"))
+                sr = compute_success_rate(phase_data[mode][level]["outcomes"])
+                sr_vals.append(sr if sr is not None else float("nan"))
 
             ax.plot(
                 x_positions,
-                sr2_vals,
-                marker="s",
+                sr_vals,
+                marker=_PLOT_MARKERS[i % len(_PLOT_MARKERS)],
                 linewidth=2,
-                linestyle="--",
-                label="Phase 2",
-                color="#ff7f0e",
+                linestyle=_PLOT_STYLES[i % len(_PLOT_STYLES)],
+                label=label.upper(),
+                color=_PLOT_COLORS[i % len(_PLOT_COLORS)],
             )
 
         ax.set_xticks(x_positions)
@@ -465,41 +464,28 @@ def _plot_degradation_curves(
 
 
 def _plot_recovery_box_plots(
-    phase1_data: Dict,
-    phase2_data: Optional[Dict],
+    phases: List[Tuple[str, Dict]],
     output_dir: pathlib.Path,
 ) -> None:
-    """
-    Plot recovery time box plots per mode, grouped by perturbation level.
-
-    Generates one PNG per mode (ttc_recovery_times.png, ttr_recovery_times.png).
-    """
+    """Plot recovery time box plots per mode, grouped by perturbation level, one box per phase."""
     if not HAS_MATPLOTLIB:
         LOG.warning("Skipping box plot output — matplotlib unavailable")
         return
 
+    n_phases = len(phases)
     for mode in MODES:
         fig, ax = plt.subplots(figsize=(8, 5))
 
         n_levels = len(LEVELS)
-        width = 0.35
-        has_p2 = phase2_data is not None
+        width = 0.8 / n_phases
+        offsets = [((j - (n_phases - 1) / 2) * width) for j in range(n_phases)]
 
         for i, level in enumerate(LEVELS):
-            times1: List[float] = phase1_data[mode][level]["times"]
+            for j, (label, phase_data) in enumerate(phases):
+                times: List[float] = phase_data[mode][level]["times"]
+                pos = i + offsets[j]
+                color = _PLOT_COLORS[j % len(_PLOT_COLORS)]
 
-            if has_p2:
-                times2: List[float] = phase2_data[mode][level]["times"]  # type: ignore[index]
-                pos1 = i - width / 2
-                pos2 = i + width / 2
-                datasets = [
-                    (times1, pos1, "Phase 1", "#1f77b4"),
-                    (times2, pos2, "Phase 2", "#ff7f0e"),
-                ]
-            else:
-                datasets = [(times1, i, "Phase 1", "#1f77b4")]
-
-            for times, pos, label, color in datasets:
                 if times:
                     bp = ax.boxplot(
                         times,
@@ -512,16 +498,15 @@ def _plot_recovery_box_plots(
                         showfliers=True,
                         manage_ticks=False,
                     )
-                    # Label only once per phase
                     if i == 0:
-                        bp["boxes"][0].set_label(label)
+                        bp["boxes"][0].set_label(label.upper())
 
         ax.set_xticks(range(n_levels))
         ax.set_xticklabels([lvl.capitalize() for lvl in LEVELS])
         ax.set_xlabel("Perturbation Level")
         ax.set_ylabel("Recovery Time (s)")
         ax.set_title(f"{mode.upper()} Recovery Times")
-        if has_p2:
+        if n_phases > 1:
             ax.legend()
         ax.grid(axis="y", linestyle="--", alpha=0.4)
         fig.tight_layout()
@@ -546,40 +531,64 @@ def main() -> int:
         format="%(levelname)s %(name)s: %(message)s",
     )
 
-    phase1_dir = pathlib.Path(args.phase1_dir).expanduser().resolve()
-    phase2_dir = (
-        pathlib.Path(args.phase2_dir).expanduser().resolve()
-        if args.phase2_dir
-        else None
-    )
     output_dir = pathlib.Path(args.output_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Validate inputs
+    # Build ordered phases list: phase1 always first
+    phase1_dir = pathlib.Path(args.phase1_dir).expanduser().resolve()
     if not phase1_dir.is_dir():
         LOG.error("Phase 1 directory not found: %s", phase1_dir)
         return 1
-    if phase2_dir is not None and not phase2_dir.is_dir():
-        LOG.error("Phase 2 directory not found: %s", phase2_dir)
-        return 1
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load data
     LOG.info("Loading Phase 1 data from: %s", phase1_dir)
-    phase1_data = collect_phase_data(phase1_dir)
+    all_phases: List[Tuple[str, Dict]] = [("phase1", collect_phase_data(phase1_dir))]
 
-    phase2_data = None
-    if phase2_dir is not None:
-        LOG.info("Loading Phase 2 data from: %s", phase2_dir)
-        phase2_data = collect_phase_data(phase2_dir)
+    if args.phase2_dir:
+        p2 = pathlib.Path(args.phase2_dir).expanduser().resolve()
+        if not p2.is_dir():
+            LOG.error("Phase 2 directory not found: %s", p2)
+            return 1
+        LOG.info("Loading Phase 2 data from: %s", p2)
+        all_phases.append(("phase2", collect_phase_data(p2)))
+
+    if args.phase2b_dir:
+        p2b = pathlib.Path(args.phase2b_dir).expanduser().resolve()
+        if not p2b.is_dir():
+            LOG.warning("Phase 2b directory not found (skipping): %s", p2b)
+        else:
+            LOG.info("Loading Phase 2b data from: %s", p2b)
+            all_phases.append(("phase2b", collect_phase_data(p2b)))
+
+    if args.phase3_dirs:
+        labels = args.phase3_labels or [
+            f"phase3_{i}" for i in range(len(args.phase3_dirs))
+        ]
+        if len(labels) != len(args.phase3_dirs):
+            LOG.error(
+                "--phase3-labels count (%d) != --phase3-dirs count (%d)",
+                len(labels),
+                len(args.phase3_dirs),
+            )
+            return 1
+        for p3_path_str, p3_label in zip(args.phase3_dirs, labels):
+            p3 = pathlib.Path(p3_path_str).expanduser().resolve()
+            if not p3.is_dir():
+                LOG.warning("Phase 3 directory not found (skipping): %s", p3)
+                continue
+            LOG.info("Loading %s data from: %s", p3_label, p3)
+            all_phases.append((p3_label, collect_phase_data(p3)))
 
     # Generate outputs
-    write_tidy_csv(phase1_data, phase2_data, output_dir)
-    write_comparison_table(phase1_data, phase2_data, output_dir)
-    _plot_degradation_curves(phase1_data, phase2_data, output_dir)
-    _plot_recovery_box_plots(phase1_data, phase2_data, output_dir)
+    write_tidy_csv(all_phases, output_dir)
+    write_comparison_table(all_phases, output_dir)
+    _plot_degradation_curves(all_phases, output_dir)
+    _plot_recovery_box_plots(all_phases, output_dir)
 
-    LOG.info("Analysis complete. Outputs written to: %s", output_dir)
+    LOG.info(
+        "Analysis complete. %d phases. Outputs written to: %s",
+        len(all_phases),
+        output_dir,
+    )
     return 0
 
 

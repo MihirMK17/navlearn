@@ -1,0 +1,184 @@
+# mppi_baseline_high_tolerance — SINGLE-VARIABLE ABLATION
+# Pure copy of mppi_baseline with ONE parameter changed: xy_goal_tolerance 0.05 -> 0.10.
+# Purpose: isolate xy_goal_tolerance contribution to extreme-TTC success gap between mppi_baseline
+# (31.1% pooled) and mppi_aggressive (60.0% pooled). After vx_max was excluded as dominant lever
+# (2026-05-14 ablation, Fisher p=1.000 vs baseline), xy_goal_tolerance is the next-most-likely lever
+# because Nav2 SUCCEEDED criterion fires when robot enters tolerance radius, directly affecting TTC.
+# Hypothesis: if extreme TTC pooled hits >=60% -> xy_goal_tolerance dominant. If ~31% -> critic
+# weights / costmap density remain. Everything else (vx_max=0.30, movement_time_allowance=60,
+# critic weights, local_costmap) identical to mppi_baseline.
+# See docs/paper1/sections/8_mppi_comparison.tex §8.5(a).
+controller_server:
+  ros__parameters:
+    use_sim_time: true
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.05
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    odom_topic: /bumperbot_controller/odom
+    controller_plugins: ["FollowPath"]
+    goal_checker_plugins: ["general_goal_checker"]
+    progress_checker_plugin: "progress_checker"
+
+    # Mirror baseline RPP
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.05
+      movement_time_allowance: 60.0
+
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      # ABLATION: xy_goal_tolerance raised from baseline 0.05 to aggressive-level 0.10 (single-var).
+      # yaw_goal_tolerance preserved at 0.05 to keep change scoped to ONE parameter.
+      # Everything else identical to mppi_baseline. Tests whether xy tolerance alone explains TTC gap.
+      xy_goal_tolerance: 0.10
+      yaw_goal_tolerance: 0.05
+      stateful: true
+
+    FollowPath:
+      plugin: "nav2_mppi_controller::MPPIController"
+      time_steps: 56
+      model_dt: 0.05
+      batch_size: 2000
+      iteration_count: 1
+
+      # Match RPP baseline velocity (~0.22 m/s effective; vx_max 0.3 lets MPPI command up to baseline desired_linear_vel)
+      vx_max: 0.30
+      vx_min: -0.20
+      vy_max: 0.0
+      wz_max: 1.9
+
+      ax_max: 3.0
+      ax_min: -3.0
+      az_max: 3.2
+
+      vx_std: 0.2
+      vy_std: 0.0
+      wz_std: 0.4
+
+      temperature: 0.3
+      gamma: 0.015
+
+      motion_model: "DiffDrive"
+
+      prune_distance: 1.7
+      transform_tolerance: 0.2
+      visualize: false
+      reset_period: 1.0
+      regenerate_noises: false
+
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+
+      critics: [
+        "ConstraintCritic",
+        "ObstaclesCritic",
+        "GoalCritic",
+        "GoalAngleCritic",
+        "PathAlignCritic",
+        "PathFollowCritic",
+        "PathAngleCritic",
+        "PreferForwardCritic"
+      ]
+
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+
+      ObstaclesCritic:
+        enabled: true
+        cost_power: 1
+        repulsion_weight: 1.0       # reduced from 1.5 — less push away from path
+        critical_weight: 20.0
+        consider_footprint: false   # footprint mode broke activation in nav2 humble 1.1.18
+        collision_cost: 10000.0
+        collision_margin_distance: 0.10
+        near_goal_distance: 0.5
+        inflation_radius: 0.55
+        cost_scaling_factor: 10.0
+
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 18.0           # raised from 14 — keep MPPI on planner path
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 10.0           # raised from 5 — prioritize path following
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.0
+        forward_preference: true
+
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+
+# Mirror baseline local_costmap exactly
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_link
+      use_sim_time: true
+      robot_radius: 0.1
+      resolution: 0.05
+      always_send_full_costmap: true
+      rolling_window: true
+      width: 3
+      height: 3
+
+      plugins: ["obstacle_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          max_obstacle_height: 2.0
+          marking: true
+          clearing: true
+          combination_method: 1
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.55
+        cost_scaling_factor: 3.0
