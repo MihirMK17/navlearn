@@ -60,7 +60,15 @@ def parse_args() -> argparse.Namespace:
         "--profile",
         type=str,
         required=True,
-        choices=["baseline", "aggressive", "mppi_baseline", "mppi_aggressive"],
+        choices=[
+            "baseline",
+            "aggressive",
+            "mppi_baseline",
+            "mppi_aggressive",
+            "mppi_baseline_fixed_bt",
+            "mppi_baseline_high_vx",
+            "mppi_baseline_high_tolerance",
+        ],
         help="Nav2 parameter profile to benchmark",
     )
     parser.add_argument(
