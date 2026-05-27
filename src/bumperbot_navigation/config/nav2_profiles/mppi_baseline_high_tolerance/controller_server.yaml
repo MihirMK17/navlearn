@@ -1,4 +1,13 @@
-# mppi_baseline controller_server — MPPI controller, RPP-baseline-equivalent costmap & checkers
+# mppi_baseline_high_tolerance — SINGLE-VARIABLE ABLATION
+# Pure copy of mppi_baseline with ONE parameter changed: xy_goal_tolerance 0.05 -> 0.10.
+# Purpose: isolate xy_goal_tolerance contribution to extreme-TTC success gap between mppi_baseline
+# (31.1% pooled) and mppi_aggressive (60.0% pooled). After vx_max was excluded as dominant lever
+# (2026-05-14 ablation, Fisher p=1.000 vs baseline), xy_goal_tolerance is the next-most-likely lever
+# because Nav2 SUCCEEDED criterion fires when robot enters tolerance radius, directly affecting TTC.
+# Hypothesis: if extreme TTC pooled hits >=60% -> xy_goal_tolerance dominant. If ~31% -> critic
+# weights / costmap density remain. Everything else (vx_max=0.30, movement_time_allowance=60,
+# critic weights, local_costmap) identical to mppi_baseline.
+# See docs/paper1/sections/8_mppi_comparison.tex §8.5(a).
 controller_server:
   ros__parameters:
     use_sim_time: true
@@ -20,7 +29,10 @@ controller_server:
 
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.05
+      # ABLATION: xy_goal_tolerance raised from baseline 0.05 to aggressive-level 0.10 (single-var).
+      # yaw_goal_tolerance preserved at 0.05 to keep change scoped to ONE parameter.
+      # Everything else identical to mppi_baseline. Tests whether xy tolerance alone explains TTC gap.
+      xy_goal_tolerance: 0.10
       yaw_goal_tolerance: 0.05
       stateful: true
 

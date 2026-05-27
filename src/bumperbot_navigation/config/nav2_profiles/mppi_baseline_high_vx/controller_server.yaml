@@ -1,4 +1,10 @@
-# mppi_baseline controller_server — MPPI controller, RPP-baseline-equivalent costmap & checkers
+# mppi_baseline_high_vx — SINGLE-VARIABLE ABLATION
+# Pure copy of mppi_baseline with ONE parameter changed: vx_max 0.30 → 0.45.
+# Purpose: isolate vx_max contribution to extreme-TTC success gap between mppi_baseline (21% pooled)
+# and mppi_aggressive (60% pooled). If this profile hits >=60% pooled extreme TTC -> vx_max dominant lever.
+# If still ~21% -> goal_tolerance / critic weights / costmap density carry the gap.
+# Everything else (xy_goal_tolerance=0.05, movement_time_allowance=60, critic weights, local_costmap)
+# is identical to mppi_baseline. See docs/paper1/sections/8_mppi_comparison.tex section 8.5(a).
 controller_server:
   ros__parameters:
     use_sim_time: true
@@ -31,8 +37,9 @@ controller_server:
       batch_size: 2000
       iteration_count: 1
 
-      # Match RPP baseline velocity (~0.22 m/s effective; vx_max 0.3 lets MPPI command up to baseline desired_linear_vel)
-      vx_max: 0.30
+      # ABLATION: vx_max raised from baseline 0.30 to aggressive-level 0.45 (single-var isolation).
+      # Everything else preserved from mppi_baseline. Tests whether vx_max alone explains the TTC gap.
+      vx_max: 0.45
       vx_min: -0.20
       vy_max: 0.0
       wz_max: 1.9
