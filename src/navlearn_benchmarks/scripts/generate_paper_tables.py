@@ -24,9 +24,20 @@ DEFAULT_PHASE2_TTC = REPO_ROOT / "results/phase2_ttc"
 OUT_DIR = REPO_ROOT / "docs/paper1/tables"
 
 LEVELS = ["easy", "medium", "hard", "extreme"]
-LEVEL_LABELS = {"easy": "Easy", "medium": "Medium", "hard": "Hard", "extreme": "Extreme"}
+LEVEL_LABELS = {
+    "easy": "Easy",
+    "medium": "Medium",
+    "hard": "Hard",
+    "extreme": "Extreme",
+}
 
-PHASE_ORDER = ["phase1", "phase2", "phase2b", "phase3_mppi_baseline", "phase3_mppi_aggressive"]
+PHASE_ORDER = [
+    "phase1",
+    "phase2",
+    "phase2b",
+    "phase3_mppi_baseline",
+    "phase3_mppi_aggressive",
+]
 PHASE_LABELS = {
     "phase1": r"\textbf{Phase 1} (RPP baseline)",
     "phase2": r"\textbf{Phase 2} (AMCL tuned)",
@@ -210,8 +221,11 @@ def table_phase_comparison(data: dict) -> str:
                 else:
                     cells.append("---")
 
-            mode_col = rf"\multirow{{{len(LEVELS)}}}{{*}}{{{mode_label}}}" \
-                if first_in_mode else ""
+            mode_col = (
+                rf"\multirow{{{len(LEVELS)}}}{{*}}{{{mode_label}}}"
+                if first_in_mode
+                else ""
+            )
             first_in_mode = False
             cell_str = " & ".join(cells)
             lines.append(rf"{mode_col} & {LEVEL_LABELS[level]} & {cell_str} \\")
@@ -292,16 +306,33 @@ def write_table(path: pathlib.Path, content: str, dry_run: bool) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Generate LaTeX tables for Paper 1")
-    parser.add_argument("--csv", type=pathlib.Path, default=DEFAULT_CSV,
-                        help="Path to ttc_ttr_aggregated.csv")
-    parser.add_argument("--phase1-ttc", type=pathlib.Path, default=DEFAULT_PHASE1_TTC,
-                        help="Phase 1 TTC results directory (for false-success table)")
-    parser.add_argument("--phase2-ttc", type=pathlib.Path, default=DEFAULT_PHASE2_TTC,
-                        help="Phase 2 TTC results directory (for false-success table)")
-    parser.add_argument("--out-dir", type=pathlib.Path, default=OUT_DIR,
-                        help="Output directory for .tex files")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Print output paths without writing")
+    parser.add_argument(
+        "--csv",
+        type=pathlib.Path,
+        default=DEFAULT_CSV,
+        help="Path to ttc_ttr_aggregated.csv",
+    )
+    parser.add_argument(
+        "--phase1-ttc",
+        type=pathlib.Path,
+        default=DEFAULT_PHASE1_TTC,
+        help="Phase 1 TTC results directory (for false-success table)",
+    )
+    parser.add_argument(
+        "--phase2-ttc",
+        type=pathlib.Path,
+        default=DEFAULT_PHASE2_TTC,
+        help="Phase 2 TTC results directory (for false-success table)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=pathlib.Path,
+        default=OUT_DIR,
+        help="Output directory for .tex files",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print output paths without writing"
+    )
     return parser.parse_args()
 
 
@@ -311,7 +342,10 @@ def main() -> None:
 
     if not args.csv.exists():
         print(f"[generate_paper_tables] ERROR: {args.csv} not found", file=sys.stderr)
-        print("Run analyze_ttc_ttr.py first to produce the aggregated CSV.", file=sys.stderr)
+        print(
+            "Run analyze_ttc_ttr.py first to produce the aggregated CSV.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     data = load_csv(args.csv)

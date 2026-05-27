@@ -125,26 +125,40 @@ def report(label: str, episodes: Dict, buckets: Dict) -> None:
 
     print(f"\n=== False-Success Gap Analysis: {label} ===")
     print(f"Total episodes: {total} (+ {unk} with missing data)")
-    print(f"  True success  (nav OK + AMCL conv):    {ts:3d} ({100*ts/max(total,1):.1f}%)")
-    print(f"  FALSE SUCCESS (nav OK + AMCL NOT conv): {fs:3d} ({100*fs/max(total,1):.1f}%)")
-    print(f"  True failure  (nav fail + no AMCL):    {tf:3d} ({100*tf/max(total,1):.1f}%)")
-    print(f"  AMCL-only OK  (nav fail + AMCL conv):  {ao:3d} ({100*ao/max(total,1):.1f}%)")
+    print(
+        f"  True success  (nav OK + AMCL conv):    {ts:3d} ({100*ts/max(total,1):.1f}%)"
+    )
+    print(
+        f"  FALSE SUCCESS (nav OK + AMCL NOT conv): {fs:3d} ({100*fs/max(total,1):.1f}%)"
+    )
+    print(
+        f"  True failure  (nav fail + no AMCL):    {tf:3d} ({100*tf/max(total,1):.1f}%)"
+    )
+    print(
+        f"  AMCL-only OK  (nav fail + AMCL conv):  {ao:3d} ({100*ao/max(total,1):.1f}%)"
+    )
     if nav_ok > 0:
-        print(f"\n  Of {nav_ok} Nav2 successes: {fs} ({100*fs/nav_ok:.1f}%) are false successes")
+        print(
+            f"\n  Of {nav_ok} Nav2 successes: {fs} ({100*fs/nav_ok:.1f}%) are false successes"
+        )
 
     mt_true = mean_nav_time(buckets["true_success"], episodes)
     mt_false = mean_nav_time(buckets["false_success"], episodes)
     if not (mt_true != mt_true) and not (mt_false != mt_false):
         print(f"  Mean nav_time true successes:  {mt_true:.1f}s")
-        print(f"  Mean nav_time false successes: {mt_false:.1f}s  "
-              f"({100*(mt_false-mt_true)/mt_true:+.1f}%)")
+        print(
+            f"  Mean nav_time false successes: {mt_false:.1f}s  "
+            f"({100*(mt_false-mt_true)/mt_true:+.1f}%)"
+        )
 
     # Per-level breakdown (if level info available)
     levels_present = {ep.get("level") for ep in episodes.values() if "level" in ep}
     if levels_present:
         print("\n  Per-level breakdown:")
-        print(f"  {'Level':8s}  {'Total':>5s}  {'NavOK':>5s}  {'TrueS':>5s}  "
-              f"{'FalseS':>6s}  {'FalseS/NavOK':>12s}")
+        print(
+            f"  {'Level':8s}  {'Total':>5s}  {'NavOK':>5s}  {'TrueS':>5s}  "
+            f"{'FalseS':>6s}  {'FalseS/NavOK':>12s}"
+        )
         for level in LEVELS:
             level_eps = {g: e for g, e in episodes.items() if e.get("level") == level}
             lb = classify_episodes(level_eps)
@@ -153,20 +167,31 @@ def report(label: str, episodes: Dict, buckets: Dict) -> None:
             l_ts = len(lb["true_success"])
             l_tot = sum(len(v) for k, v in lb.items() if k != "unknown")
             ratio = f"{100*l_fs/l_nav:.0f}%" if l_nav > 0 else "—"
-            print(f"  {level:8s}  {l_tot:5d}  {l_nav:5d}  {l_ts:5d}  {l_fs:6d}  {ratio:>12s}")
+            print(
+                f"  {level:8s}  {l_tot:5d}  {l_nav:5d}  {l_ts:5d}  {l_fs:6d}  {ratio:>12s}"
+            )
     print()
 
 
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Quantify NavLearn false-success gap")
-    parser.add_argument("--phase1-ttc", type=pathlib.Path,
-                        default=pathlib.Path("results/phase1_ttc"),
-                        help="Phase 1 TTC results directory")
-    parser.add_argument("--phase2-ttc", type=pathlib.Path,
-                        help="Phase 2 TTC results directory (optional)")
-    parser.add_argument("--csv", type=pathlib.Path,
-                        help="Flat localization_evaluation.csv (optional, overrides dirs)")
+    parser.add_argument(
+        "--phase1-ttc",
+        type=pathlib.Path,
+        default=pathlib.Path("results/phase1_ttc"),
+        help="Phase 1 TTC results directory",
+    )
+    parser.add_argument(
+        "--phase2-ttc",
+        type=pathlib.Path,
+        help="Phase 2 TTC results directory (optional)",
+    )
+    parser.add_argument(
+        "--csv",
+        type=pathlib.Path,
+        help="Flat localization_evaluation.csv (optional, overrides dirs)",
+    )
     return parser.parse_args()
 
 

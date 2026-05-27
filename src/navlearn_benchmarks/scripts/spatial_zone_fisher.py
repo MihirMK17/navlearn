@@ -31,7 +31,6 @@ from PIL import Image
 from scipy import ndimage
 from scipy.stats import fisher_exact
 
-
 ROOT = Path("/home/mihirmk/robot_ws")
 RESULTS = ROOT / "results/spatial_bin_analysis"
 MAP_YAML = ROOT / "src/bumperbot_mapping/maps/small_house/map.yaml"
@@ -65,10 +64,14 @@ def load_map_and_wall_distance():
     H, W = img.shape
     extent = [ox, ox + W * res, oy, oy + H * res]
     print(f"  map shape: {img.shape}, resolution: {res} m/pix")
-    print(f"  connected components: {n_labels} -> {len(wall_label_ids)} kept "
-          f">= {WALL_MIN_PIX} pix")
-    print(f"  d_wall: min={dist_wall_m.min():.2f}, max={dist_wall_m.max():.2f}, "
-          f"mean={dist_wall_m.mean():.2f}")
+    print(
+        f"  connected components: {n_labels} -> {len(wall_label_ids)} kept "
+        f">= {WALL_MIN_PIX} pix"
+    )
+    print(
+        f"  d_wall: min={dist_wall_m.min():.2f}, max={dist_wall_m.max():.2f}, "
+        f"mean={dist_wall_m.mean():.2f}"
+    )
     return img, extent, dist_wall_m, res, ox, oy
 
 
@@ -98,15 +101,25 @@ def fisher_pair(of_, on_, nf_, nn_):
 
 def render_distance_overlay(img, extent, dist_m, q_lo, q_hi, out_path):
     fig, ax = plt.subplots(figsize=(11, 9))
-    ax.imshow(img, extent=extent, origin="lower", cmap="gray", alpha=0.6,
-              vmin=0, vmax=255)
+    ax.imshow(
+        img, extent=extent, origin="lower", cmap="gray", alpha=0.6, vmin=0, vmax=255
+    )
     masked = np.where(dist_m > 0, dist_m, np.nan)
-    im = ax.imshow(masked, extent=extent, origin="lower", cmap="viridis",
-                   alpha=0.5, vmin=0, vmax=3.0)
+    im = ax.imshow(
+        masked,
+        extent=extent,
+        origin="lower",
+        cmap="viridis",
+        alpha=0.5,
+        vmin=0,
+        vmax=3.0,
+    )
     ax.set_xlabel("x (m, map frame)")
     ax.set_ylabel("y (m, map frame)")
-    title = (f"Distance to nearest wall-component (>={WALL_MIN_PIX} pix) | "
-             f"NARROW <= {q_lo:.2f} m | OPEN >= {q_hi:.2f} m")
+    title = (
+        f"Distance to nearest wall-component (>={WALL_MIN_PIX} pix) | "
+        f"NARROW <= {q_lo:.2f} m | OPEN >= {q_hi:.2f} m"
+    )
     ax.set_title(title, fontsize=10)
     cbar = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.04)
     cbar.set_label("Distance to nearest wall (m)")
@@ -117,23 +130,46 @@ def render_distance_overlay(img, extent, dist_m, q_lo, q_hi, out_path):
 
 def render_scatter_overlay(img, extent, dist_m, goals_df, q_lo, q_hi, out_path):
     fig, ax = plt.subplots(figsize=(11, 9))
-    ax.imshow(img, extent=extent, origin="lower", cmap="gray", alpha=0.6,
-              vmin=0, vmax=255)
+    ax.imshow(
+        img, extent=extent, origin="lower", cmap="gray", alpha=0.6, vmin=0, vmax=255
+    )
     masked = np.where(dist_m > 0, dist_m, np.nan)
-    ax.imshow(masked, extent=extent, origin="lower", cmap="viridis",
-              alpha=0.35, vmin=0, vmax=3.0)
+    ax.imshow(
+        masked,
+        extent=extent,
+        origin="lower",
+        cmap="viridis",
+        alpha=0.35,
+        vmin=0,
+        vmax=3.0,
+    )
 
-    sub = goals_df[(goals_df["mode"] == "ttc")
-                   & (goals_df["level"] == "extreme")
-                   & goals_df["profile"].isin(FOCUS_3)]
+    sub = goals_df[
+        (goals_df["mode"] == "ttc")
+        & (goals_df["level"] == "extreme")
+        & goals_df["profile"].isin(FOCUS_3)
+    ]
     fail = sub[sub["fail"]]
     succ = sub[~sub["fail"]]
-    ax.scatter(succ["Start Pose_X (m)"], succ["Start Pose_Y (m)"],
-               c="#1a9850", s=22, edgecolors="black", linewidths=0.4,
-               label=f"TTC success (n={len(succ)})", alpha=0.85)
-    ax.scatter(fail["Start Pose_X (m)"], fail["Start Pose_Y (m)"],
-               c="#d73027", s=22, marker="x", linewidths=1.2,
-               label=f"TTC failure (n={len(fail)})")
+    ax.scatter(
+        succ["Start Pose_X (m)"],
+        succ["Start Pose_Y (m)"],
+        c="#1a9850",
+        s=22,
+        edgecolors="black",
+        linewidths=0.4,
+        label=f"TTC success (n={len(succ)})",
+        alpha=0.85,
+    )
+    ax.scatter(
+        fail["Start Pose_X (m)"],
+        fail["Start Pose_Y (m)"],
+        c="#d73027",
+        s=22,
+        marker="x",
+        linewidths=1.2,
+        label=f"TTC failure (n={len(fail)})",
+    )
     ax.set_xlabel("x (m, map frame)")
     ax.set_ylabel("y (m, map frame)")
     ax.set_title(f"Goal-start poses | MPPI {{{', '.join(FOCUS_3)}}} | TTC extreme")
@@ -154,24 +190,31 @@ def main():
     print("Loading goals...")
     df = pd.read_csv(GOALS_CSV)
     df["fail"] = df["Goal Result"].astype(str).str.upper().isin(FAIL_TOKENS)
-    rows, cols = world_to_rowcol(df["Start Pose_X (m)"].values,
-                                 df["Start Pose_Y (m)"].values,
-                                 res, ox, oy, img.shape)
+    rows, cols = world_to_rowcol(
+        df["Start Pose_X (m)"].values,
+        df["Start Pose_Y (m)"].values,
+        res,
+        ox,
+        oy,
+        img.shape,
+    )
     df["d_wall_m"] = dist_wall_m[rows, cols]
 
-    pooled = df[df["profile"].isin(FOCUS_5)
-                & (df["mode"] == "ttc")
-                & (df["level"] == "extreme")].copy()
+    pooled = df[
+        df["profile"].isin(FOCUS_5) & (df["mode"] == "ttc") & (df["level"] == "extreme")
+    ].copy()
     q_lo = float(pooled["d_wall_m"].quantile(QUARTILE_LOW))
     q_hi = float(pooled["d_wall_m"].quantile(QUARTILE_HIGH))
     print(f"  Quartile thresholds (from n={len(pooled)} pooled-5MPPI extreme TTC):")
     print(f"    NARROW <= {q_lo:.2f} m  (bottom 25%)")
     print(f"    OPEN   >= {q_hi:.2f} m  (top 25%)")
 
-    render_distance_overlay(img, extent, dist_wall_m, q_lo, q_hi,
-                            RESULTS / "distance_to_wall_overlay.png")
-    render_scatter_overlay(img, extent, dist_wall_m, df, q_lo, q_hi,
-                           RESULTS / "goal_scatter_overlay.png")
+    render_distance_overlay(
+        img, extent, dist_wall_m, q_lo, q_hi, RESULTS / "distance_to_wall_overlay.png"
+    )
+    render_scatter_overlay(
+        img, extent, dist_wall_m, df, q_lo, q_hi, RESULTS / "goal_scatter_overlay.png"
+    )
 
     def label_zone(d):
         if d <= q_lo:
@@ -199,15 +242,18 @@ def main():
         return {
             "scope": name,
             "n_pooled": len(sub_df),
-            "open_fail": of_, "open_n": on_,
+            "open_fail": of_,
+            "open_n": on_,
             "open_pct": round(100 * of_ / on_, 1),
             "open_wilson_lo_pct": round(100 * olo, 1),
             "open_wilson_hi_pct": round(100 * ohi, 1),
-            "narrow_fail": nf_, "narrow_n": nn_,
+            "narrow_fail": nf_,
+            "narrow_n": nn_,
             "narrow_pct": round(100 * nf_ / nn_, 1),
             "narrow_wilson_lo_pct": round(100 * nlo, 1),
             "narrow_wilson_hi_pct": round(100 * nhi, 1),
-            "mid_fail": mf_, "mid_n": mn_,
+            "mid_fail": mf_,
+            "mid_n": mn_,
             "mid_pct": round(100 * mf_ / mn_, 1) if mn_ > 0 else None,
             "fisher_one_sided": round(p1, 5),
             "fisher_two_sided": round(p2, 5),
@@ -226,28 +272,34 @@ def main():
         if row is None:
             continue
         summary_rows.append(row)
-        print(f"  {prof:<32}  open {row['open_fail']}/{row['open_n']} "
-              f"({row['open_pct']}%)  narrow {row['narrow_fail']}/{row['narrow_n']} "
-              f"({row['narrow_pct']}%)  p1={row['fisher_one_sided']:.4f}  "
-              f"p2={row['fisher_two_sided']:.4f}  OR={row['odds_ratio']:.2f}")
+        print(
+            f"  {prof:<32}  open {row['open_fail']}/{row['open_n']} "
+            f"({row['open_pct']}%)  narrow {row['narrow_fail']}/{row['narrow_n']} "
+            f"({row['narrow_pct']}%)  p1={row['fisher_one_sided']:.4f}  "
+            f"p2={row['fisher_two_sided']:.4f}  OR={row['odds_ratio']:.2f}"
+        )
 
     pooled3 = extreme_ttc[extreme_ttc["profile"].isin(FOCUS_3)]
     row3 = summarise("POOLED_3MPPI", pooled3)
     if row3:
         summary_rows.append(row3)
-        print(f"  {'POOLED_3MPPI':<32}  open {row3['open_fail']}/{row3['open_n']} "
-              f"({row3['open_pct']}%)  narrow {row3['narrow_fail']}/{row3['narrow_n']} "
-              f"({row3['narrow_pct']}%)  p1={row3['fisher_one_sided']:.4f}  "
-              f"p2={row3['fisher_two_sided']:.4f}  OR={row3['odds_ratio']:.2f}")
+        print(
+            f"  {'POOLED_3MPPI':<32}  open {row3['open_fail']}/{row3['open_n']} "
+            f"({row3['open_pct']}%)  narrow {row3['narrow_fail']}/{row3['narrow_n']} "
+            f"({row3['narrow_pct']}%)  p1={row3['fisher_one_sided']:.4f}  "
+            f"p2={row3['fisher_two_sided']:.4f}  OR={row3['odds_ratio']:.2f}"
+        )
 
     pooled5 = extreme_ttc[extreme_ttc["profile"].isin(FOCUS_5)]
     row5 = summarise("POOLED_5MPPI", pooled5)
     if row5:
         summary_rows.append(row5)
-        print(f"  {'POOLED_5MPPI':<32}  open {row5['open_fail']}/{row5['open_n']} "
-              f"({row5['open_pct']}%)  narrow {row5['narrow_fail']}/{row5['narrow_n']} "
-              f"({row5['narrow_pct']}%)  p1={row5['fisher_one_sided']:.4f}  "
-              f"p2={row5['fisher_two_sided']:.4f}  OR={row5['odds_ratio']:.2f}")
+        print(
+            f"  {'POOLED_5MPPI':<32}  open {row5['open_fail']}/{row5['open_n']} "
+            f"({row5['open_pct']}%)  narrow {row5['narrow_fail']}/{row5['narrow_n']} "
+            f"({row5['narrow_pct']}%)  p1={row5['fisher_one_sided']:.4f}  "
+            f"p2={row5['fisher_two_sided']:.4f}  OR={row5['odds_ratio']:.2f}"
+        )
 
     out_csv = RESULTS / "zone_quartile_fisher.csv"
     pd.DataFrame(summary_rows).to_csv(out_csv, index=False)

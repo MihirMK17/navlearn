@@ -72,19 +72,31 @@ def main() -> int:
         result["profiles"][prof] = {
             "n_goals": int(len(sub)),
             "n_succeeded": int(len(succ)),
-            "succ_rate_pct": (100.0 * len(succ) / len(sub)) if len(sub) else float("nan"),
+            "succ_rate_pct": (
+                (100.0 * len(succ) / len(sub)) if len(sub) else float("nan")
+            ),
             "seeds_present": sorted(sub["seed"].unique().tolist()),
         }
         result["all_outcomes"][prof] = summarize(all_t)
         result["succeeded_only"][prof] = summarize(succ_t)
 
     # Mann-Whitney U on succeeded subset (non-parametric, no normality assumption)
-    b_succ = df[(df["profile"] == "mppi_baseline")
-                & (df["Goal Result"].astype(str).str.upper() == "SUCCEEDED")
-                ]["Nav Time (sec)"].dropna().to_numpy()
-    h_succ = df[(df["profile"] == "mppi_baseline_high_tolerance")
-                & (df["Goal Result"].astype(str).str.upper() == "SUCCEEDED")
-                ]["Nav Time (sec)"].dropna().to_numpy()
+    b_succ = (
+        df[
+            (df["profile"] == "mppi_baseline")
+            & (df["Goal Result"].astype(str).str.upper() == "SUCCEEDED")
+        ]["Nav Time (sec)"]
+        .dropna()
+        .to_numpy()
+    )
+    h_succ = (
+        df[
+            (df["profile"] == "mppi_baseline_high_tolerance")
+            & (df["Goal Result"].astype(str).str.upper() == "SUCCEEDED")
+        ]["Nav Time (sec)"]
+        .dropna()
+        .to_numpy()
+    )
 
     if b_succ.size > 0 and h_succ.size > 0:
         u, p_two = mannwhitneyu(b_succ, h_succ, alternative="two-sided")
@@ -111,26 +123,38 @@ def main() -> int:
         s = result["succeeded_only"][prof]
         a = result["all_outcomes"][prof]
         print(f"\n--- {prof} ---")
-        print(f"  goals: n={p['n_goals']}  succ={p['n_succeeded']}  "
-              f"succ_rate={p['succ_rate_pct']:.1f}%  seeds={p['seeds_present']}")
+        print(
+            f"  goals: n={p['n_goals']}  succ={p['n_succeeded']}  "
+            f"succ_rate={p['succ_rate_pct']:.1f}%  seeds={p['seeds_present']}"
+        )
         if s.get("n", 0):
             print("  succeeded nav_time (s):")
-            print(f"    n={s['n']}  mean={s['mean']:.2f}  median={s['median']:.2f}  "
-                  f"std={s['std']:.2f}  IQR=[{s['q25']:.2f}, {s['q75']:.2f}]  "
-                  f"range=[{s['min']:.2f}, {s['max']:.2f}]")
+            print(
+                f"    n={s['n']}  mean={s['mean']:.2f}  median={s['median']:.2f}  "
+                f"std={s['std']:.2f}  IQR=[{s['q25']:.2f}, {s['q75']:.2f}]  "
+                f"range=[{s['min']:.2f}, {s['max']:.2f}]"
+            )
         if a.get("n", 0):
             print("  all outcomes nav_time (s):")
-            print(f"    n={a['n']}  mean={a['mean']:.2f}  median={a['median']:.2f}  "
-                  f"std={a['std']:.2f}")
+            print(
+                f"    n={a['n']}  mean={a['mean']:.2f}  median={a['median']:.2f}  "
+                f"std={a['std']:.2f}"
+            )
 
     mw = result["mannwhitney_succeeded"]
     if mw:
         print("\n--- Mann-Whitney U (succeeded only, baseline vs high_tolerance) ---")
-        print(f"  n_baseline_succ={mw['n_baseline_succ']}  n_high_tol_succ={mw['n_high_tol_succ']}")
+        print(
+            f"  n_baseline_succ={mw['n_baseline_succ']}  n_high_tol_succ={mw['n_high_tol_succ']}"
+        )
         print(f"  U = {mw['U_statistic']:.1f}")
         print(f"  two-sided p = {mw['p_two_sided']:.4f}")
-        print(f"  one-sided p (high_tol nav_time < baseline) = {mw['p_h_lt_b_one_sided']:.4f}")
-        print(f"  one-sided p (high_tol nav_time > baseline) = {mw['p_h_gt_b_one_sided']:.4f}")
+        print(
+            f"  one-sided p (high_tol nav_time < baseline) = {mw['p_h_lt_b_one_sided']:.4f}"
+        )
+        print(
+            f"  one-sided p (high_tol nav_time > baseline) = {mw['p_h_gt_b_one_sided']:.4f}"
+        )
 
     print(f"\nWrote {OUT}")
     return 0

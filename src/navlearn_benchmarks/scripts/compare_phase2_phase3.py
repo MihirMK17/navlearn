@@ -119,7 +119,11 @@ def _extract_wide_rows(csv_path: pathlib.Path) -> pd.DataFrame:
             for row in reader:
                 if not row:
                     continue
-                if header is None and row[0] == WIDE_HEADER_COL0 and len(row) == WIDE_NCOLS:
+                if (
+                    header is None
+                    and row[0] == WIDE_HEADER_COL0
+                    and len(row) == WIDE_NCOLS
+                ):
                     header = row
                     continue
                 if len(row) == WIDE_NCOLS and len(row) > 1 and row[1] == "map":
@@ -203,7 +207,9 @@ def cell_stats(df: pd.DataFrame) -> Dict[str, object]:
         else:
             vals = succ_df[col_name].dropna().to_numpy()
             out[f"{canonical}_mean"] = float(np.mean(vals))
-            out[f"{canonical}_std"] = float(np.std(vals, ddof=1) if len(vals) > 1 else 0.0)
+            out[f"{canonical}_std"] = float(
+                np.std(vals, ddof=1) if len(vals) > 1 else 0.0
+            )
     return out
 
 
@@ -279,8 +285,12 @@ def collect_all() -> List[Dict[str, object]]:
                     "p_fisher_vs_ph2": p_fisher,
                 }
                 for canonical in NUMERIC_COLS:
-                    row[f"{canonical}_mean"] = stats.get(f"{canonical}_mean", float("nan"))
-                    row[f"{canonical}_std"] = stats.get(f"{canonical}_std", float("nan"))
+                    row[f"{canonical}_mean"] = stats.get(
+                        f"{canonical}_mean", float("nan")
+                    )
+                    row[f"{canonical}_std"] = stats.get(
+                        f"{canonical}_std", float("nan")
+                    )
                 rows.append(row)
 
     if skipped:
@@ -290,7 +300,9 @@ def collect_all() -> List[Dict[str, object]]:
             prof = s.split("/", 1)[0]
             by_profile.setdefault(prof, []).append(s.split("/", 1)[1])
         for prof, cells_list in by_profile.items():
-            LOG.info("Phase 3 data not yet available for %s: %s", prof, ", ".join(cells_list))
+            LOG.info(
+                "Phase 3 data not yet available for %s: %s", prof, ", ".join(cells_list)
+            )
 
     return rows
 
@@ -376,11 +388,14 @@ def main() -> int:
     """CLI entry point with optional --watch loop."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     parser.add_argument(
-        "--watch", action="store_true",
+        "--watch",
+        action="store_true",
         help="Re-run continuously while Phase 3 is in progress (^C to exit)",
     )
     parser.add_argument(
-        "--interval", type=float, default=300.0,
+        "--interval",
+        type=float,
+        default=300.0,
         help="Watch interval in seconds (default: 300 = 5 minutes)",
     )
     parser.add_argument("--verbose", action="store_true")

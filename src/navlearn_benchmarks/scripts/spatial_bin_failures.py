@@ -32,16 +32,24 @@ OUT = RESULTS / "spatial_bin_analysis"
 OUT.mkdir(exist_ok=True, parents=True)
 
 PHASE_DIR_PATTERNS = [
-    (re.compile(r"^phase1_(ttc|ttr)$"),                        "phase1",  "rpp_pre_tune"),
-    (re.compile(r"^phase2_(ttc|ttr)$"),                        "phase2",  "rpp_phase2_tuned"),
-    (re.compile(r"^phase2b_(ttc|ttr)$"),                       "phase2b", "rpp_phase2b"),
-    (re.compile(r"^phase3_mppi_baseline_(ttc|ttr)$"),          "phase3",  "mppi_baseline"),
-    (re.compile(r"^phase3_mppi_aggressive_(ttc|ttr)$"),        "phase3",  "mppi_aggressive"),
-    (re.compile(r"^phase3_mppi_baseline_fixed_bt_(ttc|ttr)$"), "phase3",  "mppi_baseline_fixed_bt"),
+    (re.compile(r"^phase1_(ttc|ttr)$"), "phase1", "rpp_pre_tune"),
+    (re.compile(r"^phase2_(ttc|ttr)$"), "phase2", "rpp_phase2_tuned"),
+    (re.compile(r"^phase2b_(ttc|ttr)$"), "phase2b", "rpp_phase2b"),
+    (re.compile(r"^phase3_mppi_baseline_(ttc|ttr)$"), "phase3", "mppi_baseline"),
+    (re.compile(r"^phase3_mppi_aggressive_(ttc|ttr)$"), "phase3", "mppi_aggressive"),
+    (
+        re.compile(r"^phase3_mppi_baseline_fixed_bt_(ttc|ttr)$"),
+        "phase3",
+        "mppi_baseline_fixed_bt",
+    ),
 ]
 LEVEL_DIRS = {"easy", "medium", "hard", "extreme"}
-ABLATION_PAT = re.compile(r"^(mppi_baseline_high_(?:tolerance|vx))_(ttc|ttr)_(easy|medium|hard|extreme)_seed(\d+)$")
-SEEDREPL_PAT = re.compile(r"^(mppi_(?:baseline|aggressive))_(ttc|ttr)_(easy|medium|hard|extreme)_seed(\d+)$")
+ABLATION_PAT = re.compile(
+    r"^(mppi_baseline_high_(?:tolerance|vx))_(ttc|ttr)_(easy|medium|hard|extreme)_seed(\d+)$"
+)
+SEEDREPL_PAT = re.compile(
+    r"^(mppi_(?:baseline|aggressive))_(ttc|ttr)_(easy|medium|hard|extreme)_seed(\d+)$"
+)
 
 FAIL_TOKENS = {"FAILED", "ABORTED", "CANCELED", "CANCELLED", "TIMED_OUT"}
 
@@ -92,13 +100,20 @@ def collect_all_goals() -> pd.DataFrame:
                 df = find_wide_section(csv)
                 if df.empty:
                     continue
-                df = df.assign(phase=phase, profile=profile, mode=mode, level=level, seed=42, source_csv=csv.name)
+                df = df.assign(
+                    phase=phase,
+                    profile=profile,
+                    mode=mode,
+                    level=level,
+                    seed=42,
+                    source_csv=csv.name,
+                )
                 chunks.append(df)
 
     for root_name, pat, default_phase in [
         ("phase3_ablation_tolerance", ABLATION_PAT, "phase3"),
-        ("phase3_ablation_vx",        ABLATION_PAT, "phase3"),
-        ("phase3_seed_repl",          SEEDREPL_PAT, "phase3"),
+        ("phase3_ablation_vx", ABLATION_PAT, "phase3"),
+        ("phase3_seed_repl", SEEDREPL_PAT, "phase3"),
     ]:
         root = RESULTS / root_name
         if not root.exists():
@@ -109,12 +124,24 @@ def collect_all_goals() -> pd.DataFrame:
             m = pat.match(sub.name)
             if not m:
                 continue
-            profile, mode, level, seed = m.group(1), m.group(2), m.group(3), int(m.group(4))
+            profile, mode, level, seed = (
+                m.group(1),
+                m.group(2),
+                m.group(3),
+                int(m.group(4)),
+            )
             for csv in sub.glob("navlearn_metrics_*.csv"):
                 df = find_wide_section(csv)
                 if df.empty:
                     continue
-                df = df.assign(phase=default_phase, profile=profile, mode=mode, level=level, seed=seed, source_csv=csv.name)
+                df = df.assign(
+                    phase=default_phase,
+                    profile=profile,
+                    mode=mode,
+                    level=level,
+                    seed=seed,
+                    source_csv=csv.name,
+                )
                 chunks.append(df)
 
     if not chunks:
@@ -151,8 +178,13 @@ def load_map_meta():
     return img, extent
 
 
-def render_heatmap(df_goals: pd.DataFrame, title: str, out_path: Path,
-                   bin_size: float = 1.0, min_attempts: int = 2):
+def render_heatmap(
+    df_goals: pd.DataFrame,
+    title: str,
+    out_path: Path,
+    bin_size: float = 1.0,
+    min_attempts: int = 2,
+):
     img, extent = load_map_meta()
     binned = bin_grid(df_goals, bin_size=bin_size)
     if binned.empty:
@@ -162,21 +194,32 @@ def render_heatmap(df_goals: pd.DataFrame, title: str, out_path: Path,
         return
 
     fig, ax = plt.subplots(figsize=(11, 9))
-    ax.imshow(img, extent=extent, origin="lower", cmap="gray", alpha=0.55, vmin=0, vmax=255)
+    ax.imshow(
+        img, extent=extent, origin="lower", cmap="gray", alpha=0.55, vmin=0, vmax=255
+    )
 
     cmap = LinearSegmentedColormap.from_list("fail", ["#1a9850", "#fee08b", "#d73027"])
     for _, row in binned.iterrows():
         rect = patches.Rectangle(
-            (row["bx"], row["by"]), bin_size, bin_size,
-            linewidth=0.4, edgecolor="black",
+            (row["bx"], row["by"]),
+            bin_size,
+            bin_size,
+            linewidth=0.4,
+            edgecolor="black",
             facecolor=cmap(row["failure_rate"]),
             alpha=0.78,
         )
         ax.add_patch(rect)
-        ax.text(row["bx"] + bin_size / 2, row["by"] + bin_size / 2,
-                f"{int(100 * row['failure_rate'])}%\nn={int(row['attempts'])}",
-                ha="center", va="center", fontsize=6.5, color="black",
-                fontweight="bold")
+        ax.text(
+            row["bx"] + bin_size / 2,
+            row["by"] + bin_size / 2,
+            f"{int(100 * row['failure_rate'])}%\nn={int(row['attempts'])}",
+            ha="center",
+            va="center",
+            fontsize=6.5,
+            color="black",
+            fontweight="bold",
+        )
 
     extent_data = (
         df_goals["Start Pose_X (m)"].min() - 1.0,
@@ -215,11 +258,17 @@ def main():
     print(f"  levels   = {sorted(big['level'].unique())}")
     print(f"  seeds    = {sorted(big['seed'].unique())}")
 
-    summary = big.groupby(["phase", "profile", "mode", "level"]).agg(
-        n_goals=("is_failure", "size"),
-        n_failures=("is_failure", "sum"),
-    ).reset_index()
-    summary["failure_rate_pct"] = (100.0 * summary["n_failures"] / summary["n_goals"]).round(1)
+    summary = (
+        big.groupby(["phase", "profile", "mode", "level"])
+        .agg(
+            n_goals=("is_failure", "size"),
+            n_failures=("is_failure", "sum"),
+        )
+        .reset_index()
+    )
+    summary["failure_rate_pct"] = (
+        100.0 * summary["n_failures"] / summary["n_goals"]
+    ).round(1)
     summary_path = OUT / "spatial_bin_summary.csv"
     summary.to_csv(summary_path, index=False)
     print(f"\nWrote {summary_path}")
@@ -258,10 +307,21 @@ def main():
         )
 
     big_out = OUT / "all_goals_pose_outcome.csv"
-    keep_cols = ["phase", "profile", "mode", "level", "seed",
-                 "Goal_ID", "Start Pose_X (m)", "Start Pose_Y (m)",
-                 "Start Pose_Yaw (deg)", "Goal Result", "Goal Result Code",
-                 "Nav Time (sec)", "source_csv"]
+    keep_cols = [
+        "phase",
+        "profile",
+        "mode",
+        "level",
+        "seed",
+        "Goal_ID",
+        "Start Pose_X (m)",
+        "Start Pose_Y (m)",
+        "Start Pose_Yaw (deg)",
+        "Goal Result",
+        "Goal Result Code",
+        "Nav Time (sec)",
+        "source_csv",
+    ]
     keep_cols = [c for c in keep_cols if c in big.columns]
     big[keep_cols].to_csv(big_out, index=False)
     print(f"Wrote per-goal CSV: {big_out}  ({len(big)} rows)")

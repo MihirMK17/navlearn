@@ -560,7 +560,9 @@ def main() -> int:
             all_phases.append(("phase2b", collect_phase_data(p2b)))
 
     if args.phase3_dirs:
-        labels = args.phase3_labels or [f"phase3_{i}" for i in range(len(args.phase3_dirs))]
+        labels = args.phase3_labels or [
+            f"phase3_{i}" for i in range(len(args.phase3_dirs))
+        ]
         if len(labels) != len(args.phase3_dirs):
             LOG.error(
                 "--phase3-labels count (%d) != --phase3-dirs count (%d)",
@@ -582,7 +584,11 @@ def main() -> int:
     _plot_degradation_curves(all_phases, output_dir)
     _plot_recovery_box_plots(all_phases, output_dir)
 
-    LOG.info("Analysis complete. %d phases. Outputs written to: %s", len(all_phases), output_dir)
+    LOG.info(
+        "Analysis complete. %d phases. Outputs written to: %s",
+        len(all_phases),
+        output_dir,
+    )
     return 0
 
 

@@ -71,12 +71,24 @@ def summarize(episodes):
     n = len(episodes)
     successes = sum(1 for e in episodes if e["result"] == "SUCCEEDED")
     out = {"n": n, "success_pct": 100.0 * successes / n if n else float("nan")}
-    for key in ("nav_time", "path_len", "spl", "energy", "trk_v", "trk_w",
-                "ate", "rpe", "clearance", "collisions"):
+    for key in (
+        "nav_time",
+        "path_len",
+        "spl",
+        "energy",
+        "trk_v",
+        "trk_w",
+        "ate",
+        "rpe",
+        "clearance",
+        "collisions",
+    ):
         vals = [e[key] for e in episodes if e[key] is not None]
         if vals:
-            out[key] = (statistics.mean(vals),
-                        statistics.pstdev(vals) if len(vals) > 1 else 0.0)
+            out[key] = (
+                statistics.mean(vals),
+                statistics.pstdev(vals) if len(vals) > 1 else 0.0,
+            )
         else:
             out[key] = (float("nan"), float("nan"))
     return out
@@ -87,12 +99,15 @@ def main():
     parser.add_argument(
         "--root",
         default="results/phase3_sensorrate_baseline",
-        help="directory containing the per-rate subdirectories")
+        help="directory containing the per-rate subdirectories",
+    )
     args = parser.parse_args()
 
-    print(f"{'Rate':>6} {'n':>3} {'Succ%':>6} {'NavTime[s]':>16} "
-          f"{'SPL':>14} {'ATE[m]':>14} {'RPE':>14} {'Clear[m]':>14} "
-          f"{'Energy':>16} {'Coll':>5}")
+    print(
+        f"{'Rate':>6} {'n':>3} {'Succ%':>6} {'NavTime[s]':>16} "
+        f"{'SPL':>14} {'ATE[m]':>14} {'RPE':>14} {'Clear[m]':>14} "
+        f"{'Energy':>16} {'Coll':>5}"
+    )
     summaries = {}
     for rate in RATES:
         rate_dir = os.path.join(args.root, rate)
@@ -108,18 +123,24 @@ def main():
                 return f"{'--':>14}"
             return f"{fmt.format(m)}±{fmt.format(sd)}"
 
-        print(f"{rate:>6} {s['n']:>3} {s['success_pct']:>6.1f} "
-              f"{cell('nav_time'):>16} {cell('spl','{:.3f}'):>14} "
-              f"{cell('ate','{:.3f}'):>14} {cell('rpe','{:.3f}'):>14} "
-              f"{cell('clearance','{:.3f}'):>14} {cell('energy','{:.1f}'):>16} "
-              f"{int(s['collisions'][0]) if not math.isnan(s['collisions'][0]) else '--':>5}")
+        print(
+            f"{rate:>6} {s['n']:>3} {s['success_pct']:>6.1f} "
+            f"{cell('nav_time'):>16} {cell('spl','{:.3f}'):>14} "
+            f"{cell('ate','{:.3f}'):>14} {cell('rpe','{:.3f}'):>14} "
+            f"{cell('clearance','{:.3f}'):>14} {cell('energy','{:.1f}'):>16} "
+            f"{int(s['collisions'][0]) if not math.isnan(s['collisions'][0]) else '--':>5}"
+        )
 
     # Relative degradation 10 Hz -> 1 Hz for the headline metrics.
     if "10hz" in summaries and "1hz" in summaries:
         print("\nDegradation 10 Hz -> 1 Hz (mean):")
-        for key, label in (("nav_time", "Nav time"), ("spl", "SPL"),
-                           ("ate", "ATE"), ("clearance", "Min clearance"),
-                           ("energy", "Control energy")):
+        for key, label in (
+            ("nav_time", "Nav time"),
+            ("spl", "SPL"),
+            ("ate", "ATE"),
+            ("clearance", "Min clearance"),
+            ("energy", "Control energy"),
+        ):
             a = summaries["10hz"][key][0]
             b = summaries["1hz"][key][0]
             if a and not math.isnan(a) and not math.isnan(b):

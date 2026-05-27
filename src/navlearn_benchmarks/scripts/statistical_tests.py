@@ -53,9 +53,9 @@ def load_csv(csv_path: pathlib.Path) -> dict:
     data: dict = {}
     with csv_path.open() as f:
         for row in csv.DictReader(f):
-            data.setdefault(row["phase"], {}).setdefault(
-                row["mode"], {}
-            )[row["level"]] = row
+            data.setdefault(row["phase"], {}).setdefault(row["mode"], {})[
+                row["level"]
+            ] = row
     return data
 
 
@@ -94,7 +94,9 @@ def run_comparison(
         return
 
     print(f"\n  {label} [{mode.upper()}]")
-    print(f"  {'Level':8s}  {'PhA%':>5s} 95%CI       {'PhB%':>5s} 95%CI       Δpp   {'':<16s}")
+    print(
+        f"  {'Level':8s}  {'PhA%':>5s} 95%CI       {'PhB%':>5s} 95%CI       Δpp   {'':<16s}"
+    )
     print(f"  {'-'*8}  {'-'*5} {'-'*12} {'-'*5} {'-'*12} {'-'*4}  {'-'*16}")
 
     for lv in (LEVELS if only_level is None else [only_level]):
@@ -126,14 +128,20 @@ def run_comparison(
 
 def main() -> None:
     """Run all planned comparisons."""
-    parser = argparse.ArgumentParser(description="NavLearn statistical significance tests")
+    parser = argparse.ArgumentParser(
+        description="NavLearn statistical significance tests"
+    )
     parser.add_argument("--csv", type=pathlib.Path, default=DEFAULT_CSV)
-    parser.add_argument("--alpha", type=float, default=0.05,
-                        help="Significance level (default 0.05)")
+    parser.add_argument(
+        "--alpha", type=float, default=0.05, help="Significance level (default 0.05)"
+    )
     args = parser.parse_args()
 
     if not args.csv.exists():
-        print(f"ERROR: {args.csv} not found — run analyze_ttc_ttr.py first", file=sys.stderr)
+        print(
+            f"ERROR: {args.csv} not found — run analyze_ttc_ttr.py first",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     data = load_csv(args.csv)
@@ -153,19 +161,34 @@ def main() -> None:
 
     print("\n=== 4. Key claim: Ph2 TTR extreme regression (48% → 16%) ===")
     run_comparison(
-        "Ph1 vs Ph2 (extreme only)", "phase1", "phase2", "ttr", data, args.alpha,
+        "Ph1 vs Ph2 (extreme only)",
+        "phase1",
+        "phase2",
+        "ttr",
+        data,
+        args.alpha,
         only_level="extreme",
     )
 
     print("\n=== 5. Key claim: Ph2b TTR extreme partial recovery (16% → 40%) ===")
     run_comparison(
-        "Ph2 vs Ph2b (extreme only)", "phase2", "phase2b", "ttr", data, args.alpha,
+        "Ph2 vs Ph2b (extreme only)",
+        "phase2",
+        "phase2b",
+        "ttr",
+        data,
+        args.alpha,
         only_level="extreme",
     )
 
     print("\n=== 6. TTC ceiling: Ph1 vs Ph2 at extreme (both 52%) ===")
     run_comparison(
-        "Ph1 vs Ph2 (TTC extreme)", "phase1", "phase2", "ttc", data, args.alpha,
+        "Ph1 vs Ph2 (TTC extreme)",
+        "phase1",
+        "phase2",
+        "ttc",
+        data,
+        args.alpha,
         only_level="extreme",
     )
     print()

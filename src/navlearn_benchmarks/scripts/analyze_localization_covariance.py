@@ -93,8 +93,15 @@ class GoalRecord:
     """Accumulates one goal's episode-summary fields + covariance series."""
 
     __slots__ = (
-        "level", "goal_result", "ttc_outcome", "ttc_s", "nav_time",
-        "cov_xx", "cov_yy", "cov_yaw", "jump_lin",
+        "level",
+        "goal_result",
+        "ttc_outcome",
+        "ttc_s",
+        "nav_time",
+        "cov_xx",
+        "cov_yy",
+        "cov_yaw",
+        "jump_lin",
     )
 
     def __init__(self, level: Optional[str]) -> None:
@@ -142,7 +149,9 @@ class GoalRecord:
             "n_jumps": float(int(np.sum(jumps > JUMP_EPS_M))) if jumps.size else 0.0,
             "max_jump": float(np.max(jumps)) if jumps.size else 0.0,
             "ttc_s": float(self.ttc_s) if self.ttc_s is not None else float("nan"),
-            "nav_time": float(self.nav_time) if self.nav_time is not None else float("nan"),
+            "nav_time": (
+                float(self.nav_time) if self.nav_time is not None else float("nan")
+            ),
         }
 
 
@@ -159,7 +168,9 @@ def _to_float(value: str) -> Optional[float]:
         return None
 
 
-def parse_csv(path: pathlib.Path, level: Optional[str], goals: Dict[str, GoalRecord]) -> None:
+def parse_csv(
+    path: pathlib.Path, level: Optional[str], goals: Dict[str, GoalRecord]
+) -> None:
     """Stream one CSV, routing long-format (6-col) rows into per-goal records.
 
     Mutates ``goals`` in place (keyed by GoalID).  Wide-format rows (30 cols)
@@ -231,7 +242,11 @@ def _summ(values: List[float]) -> Dict[str, float]:
     arr = np.asarray([v for v in values if not math.isnan(v)], dtype=float)
     if arr.size == 0:
         return {"n": 0, "median": float("nan"), "mean": float("nan")}
-    return {"n": int(arr.size), "median": float(np.median(arr)), "mean": float(np.mean(arr))}
+    return {
+        "n": int(arr.size),
+        "median": float(np.median(arr)),
+        "mean": float(np.mean(arr)),
+    }
 
 
 def headline_test(true_vals: List[float], false_vals: List[float]) -> Dict[str, object]:
@@ -276,33 +291,43 @@ def analyze_run_set(run_set: str) -> Dict[str, object]:
         return [
             r["red"]["trace_final"]
             for r in reduced
-            if r["class"] == cls and r["red"] is not None
+            if r["class"] == cls
+            and r["red"] is not None
             and (level is None or r["level"] == level)
         ]
 
     per_level: Dict[str, object] = {}
     for level in LEVELS:
-        counts = {c: sum(1 for r in reduced if r["level"] == level and r["class"] == c)
-                  for c in CLASS_ORDER}
+        counts = {
+            c: sum(1 for r in reduced if r["level"] == level and r["class"] == c)
+            for c in CLASS_ORDER
+        }
         n_cov = sum(1 for r in reduced if r["level"] == level and r["red"] is not None)
         if sum(counts.values()) == 0:
             continue
         cls_trace = {
-            c: _summ([r["red"]["trace_final"] for r in reduced
-                      if r["level"] == level and r["class"] == c and r["red"] is not None])
+            c: _summ(
+                [
+                    r["red"]["trace_final"]
+                    for r in reduced
+                    if r["level"] == level and r["class"] == c and r["red"] is not None
+                ]
+            )
             for c in CLASS_ORDER
         }
         per_level[level] = {
             "counts": counts,
             "n_with_cov": n_cov,
             "trace_final_by_class": cls_trace,
-            "headline": headline_test(traces(level, "true_success"),
-                                      traces(level, "false_success")),
+            "headline": headline_test(
+                traces(level, "true_success"), traces(level, "false_success")
+            ),
         }
 
     def vals(cls: str, key: str) -> List[float]:
-        return [r["red"][key] for r in reduced
-                if r["class"] == cls and r["red"] is not None]
+        return [
+            r["red"][key] for r in reduced if r["class"] == cls and r["red"] is not None
+        ]
 
     # Sweep the candidate per-goal reductions to see which (if any) separates
     # true- from false-success.  trace_final can wash out the signal if AMCL
@@ -315,12 +340,18 @@ def analyze_run_set(run_set: str) -> Dict[str, object]:
     pooled = {
         "counts": {c: sum(1 for r in reduced if r["class"] == c) for c in CLASS_ORDER},
         "trace_final_by_class": {
-            c: _summ([r["red"]["trace_final"] for r in reduced
-                      if r["class"] == c and r["red"] is not None])
+            c: _summ(
+                [
+                    r["red"]["trace_final"]
+                    for r in reduced
+                    if r["class"] == c and r["red"] is not None
+                ]
+            )
             for c in CLASS_ORDER
         },
-        "headline": headline_test(traces(None, "true_success"),
-                                  traces(None, "false_success")),
+        "headline": headline_test(
+            traces(None, "true_success"), traces(None, "false_success")
+        ),
         "reduction_sweep": reduction_sweep,
     }
     return {"n_goals": len(goals), "per_level": per_level, "pooled": pooled}
@@ -347,8 +378,10 @@ def print_report(result: Dict[str, object]) -> None:
         print("=" * 92)
         print(f"{run_set}   (goals={data['n_goals']})")
         print("=" * 92)
-        hdr = (f"{'level':8s} | {'true_s':>6s} {'FALSE_s':>7s} {'fail':>5s} {'amcl':>5s} | "
-               f"{'tr_true':>8s} {'tr_FALSE':>8s} | {'AUC':>5s} {'MWU p':>7s}")
+        hdr = (
+            f"{'level':8s} | {'true_s':>6s} {'FALSE_s':>7s} {'fail':>5s} {'amcl':>5s} | "
+            f"{'tr_true':>8s} {'tr_FALSE':>8s} | {'AUC':>5s} {'MWU p':>7s}"
+        )
         print(hdr)
         print("-" * len(hdr))
         for level in LEVELS:
@@ -358,31 +391,41 @@ def print_report(result: Dict[str, object]) -> None:
             c = lv["counts"]
             tf = lv["trace_final_by_class"]
             h = lv["headline"]
-            print(f"{level:8s} | {c['true_success']:>6d} {c['false_success']:>7d} "
-                  f"{c['true_fail']:>5d} {c['amcl_only']:>5d} | "
-                  f"{_fmt(tf['true_success']['median'], 8):>8s} "
-                  f"{_fmt(tf['false_success']['median'], 8):>8s} | "
-                  f"{_fmt(h['auc_false_gt_true'], 5, 2):>5s} {_fmt_p(h['p_mannwhitney']):>7s}")
+            print(
+                f"{level:8s} | {c['true_success']:>6d} {c['false_success']:>7d} "
+                f"{c['true_fail']:>5d} {c['amcl_only']:>5d} | "
+                f"{_fmt(tf['true_success']['median'], 8):>8s} "
+                f"{_fmt(tf['false_success']['median'], 8):>8s} | "
+                f"{_fmt(h['auc_false_gt_true'], 5, 2):>5s} {_fmt_p(h['p_mannwhitney']):>7s}"
+            )
         p = data["pooled"]
         c, tf, h = p["counts"], p["trace_final_by_class"], p["headline"]
         print("-" * len(hdr))
-        print(f"{'POOLED':8s} | {c['true_success']:>6d} {c['false_success']:>7d} "
-              f"{c['true_fail']:>5d} {c['amcl_only']:>5d} | "
-              f"{_fmt(tf['true_success']['median'], 8):>8s} "
-              f"{_fmt(tf['false_success']['median'], 8):>8s} | "
-              f"{_fmt(h['auc_false_gt_true'], 5, 2):>5s} {_fmt_p(h['p_mannwhitney']):>7s}")
-        print(f"  trace_final median: true-success={_fmt(tf['true_success']['median'], 6)}  "
-              f"false-success={_fmt(tf['false_success']['median'], 6)}  "
-              f"(AUC={_fmt(h['auc_false_gt_true'], 4, 2)} = P[cov flags false success w/o GT])")
+        print(
+            f"{'POOLED':8s} | {c['true_success']:>6d} {c['false_success']:>7d} "
+            f"{c['true_fail']:>5d} {c['amcl_only']:>5d} | "
+            f"{_fmt(tf['true_success']['median'], 8):>8s} "
+            f"{_fmt(tf['false_success']['median'], 8):>8s} | "
+            f"{_fmt(h['auc_false_gt_true'], 5, 2):>5s} {_fmt_p(h['p_mannwhitney']):>7s}"
+        )
+        print(
+            f"  trace_final median: true-success={_fmt(tf['true_success']['median'], 6)}  "
+            f"false-success={_fmt(tf['false_success']['median'], 6)}  "
+            f"(AUC={_fmt(h['auc_false_gt_true'], 4, 2)} = P[cov flags false success w/o GT])"
+        )
         sweep = p.get("reduction_sweep", {})
         if sweep:
             print("  reduction sweep (false vs true success separability):")
-            print(f"    {'reduction':12s} {'med_true':>9s} {'med_false':>9s} "
-                  f"{'AUC':>5s} {'MWU p':>7s}")
+            print(
+                f"    {'reduction':12s} {'med_true':>9s} {'med_false':>9s} "
+                f"{'AUC':>5s} {'MWU p':>7s}"
+            )
             for key, s in sweep.items():
-                print(f"    {key:12s} {_fmt(s['median_true'], 9):>9s} "
-                      f"{_fmt(s['median_false'], 9):>9s} {_fmt(s['auc_false_gt_true'], 5, 2):>5s} "
-                      f"{_fmt_p(s['p_mannwhitney']):>7s}")
+                print(
+                    f"    {key:12s} {_fmt(s['median_true'], 9):>9s} "
+                    f"{_fmt(s['median_false'], 9):>9s} {_fmt(s['auc_false_gt_true'], 5, 2):>5s} "
+                    f"{_fmt_p(s['p_mannwhitney']):>7s}"
+                )
         print()
 
 
@@ -394,13 +437,16 @@ def print_report(result: Dict[str, object]) -> None:
 def main() -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--run-sets", nargs="+", default=list(DEFAULT_RUN_SETS),
-                        help="results/ subdirectory names (with {level}/ children)")
+    parser.add_argument(
+        "--run-sets",
+        nargs="+",
+        default=list(DEFAULT_RUN_SETS),
+        help="results/ subdirectory names (with {level}/ children)",
+    )
     args = parser.parse_args()
 
     result: Dict[str, object] = {
-        "false_success_definition":
-            "Goal Result==1 AND TTC Outcome==0 (matches false_success_analysis.py)",
+        "false_success_definition": "Goal Result==1 AND TTC Outcome==0",
         "trace_definition": "CovXX + CovYY (AMCL position-covariance diagonal trace)",
         "final_frac": FINAL_FRAC,
         "run_sets": {},

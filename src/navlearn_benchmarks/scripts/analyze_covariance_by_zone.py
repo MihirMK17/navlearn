@@ -52,6 +52,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from scipy.stats import mannwhitneyu  # noqa: E402
@@ -85,8 +86,19 @@ QUARTILE_LOW, QUARTILE_HIGH = 0.25, 0.75
 class Goal:
     """Per-goal start pose, success class, and aligned AMCL pose/cov series."""
 
-    __slots__ = ("level", "goal_result", "ttc_outcome", "start_x", "start_y",
-                 "mean_x", "mean_y", "cov_xx", "cov_yy", "cov_yaw", "jump_lin")
+    __slots__ = (
+        "level",
+        "goal_result",
+        "ttc_outcome",
+        "start_x",
+        "start_y",
+        "mean_x",
+        "mean_y",
+        "cov_xx",
+        "cov_yy",
+        "cov_yaw",
+        "jump_lin",
+    )
 
     def __init__(self, level: Optional[str]) -> None:
         self.level = level
@@ -140,9 +152,13 @@ def parse_csv(path: pathlib.Path, level: Optional[str], goals: Dict[str, Goal]) 
                 gid, mclass, _src, mname, mval, _ts = row
                 g = goals.setdefault(gid, Goal(level))
                 if mclass == "Localization Quality":
-                    target = {"CovXX": g.cov_xx, "CovYY": g.cov_yy,
-                              "CovYawYaw": g.cov_yaw, "MeanX": g.mean_x,
-                              "MeanY": g.mean_y}.get(mname)
+                    target = {
+                        "CovXX": g.cov_xx,
+                        "CovYY": g.cov_yy,
+                        "CovYawYaw": g.cov_yaw,
+                        "MeanX": g.mean_x,
+                        "MeanY": g.mean_y,
+                    }.get(mname)
                     if target is not None:
                         v = _f(mval)
                         if v is not None:
@@ -202,7 +218,9 @@ def reduce_goal(g: Goal) -> Optional[Dict[str, float]]:
 # ---------------------------------------------------------------------------
 
 
-def build_frame(goals: Dict[str, Goal], dist_wall_m, res, ox, oy, shape) -> pd.DataFrame:
+def build_frame(
+    goals: Dict[str, Goal], dist_wall_m, res, ox, oy, shape
+) -> pd.DataFrame:
     """One row per goal: pose, zone distance, class, covariance reductions."""
     rows: List[Dict[str, object]] = []
     for g in goals.values():
@@ -210,14 +228,19 @@ def build_frame(goals: Dict[str, Goal], dist_wall_m, res, ox, oy, shape) -> pd.D
         cls = g.classify()
         if red is None or not cls or g.start_x is None or g.start_y is None:
             continue
-        r, c = world_to_rowcol(np.asarray([g.start_x]), np.asarray([g.start_y]),
-                               res, ox, oy, shape)
-        rows.append({
-            "level": g.level, "class": cls,
-            "start_x": g.start_x, "start_y": g.start_y,
-            "d_wall_m": float(dist_wall_m[r[0], c[0]]),
-            **red,
-        })
+        r, c = world_to_rowcol(
+            np.asarray([g.start_x]), np.asarray([g.start_y]), res, ox, oy, shape
+        )
+        rows.append(
+            {
+                "level": g.level,
+                "class": cls,
+                "start_x": g.start_x,
+                "start_y": g.start_y,
+                "d_wall_m": float(dist_wall_m[r[0], c[0]]),
+                **red,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -232,6 +255,7 @@ def _mwu(a: np.ndarray, b: np.ndarray) -> float:
 
 def zone_table(df: pd.DataFrame, q_lo: float, q_hi: float) -> List[Dict[str, object]]:
     """Compare covariance reductions across NARROW / MID / OPEN zones."""
+
     def zone(d: float) -> str:
         if d <= q_lo:
             return "NARROW"
@@ -256,8 +280,17 @@ def zone_table(df: pd.DataFrame, q_lo: float, q_hi: float) -> List[Dict[str, obj
     return out
 
 
-def render_heatmap(goals: Dict[str, Goal], img, extent, dist_wall_m,
-                   res, ox, oy, shape, out_path: pathlib.Path) -> None:
+def render_heatmap(
+    goals: Dict[str, Goal],
+    img,
+    extent,
+    dist_wall_m,
+    res,
+    ox,
+    oy,
+    shape,
+    out_path: pathlib.Path,
+) -> None:
     """Spatial heatmap of mean cov-trace, binned over the AMCL estimated pose."""
     xs, ys, tr = [], [], []
     for g in goals.values():
@@ -283,17 +316,29 @@ def render_heatmap(goals: Dict[str, Goal], img, extent, dist_wall_m,
         mean_tr = np.where(cnt > 0, sum_tr / cnt, np.nan)
 
     fig, ax = plt.subplots(figsize=(11, 9))
-    ax.imshow(img, extent=extent, origin="lower", cmap="gray", alpha=0.55, vmin=0, vmax=255)
+    ax.imshow(
+        img, extent=extent, origin="lower", cmap="gray", alpha=0.55, vmin=0, vmax=255
+    )
     # 95th-percentile clip so a few divergence spikes don't wash out the field.
     vmax = float(np.nanpercentile(mean_tr, 95)) if np.isfinite(mean_tr).any() else 1.0
-    im = ax.imshow(mean_tr.T, extent=extent, origin="lower", cmap="inferno",
-                   alpha=0.75, vmin=0, vmax=max(vmax, 1e-6))
+    im = ax.imshow(
+        mean_tr.T,
+        extent=extent,
+        origin="lower",
+        cmap="inferno",
+        alpha=0.75,
+        vmin=0,
+        vmax=max(vmax, 1e-6),
+    )
     cbar = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.04)
     cbar.set_label("mean AMCL position-cov trace  CovXX+CovYY (m^2)")
     ax.set_xlabel("x (m, map frame)")
     ax.set_ylabel("y (m, map frame)")
-    ax.set_title("Where AMCL loses confidence — cov-trace over estimated pose\n"
-                 "(open rooms vs narrow corridors; estimated-pose-based)", fontsize=10)
+    ax.set_title(
+        "Where AMCL loses confidence — cov-trace over estimated pose\n"
+        "(open rooms vs narrow corridors; estimated-pose-based)",
+        fontsize=10,
+    )
     plt.tight_layout()
     plt.savefig(out_path, dpi=140)
     plt.close()
@@ -322,37 +367,52 @@ def main() -> int:
     base = ext if len(ext) >= 8 else df
     q_lo = float(base["d_wall_m"].quantile(QUARTILE_LOW))
     q_hi = float(base["d_wall_m"].quantile(QUARTILE_HIGH))
-    print(f"  zone thresholds (n={len(base)}): NARROW <= {q_lo:.2f} m | OPEN >= {q_hi:.2f} m")
+    print(
+        f"  zone thresholds (n={len(base)}): NARROW <= {q_lo:.2f} m | OPEN >= {q_hi:.2f} m"
+    )
 
     all_rows: List[Dict[str, object]] = []
     for scope_name, scope_df in (("extreme_ttc", ext), ("all_levels", df)):
         if scope_df.empty:
             continue
         print(f"\n=== covariance by zone — {scope_name} (n={len(scope_df)}) ===")
-        print(f"  {'metric':11s} | {'NARROW (n)':>14s} | {'MID (n)':>14s} | "
-              f"{'OPEN (n)':>14s} | {'p(open>narrow)':>14s}")
+        print(
+            f"  {'metric':11s} | {'NARROW (n)':>14s} | {'MID (n)':>14s} | "
+            f"{'OPEN (n)':>14s} | {'p(open>narrow)':>14s}"
+        )
         for rec in zone_table(scope_df, q_lo, q_hi):
             rec["scope"] = scope_name
             all_rows.append(rec)
             p = rec["p_open_gt_narrow"]
             ps = "  --   " if (isinstance(p, float) and math.isnan(p)) else f"{p:6.3f}"
-            print(f"  {rec['metric']:11s} | "
-                  f"{rec['NARROW_median']:8.4f} ({rec['NARROW_n']:>3d}) | "
-                  f"{rec['MID_median']:8.4f} ({rec['MID_n']:>3d}) | "
-                  f"{rec['OPEN_median']:8.4f} ({rec['OPEN_n']:>3d}) | {ps:>14s}")
+            print(
+                f"  {rec['metric']:11s} | "
+                f"{rec['NARROW_median']:8.4f} ({rec['NARROW_n']:>3d}) | "
+                f"{rec['MID_median']:8.4f} ({rec['MID_n']:>3d}) | "
+                f"{rec['OPEN_median']:8.4f} ({rec['OPEN_n']:>3d}) | {ps:>14s}"
+            )
 
     # False- vs true-success cov split WITHIN each zone (extreme-TTC).
     if not ext.empty:
         print("\n=== trace_mean: false vs true success, within zone (extreme_ttc) ===")
-        ext_z = ext.assign(zone=ext["d_wall_m"].apply(
-            lambda d: "NARROW" if d <= q_lo else ("OPEN" if d >= q_hi else "MID")))
+        ext_z = ext.assign(
+            zone=ext["d_wall_m"].apply(
+                lambda d: "NARROW" if d <= q_lo else ("OPEN" if d >= q_hi else "MID")
+            )
+        )
         for z in ("NARROW", "MID", "OPEN"):
-            zt = ext_z[(ext_z["zone"] == z) & (ext_z["class"] == "true_success")]["trace_mean"]
-            zf = ext_z[(ext_z["zone"] == z) & (ext_z["class"] == "false_success")]["trace_mean"]
+            zt = ext_z[(ext_z["zone"] == z) & (ext_z["class"] == "true_success")][
+                "trace_mean"
+            ]
+            zf = ext_z[(ext_z["zone"] == z) & (ext_z["class"] == "false_success")][
+                "trace_mean"
+            ]
             tmed = float(np.median(zt)) if len(zt) else float("nan")
             fmed = float(np.median(zf)) if len(zf) else float("nan")
-            print(f"  {z:7s}: true n={len(zt):>3d} med={tmed:8.4f}   "
-                  f"false n={len(zf):>3d} med={fmed:8.4f}")
+            print(
+                f"  {z:7s}: true n={len(zt):>3d} med={tmed:8.4f}   "
+                f"false n={len(zf):>3d} med={fmed:8.4f}"
+            )
 
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(all_rows).to_csv(OUT_CSV, index=False)
