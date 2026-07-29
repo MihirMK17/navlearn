@@ -16,9 +16,11 @@ src/gz_ros2_control/
 .vscode/
 src/.vscode/
 
-# Personal docs — not for public repo
+# Personal docs — not for public repo (rebuild plan decision D-8)
 docs/o1/
 docs/paper1/
+docs/council/
+docs/decisions/
 SESSION_LOG.md
 BOOTSTRAP_PROMPT.md
 CLAUDE.md
@@ -35,3 +37,25 @@ bringup.txt
 loc_eval.txt
 scan_inf_nan.txt
 scan_inf_nan_plusinf.txt
+
+# Experiment artifacts — raw CSVs/large outputs (cite from results/phase_comparison/*.json)
+results/
+benchmark_reports/
+
+# Large media + sim assets
+media/
+IsaacSim/
+
+# Tooling exhaust
+graphify-out/
+.claude-flow/
+.claude.backup.*/
+.claude/
+.claudeignore
+
+# Python caches
+**/__pycache__/
+**/*.pyc
+
+# Stray root scratch
+localization_evaluation.csv
