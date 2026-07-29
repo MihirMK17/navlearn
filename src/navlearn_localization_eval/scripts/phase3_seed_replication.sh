@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# RETIRED 2026-07-28 — see _retired_guard.sh for why and what replaces it.
+source "$(dirname "${BASH_SOURCE[0]}")/_retired_guard.sh"
 # Phase 3 follow-up: seed replication on extreme cells
 # Runs mppi_baseline + mppi_aggressive at extreme TTC + extreme TTR
 # with seeds 43 and 44 (in addition to seed=42 already in Phase 3).

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# RETIRED 2026-07-28 — see _retired_guard.sh for why and what replaces it.
+source "$(dirname "${BASH_SOURCE[0]}")/_retired_guard.sh"
 # Phase 3 Follow-up: fixed_bt orchestrator
 # Runs ONLY mppi_baseline_fixed_bt (TTC × 4 levels) to isolate BT-timeout effect
 # from velocity tuning. Same structure as phase3_orchestrator.sh.

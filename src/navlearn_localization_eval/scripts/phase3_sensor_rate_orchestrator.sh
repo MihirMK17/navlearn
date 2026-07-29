@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# RETIRED 2026-07-28 — see _retired_guard.sh for why and what replaces it.
+source "$(dirname "${BASH_SOURCE[0]}")/_retired_guard.sh"
 # Phase 3 sensor-rate stress test: original 4th test case (no bad-init, no kidnap, LiDAR rate reduced).
 # Lever: gpu_lidar <update_rate> in bumperbot_description/urdf/bumperbot_gazebo.xacro (symlink-installed,
 # so editing src + restarting sim is sufficient; no colcon rebuild needed).

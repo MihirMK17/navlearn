@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# RETIRED 2026-07-28 — see _retired_guard.sh for why and what replaces it.
+source "$(dirname "${BASH_SOURCE[0]}")/_retired_guard.sh"
 # Phase 2b NavLearn Orchestrator — TTR-only ablation
 # Isolates H1: revert recovery_alpha_fast 0.05 → 0.1 while keeping other Phase 2 changes.
 # Same graceful teardown + CSV-outcome validation as Phase 2 orchestrator v3.

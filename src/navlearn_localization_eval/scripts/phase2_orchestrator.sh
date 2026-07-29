@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
+
+# RETIRED 2026-07-28 — see _retired_guard.sh for why and what replaces it.
+source "$(dirname "${BASH_SOURCE[0]}")/_retired_guard.sh"
 # Phase 2 NavLearn Orchestrator — v3
 # Graceful sim teardown + full stack verification before every harness.
 # Harness runs SYNCHRONOUSLY — sim is never killed mid-run.
 # CSV contents validated (goal counts) before marking any level done.
+#
+# Produced the archived results/phase2_ttc and results/phase2_ttr datasets.
 
 # Source ROS setup ONCE before strict mode — setup.bash has non-zero exits internally
 export ROS_DOMAIN_ID=1

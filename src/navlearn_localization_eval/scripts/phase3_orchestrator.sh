@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# RETIRED 2026-07-28 — see _retired_guard.sh for why and what replaces it.
+source "$(dirname "${BASH_SOURCE[0]}")/_retired_guard.sh"
 # Phase 3 NavLearn Orchestrator — MPPI Controller Benchmarks
 # Runs 2 MPPI profiles × 4 perturbation levels × TTC + TTR = 16 levels.
 # Mirrors phase2_orchestrator.sh: single bringup + synchronous harness + graceful teardown.

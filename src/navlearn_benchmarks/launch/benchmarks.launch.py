@@ -162,11 +162,17 @@ def generate_launch_description():
         "world_name", default_value="small_house", description="Gazebo world name"
     )
 
-    nav2_profile_arg = DeclareLaunchArgument(
-        "nav2_profile",
-        default_value="aggressive",
-        description="Nav2 parameter profile: baseline | aggressive",
-    )
+    # NOTE: there is deliberately no nav2_profile argument here.
+    #
+    # One was declared until 2026-07-28 and never consumed — this launch file starts the
+    # metric nodes, not the navigation stack, so the value was accepted and discarded.
+    # multi_run_harness.py forwarded `--profile` into it and logged the name as though it
+    # described the run, which meant a result could be labelled with one stack while a
+    # different one was actually running in the bringup terminal, undetectably.
+    #
+    # The stack is now selected on the bringup and recorded by navigation.launch.py into a
+    # JSON spec that the harness copies into each run directory. See
+    # bumperbot_navigation/launch/stack_spec.py.
 
     log_level_arg = DeclareLaunchArgument(
         "log_level",
@@ -439,7 +445,6 @@ def generate_launch_description():
             json_path_arg,
             episode_manager_config_arg,
             world_name_arg,
-            nav2_profile_arg,
             log_level_arg,
             collision_scan_threshold_m_arg,
             perturbation_level_arg,

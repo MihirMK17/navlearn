@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# RETIRED 2026-07-28 — see _retired_guard.sh for why and what replaces it.
+source "$(dirname "${BASH_SOURCE[0]}")/_retired_guard.sh"
 # Phase 3 single-variable ablation: isolate vx_max as the lever between mppi_baseline and mppi_aggressive.
 # Profile: mppi_baseline_high_vx (= mppi_baseline with ONLY vx_max raised 0.30 -> 0.45; everything else preserved).
 # Cells: 1 profile x extreme x 2 modes (ttc + ttr) x 3 seeds (42, 43, 44) x n=25 = 150 goals.
