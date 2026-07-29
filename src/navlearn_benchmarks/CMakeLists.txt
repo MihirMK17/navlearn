@@ -115,6 +115,17 @@ if(BUILD_TESTING)
   # CI and respecting --max-line-length=100) covers real Python issues.
   set(ament_cmake_pep257_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  # nav2_stack parity gate. Fails the build if the shipped navigation configuration
+  # develops the drift the 2026-07-25 audit found — differing goal tolerances or speed
+  # envelopes across controller arms, a per-controller costmap, an MPPI ObstaclesCritic
+  # out of step with the inflation layer, or a multi-variable "single-variable" ablation.
+  # Also proves each of those guards still fires, and that the harness refuses to run
+  # against missing or stale run provenance.
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_nav2_stack test/test_nav2_stack.py
+    TIMEOUT 300
+  )
 endif()
 
 ament_package()
