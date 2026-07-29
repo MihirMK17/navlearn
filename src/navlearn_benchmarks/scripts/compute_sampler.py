@@ -289,6 +289,33 @@ def gpu_state():
     return state
 
 
+GUI_PROCESS = re.compile(r"gz[\s_-]?gui|gzclient|ign[\s_-]gui|ruby.*-g\b|rviz2", re.I)
+
+
+def rendering_state(process_rows):
+    """Report whether a GUI was actually rendering, observed rather than assumed.
+
+    Headless is a launch argument, and a launch argument is a request. What matters for
+    interpreting compute numbers is whether frames were actually being drawn: a GUI
+    competes with the stack under measurement for CPU, so a run that rendered is not
+    comparable with one that did not. Detected from the process table rather than trusted
+    from the flag, for the same reason the stack itself is recorded rather than claimed.
+    """
+    names = {row["name"] for row in process_rows}
+    gui = sorted(name for name in names if GUI_PROCESS.search(name))
+    return {
+        "gui_processes_detected": gui,
+        "rendering": bool(gui),
+        "note": (
+            "A GUI was running during this run; its rendering load is included in the "
+            "SIMULATION class and competed with the stack being measured."
+            if gui else
+            "No GUI process observed. Compute figures reflect simulation and navigation "
+            "only."
+        ),
+    }
+
+
 def sample_processes(previous, now, elapsed):
     """Produce one sample across all classified processes.
 
@@ -439,6 +466,7 @@ def summarise(process_rows, system_rows, throttle_start, throttle_end, started, 
             "package_temp_c_max": max(temps) if temps else None,
         },
         "gpu": gpu_state(),
+        "rendering": rendering_state(process_rows),
         "notes": {
             "cpu_method": (
                 "utime+stime deltas from /proc/<pid>/stat over the sample interval. "

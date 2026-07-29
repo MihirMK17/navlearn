@@ -112,6 +112,15 @@ def generate_launch_description():
     world_name_arg = DeclareLaunchArgument("world_name", default_value="small_house")
     world_name = LaunchConfiguration("world_name")
 
+    # Forwarded to gazebo.launch.py. Default false preserves the existing GUI behaviour;
+    # campaign runs pass true. See gazebo.launch.py for why this was never enabled before.
+    headless_arg = DeclareLaunchArgument(
+        "headless",
+        default_value="false",
+        description="Run Gazebo without the GUI. Campaign runs use true.",
+    )
+    headless = LaunchConfiguration("headless")
+
     amcl_config_arg = DeclareLaunchArgument(
         name="amcl_config",
         default_value="",
@@ -130,7 +139,7 @@ def generate_launch_description():
             "launch",
             "gazebo.launch.py"
         ),
-        launch_arguments={"world_name": world_name}.items(),
+        launch_arguments={"world_name": world_name, "headless": headless}.items(),
     )
     
     controller = IncludeLaunchDescription(
@@ -229,6 +238,7 @@ def generate_launch_description():
         localizer_arg,
         stack_spec_out_arg,
         world_name_arg,
+        headless_arg,
         amcl_config_arg,
         localizer_resolver,   # must precede `localization` — it sets amcl_config
         gazebo,

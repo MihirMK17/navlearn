@@ -24,6 +24,21 @@ def generate_launch_description():
 
     world_name_arg = DeclareLaunchArgument(name="world_name", default_value="empty")
 
+    # Headless operation. Gazebo has always been launched with `-r` (run) and no `-s`
+    # (server only), so every benchmark run so far rendered a GUI — roughly 29 hours of
+    # simulation drawing frames on an Intel iGPU that nobody was watching, competing for
+    # CPU with the stack being measured.
+    #
+    # Default is false so existing behaviour is unchanged and the setting is opt-in; the
+    # campaign passes headless:=true. The speedup is measured on the pilot cell rather
+    # than assumed, and whichever mode a run used is recorded, because rendering load
+    # affects the compute numbers and cells run in different modes are not comparable.
+    headless_arg = DeclareLaunchArgument(
+        name="headless",
+        default_value="false",
+        description="Run Gazebo without the GUI (adds -s). Campaign runs use true.",
+    )
+
     world_path = PathJoinSubstitution([
             bumperbot_description,
             "worlds",
@@ -62,7 +77,14 @@ def generate_launch_description():
                 PythonLaunchDescriptionSource([os.path.join(
                     get_package_share_directory("ros_gz_sim"), "launch"), "/gz_sim.launch.py"]),
                 launch_arguments={
-                    "gz_args": PythonExpression(["'", world_path, " -v 4 -r'"])
+                    # -s is appended only when headless is requested. Written as a
+                    # conditional expression rather than two launch entries so the world
+                    # path and verbosity cannot drift between the two modes.
+                    "gz_args": PythonExpression([
+                        "'", world_path, " -v 4 -r'",
+                        " + (' -s' if '", LaunchConfiguration("headless"),
+                        "'.lower() in ('true', '1', 'yes') else '')",
+                    ])
                 }.items()
              )
 
@@ -109,6 +131,7 @@ def generate_launch_description():
     return LaunchDescription([  
         model_arg,
         world_name_arg,
+        headless_arg,
         gazebo_resource_path,
         robot_state_publisher_node,
         gazebo,

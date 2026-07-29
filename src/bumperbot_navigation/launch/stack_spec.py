@@ -168,6 +168,13 @@ IDENTITY_PARAMS = (
 )
 
 
+# Each controller plugin names its maximum linear velocity differently. Resolving it into
+# one identity field lets consumers ask "how fast was this stack allowed to go?" without
+# knowing which controller ran — control_metric needs exactly that to compute saturation
+# against the real ceiling rather than a hardcoded guess.
+MAX_SPEED_KEYS = ("desired_linear_vel", "vx_max", "max_vel_x")
+
+
 def _dig(tree, path):
     """Walk a nested mapping by key path, returning None if any level is absent."""
     node = tree
@@ -176,6 +183,20 @@ def _dig(tree, path):
             return None
         node = node[key]
     return node
+
+
+def resolve_max_linear_velocity(composed):
+    """Return the composed stack's maximum linear velocity, or None if undeterminable.
+
+    Reads whichever of the three plugin-specific keys is present. An ablation that raises
+    the speed is already merged into ``composed`` at this point, so the value reflects
+    what the stack will actually command rather than the controller's baseline.
+    """
+    follow_path = _dig(composed, ("controller_server", "ros__parameters", "FollowPath")) or {}
+    for key in MAX_SPEED_KEYS:
+        if key in follow_path:
+            return follow_path[key]
+    return None
 
 
 def build_stack_spec(stack, selection, extra=None):
@@ -225,6 +246,7 @@ def build_stack_spec(stack, selection, extra=None):
 
     composed = compose([path for _, path in load_order])
     identity = {name: _dig(composed, path) for name, path in IDENTITY_PARAMS}
+    identity["max_linear_velocity"] = resolve_max_linear_velocity(composed)
 
     spec = {
         "schema": "navlearn.stack_spec/1",

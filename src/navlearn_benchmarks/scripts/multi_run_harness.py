@@ -162,6 +162,73 @@ def _log_compute_verdict(prefix: pathlib.Path) -> None:
         )
 
 
+def _log_rate_verdict(prefix: pathlib.Path) -> None:
+    """Surface the run's achieved rates and real-time factor.
+
+    A scan rate below the requested one means the cell did not test the condition its
+    label claims, which matters most for the sensor-starve leg where the rate *is* the
+    independent variable.
+    """
+    path = pathlib.Path(f"{prefix}_rates.json")
+    if not path.is_file():
+        logging.warning("No rate record at %s", path)
+        return
+    try:
+        rates = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        logging.warning("Rate record at %s is unreadable", path)
+        return
+
+    logging.info(
+        "Rates    : RTF=%s scan=%s Hz cmd_vel=%s Hz",
+        rates.get("real_time_factor"),
+        rates.get("scan", {}).get("rate_hz_median"),
+        rates.get("cmd_vel", {}).get("rate_hz_median"),
+    )
+    if rates.get("scan_rate_met") is False:
+        logging.error("RATE: %s", rates.get("verdict"))
+
+
+def validate_run_output(
+    episode_id: int, args: argparse.Namespace, csv_path: pathlib.Path,
+    log_path: pathlib.Path,
+) -> None:
+    """Halt the campaign if a run produced fewer goal rows than it was asked for.
+
+    The retired orchestrators handled a short cell by re-running it and topping up the
+    directory until the expected row count appeared. That converts a systematic failure —
+    a controller that cannot complete under this perturbation, a sim that dies partway —
+    into a data set that looks complete, with the surviving rows biased toward whatever
+    conditions happened to succeed.
+
+    A row is written for every terminated goal regardless of outcome, so a FAILED goal
+    still produces a row. Fewer rows than goals therefore means the episode did not finish,
+    which is a defect rather than a result, and the campaign stops so it can be diagnosed
+    while the evidence is fresh.
+    """
+    if not csv_path.is_file():
+        logging.error(
+            "Run %d produced no CSV at %s. The metrics pipeline did not complete. "
+            "Node output: %s", episode_id, csv_path, log_path,
+        )
+        sys.exit(2)
+
+    with open(csv_path) as handle:
+        rows = [line for line in handle.read().splitlines() if line.strip()]
+    data_rows = max(len(rows) - 1, 0)  # minus header
+
+    if data_rows < args.goals:
+        logging.error(
+            "Run %d wrote %d goal rows but %d were requested. The episode did not "
+            "complete. Not re-running to top up the count: that would hide a systematic "
+            "failure behind a directory that looks full. Node output: %s",
+            episode_id, data_rows, args.goals, log_path,
+        )
+        sys.exit(3)
+
+    logging.info("Validate : %d/%d goal rows present", data_rows, args.goals)
+
+
 def git_sha(workspace: pathlib.Path) -> str:
     """Return the short git SHA of the workspace, or 'unknown' outside a repository."""
     try:
@@ -208,6 +275,17 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.2,
         help="Compute sampler interval in seconds; 0 disables compute profiling",
+    )
+    parser.add_argument(
+        "--expected-scan-hz",
+        type=float,
+        default=10.0,
+        help="LiDAR rate this cell is meant to test; the monitor flags under-delivery",
+    )
+    parser.add_argument(
+        "--no-rate-monitor",
+        action="store_true",
+        help="Disable RTF and topic-rate measurement (not advised for campaign runs)",
     )
     parser.add_argument(
         "--profile",
@@ -322,48 +400,62 @@ def run_benchmark(
     }
     spec_path.write_text(json.dumps(run_record, indent=2, sort_keys=True) + "\n")
 
-    # Compute profiling runs for exactly the span of the launch, so its samples cover the
-    # navigation work and nothing else. Started here rather than inside the launch so that
-    # a crashed or hung ROS graph still leaves a usable compute trace behind.
-    sampler = None
+    # Instrumentation spans exactly the launch, so its samples cover the navigation work
+    # and nothing else. Started here rather than inside the launch file so that a crashed
+    # or hung ROS graph still leaves usable traces behind.
+    prefix = report_dir / f"navlearn_{{}}_run_{episode_id}_{stamp}"
+    here = pathlib.Path(__file__).parent
+    monitors = []
+
     if args.compute_interval > 0:
-        sampler_script = pathlib.Path(__file__).with_name("compute_sampler.py")
-        sampler = subprocess.Popen(
-            [
-                sys.executable,
-                str(sampler_script),
-                "--output-prefix",
-                str(report_dir / f"navlearn_compute_run_{episode_id}_{stamp}"),
-                "--interval",
-                str(args.compute_interval),
-            ]
-        )
+        monitors.append(subprocess.Popen([
+            sys.executable, str(here / "compute_sampler.py"),
+            "--output-prefix", str(prefix).format("compute"),
+            "--interval", str(args.compute_interval),
+        ]))
+
+    if not args.no_rate_monitor:
+        monitors.append(subprocess.Popen([
+            sys.executable, str(here / "rate_monitor.py"),
+            "--output-prefix", str(prefix).format("rates"),
+            "--expected-scan-hz", str(args.expected_scan_hz),
+        ]))
+
+    # Node stdout and stderr go to the run directory, not to the terminal and not to
+    # /tmp. They are the only record of why a cell failed, and /tmp does not survive a
+    # reboot — which is exactly when an overnight campaign's failures get investigated.
+    log_path = pathlib.Path(str(prefix).format("nodes")).with_suffix(".log")
+    logging.info("LOG  --> %s", log_path)
 
     try:
-        result = subprocess.run(cmd)
+        with open(log_path, "w") as log_handle:
+            log_handle.write(f"# {' '.join(cmd)}\n")
+            log_handle.flush()
+            result = subprocess.run(cmd, stdout=log_handle, stderr=subprocess.STDOUT)
     finally:
-        # Stop the sampler on every path, including a failed or interrupted run. SIGTERM
-        # is its cue to write the summary, so it must be given the chance to exit cleanly
-        # or the run's compute trace is lost.
-        if sampler is not None and sampler.poll() is None:
-            sampler.terminate()
-            try:
-                sampler.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                logging.warning("Compute sampler did not exit on SIGTERM; killing it.")
-                sampler.kill()
-                sampler.wait(timeout=5)
+        # Stop instrumentation on every path, including a failed or interrupted run.
+        # SIGTERM is each monitor's cue to write its record, so they must be given the
+        # chance to exit cleanly or the run's traces are lost.
+        for monitor in monitors:
+            if monitor.poll() is None:
+                monitor.terminate()
+                try:
+                    monitor.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    logging.warning("Monitor pid %d ignored SIGTERM; killing.", monitor.pid)
+                    monitor.kill()
+                    monitor.wait(timeout=5)
 
     if result.returncode != 0:
         logging.error(
-            "Run %d/%d failed with exit code %d. Aborting harness.",
-            episode_id,
-            args.episodes,
-            result.returncode,
+            "Run %d/%d failed with exit code %d. Node output: %s",
+            episode_id, args.episodes, result.returncode, log_path,
         )
         sys.exit(result.returncode)
 
-    _log_compute_verdict(report_dir / f"navlearn_compute_run_{episode_id}_{stamp}")
+    _log_compute_verdict(pathlib.Path(str(prefix).format("compute")))
+    _log_rate_verdict(pathlib.Path(str(prefix).format("rates")))
+    validate_run_output(episode_id, args, csv_path, log_path)
     logging.info("Run %d/%d completed successfully.", episode_id, args.episodes)
 
 

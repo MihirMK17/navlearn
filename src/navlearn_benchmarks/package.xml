@@ -16,6 +16,7 @@
 
   <!-- Core runtime deps -->
   <depend>rclcpp</depend>
+  <depend>rclpy</depend>
   <depend>rclcpp_action</depend>
   <depend>rclcpp_components</depend>
 

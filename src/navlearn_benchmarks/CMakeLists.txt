@@ -99,6 +99,13 @@ install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Python instrumentation run per benchmark episode by multi_run_harness.py.
+install(PROGRAMS
+  scripts/rate_monitor.py
+  scripts/compute_sampler.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # Install empty benchmark_reports dir so the default csv_path/json_path from
 # benchmarks.launch.py (FindPackageShare + "benchmark_reports/...") is always valid.
 install(DIRECTORY

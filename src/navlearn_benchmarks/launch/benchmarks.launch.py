@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
+
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
@@ -31,9 +33,15 @@ from launch.substitutions import (
     TextSubstitution,
 )
 from launch_ros.substitutions import FindPackageShare
+from launch.actions import SetLaunchConfiguration, LogInfo
 from launch.events import Shutdown
 from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+
+DEFAULT_STACK_SPEC = os.path.join(
+    os.path.expanduser("~"), ".navlearn", "current_stack_spec.json"
+)
 
 
 def apply_perturbation_presets(context, *args, **kwargs):
@@ -81,9 +89,74 @@ def apply_perturbation_presets(context, *args, **kwargs):
     return []
 
 
+def resolve_speed_limit(context, *args, **kwargs):
+    """Set control_metric's v_max from the stack the bringup actually composed.
+
+    Saturation fraction is the share of commands at the controller's velocity ceiling, so
+    it is only meaningful against the ceiling that was actually in force. control_metric
+    defaulted to 0.25 m/s and no launch file ever overrode it, while the profiles ran at
+    0.26 to 0.45 — so the metric was computed against a limit six of seven profiles did
+    not use, and the ablation that deliberately raises the speed to 0.45 would have been
+    scored against 0.25.
+
+    The value is read from the stack spec rather than hardcoded here because it depends on
+    which controller and which ablation the bringup composed, and each controller plugin
+    names its speed limit differently. Reading it back means the metric cannot disagree
+    with the stack even if a fragment changes.
+
+    A missing or unreadable spec is fatal. A silently wrong ceiling produces a
+    plausible-looking saturation number that is simply incorrect, which is precisely the
+    class of defect the rebuild exists to eliminate.
+    """
+    spec_path = os.path.expanduser(
+        context.launch_configurations.get("stack_spec", DEFAULT_STACK_SPEC)
+    )
+
+    def fail(message):
+        return [
+            LogInfo(msg=f"[benchmarks] PREFLIGHT FAILED: {message}"),
+            EmitEvent(event=Shutdown(reason=f"benchmarks preflight: {message}")),
+        ]
+
+    if not os.path.isfile(spec_path):
+        return fail(
+            f"no stack spec at {spec_path}. control_metric cannot determine the velocity "
+            "ceiling, so saturation fraction would be computed against a guess. Start the "
+            "bringup first, or pass stack_spec:=<path>."
+        )
+
+    try:
+        with open(spec_path) as handle:
+            spec = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        return fail(f"stack spec at {spec_path} is unreadable: {exc}")
+
+    v_max = spec.get("identity", {}).get("max_linear_velocity")
+    if v_max is None:
+        return fail(
+            f"stack spec at {spec_path} carries no max_linear_velocity. It was written by "
+            "an older navigation.launch.py; restart the bringup to regenerate it."
+        )
+
+    return [
+        SetLaunchConfiguration("resolved_v_max", str(float(v_max))),
+        LogInfo(
+            msg=f"[benchmarks] control_metric v_max={v_max} m/s "
+                f"(from {spec['selection'].get('controller', '?')}"
+                f"/{spec['selection'].get('ablation', '?')})"
+        ),
+    ]
+
+
 def generate_launch_description():
     episode_start_delay_arg = DeclareLaunchArgument(
         "episode_start_delay", default_value="2.0"
+    )
+
+    stack_spec_arg = DeclareLaunchArgument(
+        "stack_spec",
+        default_value=DEFAULT_STACK_SPEC,
+        description="Stack provenance record written by the bringup; supplies v_max.",
     )
     episode_start_delay = LaunchConfiguration("episode_start_delay")
 
@@ -279,6 +352,14 @@ def generate_launch_description():
                 "control_metric.yaml",
             ),
             {"use_sim_time": use_sim_time},
+            # Injected last so it wins over control_metric.yaml. Resolved from the stack
+            # the bringup actually composed — see resolve_speed_limit for why a static
+            # value here is wrong.
+            {
+                "v_max": ParameterValue(
+                    LaunchConfiguration("resolved_v_max"), value_type=float
+                )
+            },
         ],
     )
 
@@ -446,6 +527,9 @@ def generate_launch_description():
             use_sim_time_arg,
             campaign_seed_arg,
             run_index_arg,
+            stack_spec_arg,
+            # Must precede control_metric: it sets the v_max that node reads.
+            OpaqueFunction(function=resolve_speed_limit),
             goals_num_arg,
             goal_source_arg,
             csv_path_arg,
