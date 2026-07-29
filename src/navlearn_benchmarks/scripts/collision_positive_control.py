@@ -213,6 +213,12 @@ def main():
     parser.add_argument("--timeout", type=float, default=60.0)
     args, ros_args = parser.parse_known_args()
 
+    # Line-buffer stdout. Python block-buffers when redirected to a file, so progress from
+    # a run whose output is captured — which is every unattended run — would appear only
+    # at exit, or not at all if the process were killed. Watching a stalled run needs to
+    # be possible while it is stalled.
+    sys.stdout.reconfigure(line_buffering=True)
+
     rclpy.init(args=ros_args)
     node = CollisionPositiveControl(args)
     try:

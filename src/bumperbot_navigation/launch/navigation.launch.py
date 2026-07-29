@@ -160,9 +160,13 @@ def _check_mppi_inflation_parity(common_path, controller_path):
 
 def _compose_stack(context, *args, **kwargs):
     """Validate the requested fragments, record provenance, and build the Nav2 node set."""
+    # The localizer is included for the record even though this launch file does not start
+    # AMCL: without it the stack spec cannot distinguish the AMCL probe cells (default vs
+    # tuned) from each other, and provenance that cannot identify the cell is not
+    # provenance. bumperbot_bringup forwards the value it resolved.
     selection = {
         role: LaunchConfiguration(role).perform(context)
-        for role in ("controller", "planner", "ablation")
+        for role in ("controller", "planner", "ablation", "localizer")
     }
     use_sim_time = LaunchConfiguration("use_sim_time").perform(context).lower() == "true"
     spec_out = LaunchConfiguration("stack_spec_out").perform(context)
@@ -309,6 +313,16 @@ def generate_launch_description():
                 "ablation",
                 default_value=stack_spec.NO_ABLATION,
                 description=describe("ablation", "Single-variable override, loaded last."),
+            ),
+            DeclareLaunchArgument(
+                "localizer",
+                default_value="amcl_tuned",
+                description=describe(
+                    "localizer",
+                    "Localizer, recorded in the stack spec. AMCL itself is launched by "
+                    "bumperbot_localization; this is for provenance so the AMCL probe "
+                    "cells are distinguishable.",
+                ),
             ),
             DeclareLaunchArgument(
                 "stack_spec_out",

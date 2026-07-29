@@ -11,7 +11,7 @@ from launch.actions import (
 )
 from launch.conditions import UnlessCondition, IfCondition
 from launch.events import Shutdown
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
@@ -121,6 +121,27 @@ def generate_launch_description():
     )
     headless = LaunchConfiguration("headless")
 
+    # RViz is a second renderer. It draws the map, costmaps, particle cloud and laser scan
+    # continuously, on the same integrated GPU and the same CPU as the navigation stack
+    # being measured — so leaving it on during a compute benchmark contaminates the very
+    # numbers the run exists to collect, exactly as the Gazebo GUI did.
+    #
+    # Default true keeps interactive use unchanged; campaign and unattended runs pass false.
+    use_rviz_arg = DeclareLaunchArgument(
+        "use_rviz",
+        default_value="true",
+        description="Launch RViz. Set false for benchmark runs: its rendering load "
+                    "competes with the stack under measurement.",
+    )
+    use_rviz = LaunchConfiguration("use_rviz")
+
+    # RViz appears only when requested AND the matching mapping mode is active. Combined
+    # here rather than nesting conditions so each viewer has exactly one gate.
+    _rviz_on = ["'", use_rviz, "'.lower() in ('true', '1', 'yes')"]
+    _slam_on = ["'", use_slam, "'.lower() in ('true', '1', 'yes')"]
+    show_rviz_localization = PythonExpression(_rviz_on + [" and not ("] + _slam_on + [")"])
+    show_rviz_slam = PythonExpression(_rviz_on + [" and ("] + _slam_on + [")"])
+
     amcl_config_arg = DeclareLaunchArgument(
         name="amcl_config",
         default_value="",
@@ -194,6 +215,8 @@ def generate_launch_description():
             "controller": controller_name,
             "planner": planner_name,
             "ablation": ablation_name,
+            # Forwarded for the record only; AMCL is started by bumperbot_localization.
+            "localizer": LaunchConfiguration("localizer"),
             "stack_spec_out": stack_spec_out,
         }.items()
     )
@@ -214,7 +237,7 @@ def generate_launch_description():
         )],
         output="screen",
         parameters=[{"use_sim_time": True}],
-        condition=UnlessCondition(use_slam)
+        condition=IfCondition(show_rviz_localization)
     )
 
     rviz_slam = Node(
@@ -227,7 +250,7 @@ def generate_launch_description():
         )],
         output="screen",
         parameters=[{"use_sim_time": True}],
-        condition=IfCondition(use_slam)
+        condition=IfCondition(show_rviz_slam)
     )
 
     return LaunchDescription([
@@ -239,6 +262,7 @@ def generate_launch_description():
         stack_spec_out_arg,
         world_name_arg,
         headless_arg,
+        use_rviz_arg,
         amcl_config_arg,
         localizer_resolver,   # must precede `localization` — it sets amcl_config
         gazebo,
