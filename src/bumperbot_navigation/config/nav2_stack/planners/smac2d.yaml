@@ -1,0 +1,29 @@
+# nav2_stack/planners/smac2d.yaml
+#
+# SMAC Planner 2D. THE CAMPAIGN DEFAULT — fixed for all 72 cells except the two-cell
+# planner probe. Loaded AFTER common/planner_common.yaml.
+#
+# Contains the GridBased block only. The global costmap lives in common/planner_common.yaml
+# so that all three planners search an identical map.
+
+planner_server:
+  ros__parameters:
+    GridBased:
+      plugin: "nav2_smac_planner/SmacPlanner2D"
+      tolerance: 0.125                    # m. Accept a plan ending within this of the goal.
+      downsample_costmap: false           # Planning at full 0.05 m costmap resolution.
+      downsampling_factor: 1
+      allow_unknown: true                 # Requires track_unknown_space in the global costmap.
+      max_iterations: 1000000             # Search cap before declaring unreachable.
+      max_on_approach_iterations: 1000    # Extra iterations once inside tolerance.
+      max_planning_time: 2.0              # s. Hard wall-clock budget per plan.
+      cost_travel_multiplier: 2.0         # Steering away from high-cost cells. 1.0 = fastest,
+                                          # 2.0 = balanced, 0.0 = ignores cost gradient.
+      use_final_approach_orientation: false  # Keep the requested goal yaw rather than the
+                                             # path's approach angle — the goal checker's
+                                             # yaw_goal_tolerance is measured against it.
+      smoother:
+        max_iterations: 1000
+        w_smooth: 0.3
+        w_data: 0.2
+        tolerance: 1.0e-10

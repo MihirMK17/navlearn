@@ -1,0 +1,15 @@
+# nav2_stack/common/smoother_server.yaml
+#
+# PARITY FILE. Path smoothing is applied identically to every planner's output, so any
+# difference between controllers cannot be attributed to one of them receiving a
+# smoother path than another.
+
+smoother_server:
+  ros__parameters:
+    use_sim_time: true
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10                  # Convergence threshold.
+      max_its: 1000                       # Max smoothing iterations.
+      do_refinement: true

@@ -1,0 +1,18 @@
+# nav2_stack/planners/navfn.yaml
+#
+# NavFn (Dijkstra). PROBE ONLY — one cell, TTC extreme, RPP controller.
+# Loaded AFTER common/planner_common.yaml.
+#
+# Purpose (EXECUTION_SPEC "Planner probe"): support the claim that planner choice does not
+# move false-success rate while controller choice does, which is what justifies holding the
+# planner fixed at SMAC 2D everywhere else instead of leaving it unexplained. Not part of
+# any headline comparison.
+
+planner_server:
+  ros__parameters:
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.125                    # m. Matched to smac2d.yaml so the probe differs
+                                          # in search algorithm only.
+      use_astar: false                    # false = Dijkstra, NavFn's reference behavior.
+      allow_unknown: true                 # Matched to smac2d.yaml.

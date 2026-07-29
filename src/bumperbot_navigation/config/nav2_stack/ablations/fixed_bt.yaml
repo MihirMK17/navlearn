@@ -1,0 +1,25 @@
+# nav2_stack/ablations/fixed_bt.yaml
+#
+# SINGLE-VARIABLE ABLATION. Loaded LAST for controller_server, after common/ and
+# controllers/<c>.yaml, so this override wins.
+#
+# Changes exactly one number: movement_time_allowance 60.0 -> 30.0.
+#
+# Question: how much of a stack's success rate is bought by simply being allowed to keep
+# trying for longer before the progress checker declares failure?
+#
+# The old campaign could not answer this. rpp_aggressive ran at 6.0 s and mppi_baseline at
+# 60.0 s — a 10x difference that was never disclosed and was co-varying with the controller
+# itself, so "MPPI succeeds more often" and "MPPI was given ten times as long to stop
+# failing" were indistinguishable claims. common/controller_common.yaml now pins this at
+# 60.0 for every arm and this overlay is the only sanctioned way to move it.
+#
+# NAME: kept from the old mppi_baseline_fixed_bt profile so the ablation is traceable to
+# its predecessor, though the mechanism is the progress checker rather than the behavior
+# tree. Do not read the name as "the BT timeout".
+
+controller_server:
+  ros__parameters:
+    progress_checker:
+      movement_time_allowance: 30.0       # s. ABLATION: baseline is 60.0 in
+                                          # common/controller_common.yaml.

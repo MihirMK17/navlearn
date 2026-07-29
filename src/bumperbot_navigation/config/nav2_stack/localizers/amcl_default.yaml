@@ -1,0 +1,64 @@
+# nav2_stack/localizers/amcl_default.yaml
+#
+# PROBE ONLY — two cells (TTC extreme + TTR extreme, RPP controller).
+# Identical in content to bumperbot_localization/config/amcl.yaml, relocated here.
+#
+# This is the untuned filter used in Phase 1. It exists so that the campaign can state the
+# cost of AMCL tuning rather than assume it: the Phase 1 vs Phase 2 comparison found tuning
+# improves recovery from a bad initial pose (TTC) but degrades recovery from an extreme
+# kidnap (TTR), because the same reduction in random particle injection that stops the
+# filter wandering in open rooms is also what a fully displaced filter needs to find itself.
+# Two cells preserve that no-free-lunch result at negligible machine cost.
+#
+# The five parameters that differ from amcl_tuned.yaml are marked UNTUNED below.
+
+amcl:
+  ros__parameters:
+    use_sim_time: true
+    base_frame_id: "base_footprint"
+    global_frame_id: "map"
+    odom_frame_id: "odom"
+    scan_topic: scan
+    tf_broadcast: true
+    transform_tolerance: 1.0              # s
+    save_pose_rate: 0.5                   # Hz
+
+    set_initial_pose: true
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
+
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    alpha1: 0.05
+    alpha2: 0.05
+    alpha3: 0.05
+    alpha4: 0.05
+
+    laser_model_type: "likelihood_field"
+    beam_skip_distance: 0.5               # m
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    do_beamskip: false
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 3.0        # m.  UNTUNED (tuned: 6.0)
+    laser_max_range: 12.0                 # m
+    laser_min_range: 0.12                 # m
+    max_beams: 360
+    pf_err: 0.05
+    pf_z: 0.99
+    sigma_hit: 0.2                        # m.  UNTUNED (tuned: 0.1)
+    z_hit: 0.85
+    z_max: 0.10
+    z_rand: 0.10                          #     UNTUNED (tuned: 0.05)
+    z_short: 0.0
+
+    resample_interval: 1
+    max_particles: 15000
+    min_particles: 1000                   #     UNTUNED (tuned: 2500)
+    recovery_alpha_fast: 0.1              #     UNTUNED (tuned: 0.05) — the parameter that
+                                          #     makes this config BETTER under extreme kidnap.
+    recovery_alpha_slow: 0.005
+    update_min_a: 0.05                    # rad
+    update_min_d: 0.10                    # m
