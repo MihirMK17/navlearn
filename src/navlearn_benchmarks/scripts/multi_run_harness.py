@@ -277,6 +277,20 @@ def parse_args() -> argparse.Namespace:
         help="Compute sampler interval in seconds; 0 disables compute profiling",
     )
     parser.add_argument(
+        "--perturbation",
+        choices=("clean", "ttc", "ttr"),
+        required=True,
+        help="Experimental condition. Passed explicitly to the launch so it appears in "
+             "every run record; never defaulted, because a defaulted independent variable "
+             "is an unlabelled experiment",
+    )
+    parser.add_argument(
+        "--perturbation-level",
+        choices=("easy", "medium", "hard", "extreme"),
+        default="medium",
+        help="Severity preset for ttc/ttr; ignored for clean",
+    )
+    parser.add_argument(
         "--expected-scan-hz",
         type=float,
         default=10.0,
@@ -377,6 +391,14 @@ def run_benchmark(
         # Forwarded so control_metric resolves its velocity ceiling from the same spec the
         # harness validated, rather than from whatever happens to be at the default path.
         f"stack_spec:={args.stack_spec}",
+        # The experimental condition, always stated explicitly rather than left to launch
+        # defaults. It therefore appears verbatim in launch_command inside every run
+        # record, so a cell's directory name can be checked against what actually ran.
+        # kidnap_enabled defaulted to true, which silently turned a 'clean' pilot into a
+        # TTR cell; nothing in the record showed it.
+        f"bad_init_test:={'true' if args.perturbation == 'ttc' else 'false'}",
+        f"kidnap_enabled:={'true' if args.perturbation == 'ttr' else 'false'}",
+        f"perturbation_level:={args.perturbation_level}",
     ]
     cmd.extend(args.extra_arg)
 
@@ -392,6 +414,8 @@ def run_benchmark(
         "episodes_total": args.episodes,
         "campaign_seed": args.seed,
         "run_index": run_index,
+        "perturbation": args.perturbation,
+        "perturbation_level": args.perturbation_level,
         "goals": args.goals,
         "goal_source": args.goal_source,
         "extra_args": list(args.extra_arg),

@@ -209,7 +209,13 @@ def generate_launch_description():
     bad_init_test_arg = DeclareLaunchArgument("bad_init_test", default_value="false")
     bad_init_test = LaunchConfiguration("bad_init_test")
 
-    kidnap_enabled_arg = DeclareLaunchArgument("kidnap_enabled", default_value="true")
+    # Perturbation is OPT-IN. This defaulted to true, so a run launched without thinking
+    # about it got TTR kidnap injection — and the campaign's clean leg is three cells whose
+    # entire purpose is the absence of perturbation. A default that silently applies the
+    # independent variable is how a cell ends up labelled 'clean' while being a TTR cell,
+    # which is precisely the class of mislabelling the 2026-07-25 audit was cleaning up.
+    # Verified on the first pilot: a cell run as 'clean' had kidnap active throughout.
+    kidnap_enabled_arg = DeclareLaunchArgument("kidnap_enabled", default_value="false")
     kidnap_test = LaunchConfiguration("kidnap_enabled")
 
     kidnap_max_distance_m_arg = DeclareLaunchArgument(
