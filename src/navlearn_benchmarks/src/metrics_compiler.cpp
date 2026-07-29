@@ -34,6 +34,10 @@ MetricsCompiler::MetricsCompiler(const std::string &name): Node(name)
   episode_event_topic_ = this->declare_parameter<std::string>("episode_event_topic", "/navlearn/episode_event");
   control_metric_topic_ = this->declare_parameter<std::string>("control_metric_topic", "/navlearn/control_metric");
   trajectory_metric_topic_ = this->declare_parameter<std::string>("trajectory_metric_topic", "/navlearn/trajectory_metric");
+  // Distance beyond which a SUCCEEDED goal is recorded as a false success. Defaults to
+  // the episode manager's end_error_pos_threshold_m so the two nodes agree; both are
+  // reported in the data, so analysis is never left inferring which value applied.
+  false_success_threshold_m_ = this->declare_parameter<double>("false_success_threshold_m", 0.10);
 
   csv_.open(csv_path_, std::ios::app);
   if (!csv_.is_open()) {
@@ -61,6 +65,24 @@ MetricsCompiler::EpisodeAggregate & MetricsCompiler::get_or_create(const unique_
   const auto key = navlearn::uuid_to_string(id);
   return episodes_[key];  // default-construct if missing
 }
+
+namespace {
+
+/// Yaw of a quaternion in degrees. A default-constructed (all-zero) quaternion is not a
+/// valid rotation and means the pose was never populated, so it reports -1.0 rather than
+/// a plausible-looking angle derived from nothing.
+double yaw_degrees(const geometry_msgs::msg::Quaternion & q_msg)
+{
+  if (q_msg.x == 0.0 && q_msg.y == 0.0 && q_msg.z == 0.0 && q_msg.w == 0.0) {
+    return -1.0;
+  }
+  tf2::Quaternion q(q_msg.x, q_msg.y, q_msg.z, q_msg.w);
+  double roll, pitch, yaw;
+  tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+  return yaw * 180.0 / M_PI;
+}
+
+}  // namespace
 
 std::string MetricsCompiler::result_to_string(uint8_t result) const
 {
@@ -135,7 +157,19 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
          << "Start Pose_X (m),Start Pose_Y (m),Start Pose_Yaw (deg),Goal Pose_X (m),Goal Pose_Y (m),Goal Pose_Yaw (deg),Goal Result Code,Goal Result,Success Count,Nav Time (sec),Nav Time Start (sec),Nav Time End (sec),"
          << "Tracking RMS_V (m/s),Tracking RMS_W (rad/s),Saturation Frac_V,Saturation Frac_W,Slip Mean,Slip Std Deviation,Slip 95_Percentile,Control Energy,Control Samples,"
          << "Path Length (m),Absolute Path Error RMS (m),Relative Pose Error (Drift),Min Clearance (m),Collision Count,Trajectory Samples,"
-         << "SPL"
+         << "SPL,"
+         // Terminal pose block. "True Distance To Goal" is the campaign's headline
+         // measurement: Nav2 judges success against the localization estimate, so a
+         // SUCCEEDED row with a large value here is a false success. Missing values are
+         // -1.0, never 0.0 — see TerminalPoseReport.msg.
+         << "GT Available,Estimate Available,"
+         << "True Pose_X (m),True Pose_Y (m),True Pose_Yaw (deg),"
+         << "Estimated Pose_X (m),Estimated Pose_Y (m),Estimated Pose_Yaw (deg),"
+         << "True Distance To Goal (m),Estimated Distance To Goal (m),Localization Error (m),"
+         << "True Yaw Error (deg),"
+         << "Covariance_XX (m2),Covariance_YY (m2),Covariance_Yaw (rad2),"
+         << "Filter Converged,Convergence Threshold (m2),Estimate Age (sec),"
+         << "False Success"
          << "\n";
     header_written_ = true;
   }
@@ -219,6 +253,38 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
               return ev.optimal_path_m / std::max(tm.path_length_m, ev.optimal_path_m);
             }
             return 0.0;
+          }()
+       << ","
+
+       // --- terminal pose block ---
+       << (ev.terminal.gt_available ? 1 : 0) << ","
+       << (ev.terminal.estimate_available ? 1 : 0) << ","
+       << ev.terminal.true_pose.pose.position.x << ","
+       << ev.terminal.true_pose.pose.position.y << ","
+       << yaw_degrees(ev.terminal.true_pose.pose.orientation) << ","
+       << ev.terminal.estimated_pose.pose.position.x << ","
+       << ev.terminal.estimated_pose.pose.position.y << ","
+       << yaw_degrees(ev.terminal.estimated_pose.pose.orientation) << ","
+       << ev.terminal.true_distance_to_goal_m << ","
+       << ev.terminal.estimated_distance_to_goal_m << ","
+       << ev.terminal.localization_error_m << ","
+       << (ev.terminal.true_yaw_error_rad < 0.0
+             ? -1.0 : ev.terminal.true_yaw_error_rad * 180.0 / M_PI) << ","
+       << ev.terminal.covariance_xx << ","
+       << ev.terminal.covariance_yy << ","
+       << ev.terminal.covariance_yaw << ","
+       << (ev.terminal.filter_converged ? 1 : 0) << ","
+       << ev.terminal.convergence_threshold_m2 << ","
+       << ev.terminal.estimate_age_sec << ","
+
+       // Derived for convenience; recomputable from the columns above. A goal Nav2
+       // reported as reached, where ground truth says the robot is further away than the
+       // success radius was ever meant to permit. -1 when ground truth was unavailable,
+       // so an unmeasured goal is never silently counted as a clean success.
+       << [&]() -> int {
+            if (!ev.terminal.gt_available) return -1;
+            if (ev.result != navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED) return 0;
+            return ev.terminal.true_distance_to_goal_m > false_success_threshold_m_ ? 1 : 0;
           }()
        << "\n";
 

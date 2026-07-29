@@ -126,6 +126,15 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_nav2_stack test/test_nav2_stack.py
     TIMEOUT 300
   )
+
+  # Terminal pose report reaching the metrics CSV. Publishes the three messages
+  # MetricsCompiler needs and inspects the resulting row, so the whole contract-to-column
+  # path is covered without a simulator. Guards against a header/row column mismatch,
+  # which shifts every downstream column invisibly, and against an absent ground-truth
+  # measurement being written as 0.0, which would read as a perfect result.
+  ament_add_pytest_test(test_terminal_pose test/test_terminal_pose.py
+    TIMEOUT 300
+  )
 endif()
 
 ament_package()

@@ -45,6 +45,7 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   , kidnap_stage_(KidnapStage::IDLE)
   , kidnap_sampled_delay_sec_(0.0)
   , have_start_gt_(false)
+  , have_amcl_pose_(false)
   , reinit_in_flight_(false)
   , last_reinit_time_(0,0,RCL_ROS_TIME)
 {
@@ -72,6 +73,14 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
 
   est_error_frame_ = declare_parameter<std::string>("est_error_frame", "base_footprint");
   gt_error_frame_  = declare_parameter<std::string>("gt_error_frame",  "base_footprint_gt");
+
+  amcl_pose_topic_ = declare_parameter<std::string>("amcl_pose_topic", "/amcl_pose");
+  // Convergence criterion for the terminal record: trace of the position covariance
+  // (xx + yy). 0.25 m^2 corresponds to roughly a 0.35 m standard deviation per axis.
+  // This is a methodological choice that appears in the paper, so the value used is
+  // written into every terminal report rather than left implicit here.
+  terminal_converged_cov_threshold_m2_ =
+    declare_parameter<double>("terminal_converged_cov_threshold_m2", 0.25);
 
   end_error_pos_threshold_m_  = declare_parameter<double>("end_error_pos_threshold_m", 0.10);
   end_error_yaw_threshold_rad_ = declare_parameter<double>("end_error_yaw_threshold_rad", 0.10);
@@ -137,6 +146,9 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   client_ = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(this, action_server_);
   map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>("map", qos_profile_sub,
               std::bind(&EpisodeManager::mapCallback, this, _1));
+  amcl_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+              amcl_pose_topic_, qos_profile_sub,
+              std::bind(&EpisodeManager::amclPoseCallback, this, _1));
   episode_pub_ = create_publisher<navlearn_msgs::msg::EpisodeEvent>(episode_pub_topic_, rclcpp::QoS(10).reliable());
   kidnap_pub_ = create_publisher<navlearn_msgs::msg::KidnapEvent>(kidnap_event_topic_, rclcpp::QoS(10).reliable());
   timer_ = create_wall_timer(200ms, std::bind(&EpisodeManager::timerCallback, this));
@@ -956,6 +968,112 @@ void EpisodeManager::onFeedback(const rclcpp_action::ClientGoalHandle<nav2_msgs:
   (void)feedback;
 }
 
+void EpisodeManager::amclPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
+{
+  last_amcl_pose_ = *msg;
+  have_amcl_pose_ = true;
+}
+
+namespace {
+
+/// Wrap an angle difference into [-pi, pi].
+double wrapAngle(double angle)
+{
+  while (angle >  M_PI) angle -= 2.0 * M_PI;
+  while (angle < -M_PI) angle += 2.0 * M_PI;
+  return angle;
+}
+
+/// Extract yaw from a quaternion, matching the convention used elsewhere in this file.
+double yawOf(const geometry_msgs::msg::Quaternion & q_msg)
+{
+  tf2::Quaternion q;
+  tf2::fromMsg(q_msg, q);
+  double roll, pitch, yaw;
+  tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+  return yaw;
+}
+
+}  // namespace
+
+navlearn_msgs::msg::TerminalPoseReport EpisodeManager::captureTerminalPose(
+  const geometry_msgs::msg::PoseStamped & goal_pose, const rclcpp::Time & terminated_at)
+{
+  // Every scalar starts at -1.0, the message's documented "not available" sentinel. Zero
+  // is a legitimate and highly meaningful value for each of these distances, so it must
+  // never be able to masquerade as a missing measurement.
+  navlearn_msgs::msg::TerminalPoseReport report;
+  report.gt_available = false;
+  report.estimate_available = false;
+  report.true_distance_to_goal_m = -1.0;
+  report.estimated_distance_to_goal_m = -1.0;
+  report.localization_error_m = -1.0;
+  report.true_yaw_error_rad = -1.0;
+  report.covariance_xx = -1.0;
+  report.covariance_yy = -1.0;
+  report.covariance_yaw = -1.0;
+  report.filter_converged = false;
+  report.convergence_threshold_m2 = terminal_converged_cov_threshold_m2_;
+  report.estimate_age_sec = -1.0;
+
+  // Ground truth, from the simulator's transform. Deliberately the latest available
+  // rather than one at the termination stamp: the robot is stationary by now, so the
+  // newest transform is the right answer, and an exact-stamp lookup could fail on
+  // extrapolation and lose the single number this whole record exists to capture.
+  geometry_msgs::msg::PoseStamped gt_pose;
+  if (lookupPose(gt_error_frame_, rclcpp::Time(0, 0, RCL_ROS_TIME), gt_pose)) {
+    report.gt_available = true;
+    report.true_pose = gt_pose;
+    report.true_distance_to_goal_m = std::hypot(
+      gt_pose.pose.position.x - goal_pose.pose.position.x,
+      gt_pose.pose.position.y - goal_pose.pose.position.y);
+    report.true_yaw_error_rad = std::fabs(
+      wrapAngle(yawOf(gt_pose.pose.orientation) - yawOf(goal_pose.pose.orientation)));
+  } else {
+    RCLCPP_ERROR(get_logger(),
+                 "Terminal capture: no '%s' transform. True distance to goal is LOST for "
+                 "goal %zu — this is the campaign's headline measurement.",
+                 gt_error_frame_.c_str(), idx_);
+  }
+
+  if (have_amcl_pose_) {
+    report.estimate_available = true;
+    report.estimated_pose.header = last_amcl_pose_.header;
+    report.estimated_pose.pose = last_amcl_pose_.pose.pose;
+    report.estimated_distance_to_goal_m = std::hypot(
+      last_amcl_pose_.pose.pose.position.x - goal_pose.pose.position.x,
+      last_amcl_pose_.pose.pose.position.y - goal_pose.pose.position.y);
+
+    // Row-major 6x6: xx at 0, yy at 7, yaw at 35.
+    report.covariance_xx  = last_amcl_pose_.pose.covariance[0];
+    report.covariance_yy  = last_amcl_pose_.pose.covariance[7];
+    report.covariance_yaw = last_amcl_pose_.pose.covariance[35];
+    report.filter_converged =
+      (report.covariance_xx + report.covariance_yy) <= terminal_converged_cov_threshold_m2_;
+
+    // AMCL publishes only when it updates (update_min_d / update_min_a), and the robot has
+    // stopped, so the newest estimate may predate termination. Recording the age keeps
+    // that visible in the data instead of leaving it to be assumed away in analysis.
+    const rclcpp::Time estimate_stamp(last_amcl_pose_.header.stamp,
+                                      terminated_at.get_clock_type());
+    if (estimate_stamp.nanoseconds() > 0) {
+      report.estimate_age_sec = (terminated_at - estimate_stamp).seconds();
+    }
+
+    if (report.gt_available) {
+      report.localization_error_m = std::hypot(
+        gt_pose.pose.position.x - last_amcl_pose_.pose.pose.position.x,
+        gt_pose.pose.position.y - last_amcl_pose_.pose.pose.position.y);
+    }
+  } else {
+    RCLCPP_WARN(get_logger(),
+                "Terminal capture: no pose seen on '%s'; localization error unavailable "
+                "for goal %zu.", amcl_pose_topic_.c_str(), idx_);
+  }
+
+  return report;
+}
+
 void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::WrappedResult result) {
   navlearn_msgs::msg::EpisodeEvent ev;
   ev.header.stamp = this->get_clock()->now();
@@ -994,15 +1112,39 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
     ev.nav_time.nanosec = 0;
   }
 
+  // Captured before publishing, while the robot is still standing where it stopped.
+  ev.terminal = captureTerminalPose(goal_poses_[idx_], rclcpp::Time(ev.stamp_terminated));
+
   episode_pub_->publish(ev);
 
   const char *res_str =
     (ev.result == navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED) ? "SUCCEEDED" :
     (ev.result == navlearn_msgs::msg::EpisodeEvent::RESULT_CANCELED)  ? "CANCELED"  : "FAILED";
 
-  RCLCPP_INFO(get_logger(), "END goal %zu result=%s (%u) nav_time=%.3fs\n",
+  RCLCPP_INFO(get_logger(), "END goal %zu result=%s (%u) nav_time=%.3fs",
               idx_, res_str, static_cast<unsigned>(ev.result),
               (rclcpp::Time(ev.stamp_terminated) - stamp_received_).seconds());
+
+  RCLCPP_INFO(get_logger(),
+              "  terminal: true_dist=%.3fm est_dist=%.3fm loc_err=%.3fm converged=%s",
+              ev.terminal.true_distance_to_goal_m,
+              ev.terminal.estimated_distance_to_goal_m,
+              ev.terminal.localization_error_m,
+              ev.terminal.filter_converged ? "yes" : "no");
+
+  // The finding this campaign exists to quantify: Nav2 declared arrival, but the robot is
+  // measurably elsewhere. Logged at WARN so it is visible while a cell runs, not only in
+  // post-hoc analysis. The threshold is the goal checker's own tolerance with a margin,
+  // so this fires only when the discrepancy exceeds what success was supposed to mean.
+  if (ev.result == navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED &&
+      ev.terminal.gt_available &&
+      ev.terminal.true_distance_to_goal_m > end_error_pos_threshold_m_) {
+    RCLCPP_WARN(get_logger(),
+                "  FALSE SUCCESS: reported SUCCEEDED but ground truth is %.3f m from the "
+                "goal (threshold %.3f m); the filter believed it was %.3f m away.",
+                ev.terminal.true_distance_to_goal_m, end_error_pos_threshold_m_,
+                ev.terminal.estimated_distance_to_goal_m);
+  }
 
   active_ = false;
 

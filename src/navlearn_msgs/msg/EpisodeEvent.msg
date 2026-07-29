@@ -21,3 +21,8 @@ geometry_msgs/PoseStamped goal_pose
 int16 recoveries
 uint32 collision_count      # contacts with static/dynamic obstacles during episode; 0 if not measured
 float64 optimal_path_m      # shortest Euclidean start-to-goal distance [m]; -1.0 if unknown
+
+# Where the robot actually was when the goal terminated, against where it believed it was.
+# Populated only on END events; the flags inside are false on START. See
+# TerminalPoseReport.msg for why a SUCCEEDED result is not sufficient evidence of arrival.
+TerminalPoseReport terminal

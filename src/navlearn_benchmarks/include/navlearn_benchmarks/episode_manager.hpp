@@ -50,6 +50,7 @@
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <navlearn_msgs/msg/episode_event.hpp>
 #include <navlearn_msgs/msg/kidnap_event.hpp>
+#include <navlearn_msgs/msg/terminal_pose_report.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 
 #include <unique_identifier_msgs/msg/uuid.hpp>
@@ -76,6 +77,11 @@ private:
     // Core ROS interfaces
     rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SharedPtr client_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
+    // Subscribed for its covariance, which TF does not carry. The estimated pose itself
+    // could be read from TF, but a filter's confidence is as much a part of the terminal
+    // record as its position: a converged-but-wrong filter and an unconverged one are
+    // different failures and must be distinguishable in the data.
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr amcl_pose_sub_;
     rclcpp::Publisher<navlearn_msgs::msg::EpisodeEvent>::SharedPtr episode_pub_;
     rclcpp::Publisher<navlearn_msgs::msg::KidnapEvent>::SharedPtr kidnap_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
@@ -102,6 +108,14 @@ private:
 
     std::string est_error_frame_;
     std::string gt_error_frame_;
+
+    // Terminal pose capture. The convergence threshold is a methodological choice that
+    // reaches the paper, so it is a declared parameter and is recorded in every event
+    // rather than being implicit in the code.
+    std::string amcl_pose_topic_;
+    double terminal_converged_cov_threshold_m2_;
+    geometry_msgs::msg::PoseWithCovarianceStamped last_amcl_pose_;
+    bool have_amcl_pose_;
 
     double end_error_pos_threshold_m_;
     double end_error_yaw_threshold_rad_;
@@ -246,8 +260,13 @@ private:
     bool sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & pose);
     bool lookupPose(const std::string & child_frame, const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & out);
 
+    // Terminal ground truth
+    navlearn_msgs::msg::TerminalPoseReport captureTerminalPose(
+      const geometry_msgs::msg::PoseStamped & goal_pose, const rclcpp::Time & terminated_at);
+
     // Callbacks
     void mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr map);
+    void amclPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
     void timerCallback();
 
     // Nav actions

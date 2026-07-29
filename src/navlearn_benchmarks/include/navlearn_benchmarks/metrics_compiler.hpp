@@ -100,6 +100,9 @@ private:
 
   int success_count_;
 
+  // Distance beyond which a SUCCEEDED goal is recorded as a false success [m].
+  double false_success_threshold_m_;
+
   EpisodeAggregate & get_or_create(const unique_identifier_msgs::msg::UUID & id);
 
   std::string result_to_string(uint8_t result) const;
