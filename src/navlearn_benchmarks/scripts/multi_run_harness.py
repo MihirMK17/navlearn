@@ -16,7 +16,15 @@
 Multi-run benchmark harness for NavLearn.
 
 Runs N episodes of the NavLearn benchmarking pipeline, each as a separate
-ros2 launch invocation. Each run gets a unique seed derived from BASE_SEED.
+ros2 launch invocation.
+
+Randomness
+    --seed sets the campaign seed, held constant across every episode and every
+    controller. Each episode is distinguished by its run_index, and every draw (goal
+    placement, TTC displacement, TTR target, kidnap delay) is derived from
+    (campaign_seed, run_index, goal_index) through splitmix64. The controller is
+    deliberately not an input, so all arms face identical conditions and the paired
+    statistics the analysis plan calls for remain valid.
 
 Stack provenance
     This harness does not choose the navigation stack and does not claim to know it.
@@ -259,7 +267,12 @@ def run_benchmark(
     import time as _time
 
     stamp = _time.strftime("%Y%m%d_%H%M%S")
-    seed = args.seed + (episode_id - 1)
+    # The campaign seed is constant across every episode and every controller; the run
+    # index is what makes episodes differ. Previously the harness folded the episode into
+    # the seed itself, which varied goal placement but never reached the perturbation
+    # seeds — those were fixed constants in a YAML default, so all 25 episodes of a cell
+    # drew the same five displacements.
+    run_index = episode_id - 1
 
     csv_path = report_dir / f"navlearn_metrics_run_{episode_id}_{stamp}.csv"
     json_path = report_dir / f"navlearn_run_report_run_{episode_id}_{stamp}.json"
@@ -267,7 +280,7 @@ def run_benchmark(
 
     logging.info("=== RUN %d / %d ===", episode_id, args.episodes)
     logging.info("Stack    : %s", stack_spec["selection"])
-    logging.info("Seed     : %d", seed)
+    logging.info("Seed     : campaign=%d run_index=%d", args.seed, run_index)
     logging.info("CSV  --> %s", csv_path)
     logging.info("JSON --> %s", json_path)
     logging.info("SPEC --> %s", spec_path)
@@ -279,7 +292,8 @@ def run_benchmark(
         "benchmarks.launch.py",
         f"goals_num:={args.goals}",
         f"goal_source:={args.goal_source}",
-        f"goal_seed:={seed}",
+        f"campaign_seed:={args.seed}",
+        f"run_index:={run_index}",
         f"csv_path:={csv_path}",
         f"json_path:={json_path}",
     ]
@@ -295,7 +309,8 @@ def run_benchmark(
     run_record["run"] = {
         "episode": episode_id,
         "episodes_total": args.episodes,
-        "goal_seed": seed,
+        "campaign_seed": args.seed,
+        "run_index": run_index,
         "goals": args.goals,
         "goal_source": args.goal_source,
         "extra_args": list(args.extra_arg),

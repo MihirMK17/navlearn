@@ -51,7 +51,26 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
 {
   dwell_sec_ = this->declare_parameter<double>("dwell_sec", 5.0);
   goal_source_ = this->declare_parameter<std::string>("goal_source", "map_random");
-  goal_seed_ = static_cast<unsigned int>(this->declare_parameter<int>("goal_seed", 42));
+  // One seed for the whole campaign; every draw is derived from it plus the run and goal
+  // indices. run_index must be distinct per episode or episodes repeat conditions — the
+  // defect this replaces. The harness supplies it.
+  campaign_seed_ = this->declare_parameter<int64_t>("campaign_seed", 42);
+  run_index_     = this->declare_parameter<int64_t>("run_index", 0);
+
+  // The retired seeds. They are still declared so that a stale config or script setting
+  // them fails loudly instead of being silently ignored — silent acceptance is exactly
+  // how initial_pose_seed sat at 1337 for an entire campaign without anyone noticing that
+  // every episode was drawing the same five perturbations.
+  for (const char * retired : {"goal_seed", "initial_pose_seed", "kidnap_seed"}) {
+    if (this->declare_parameter<int>(retired, -1) != -1) {
+      RCLCPP_FATAL(get_logger(),
+        "Parameter '%s' is retired and no longer has any effect. It combined a fixed "
+        "constant with the goal index by addition and ignored the run index, so every "
+        "episode in a cell drew the same perturbation. Use 'campaign_seed' (one value for "
+        "the whole campaign) and 'run_index' (distinct per episode) instead.", retired);
+      throw std::runtime_error(std::string("retired parameter set: ") + retired);
+    }
+  }
   goal_poses_x_ = this->declare_parameter<std::vector<double>>("goal_poses_x", {});
   goal_poses_y_ = this->declare_parameter<std::vector<double>>("goal_poses_y", {});
   goal_poses_yaw_ = this->declare_parameter<std::vector<double>>("goal_poses_yaw", {});
@@ -98,7 +117,6 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   bad_cov_xy_ = declare_parameter<double>("bad_cov_xy", 0.25);
   bad_cov_yaw_ = declare_parameter<double>("bad_cov_yaw", 0.25);
 
-  initial_pose_seed_ = declare_parameter<int>("initial_pose_seed", 1337);
 
   set_pose_service_ = this->declare_parameter<std::string>("set_pose_service", "/gz_set_pose_server/set_entity_pose");
   entity_name_ = this->declare_parameter<std::string>("entity_name", "bumperbot");
@@ -114,7 +132,6 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   kidnap_distance_m_    = this->declare_parameter<double>("kidnap_distance_m", 0.20);
   kidnap_max_distance_m_ = this->declare_parameter<double>("kidnap_max_distance_m", 3.0);
   kidnap_z_             = this->declare_parameter<double>("kidnap_z", 0.01);
-  kidnap_seed_          = this->declare_parameter<int>("kidnap_seed", 4242);
   kidnap_max_sample_tries_ = this->declare_parameter<int>("kidnap_max_sample_tries", 1500);
 
   kidnap_verify_pos_tol_m_ = this->declare_parameter<double>("kidnap_verify_pos_tol_m", 0.05);
@@ -299,12 +316,16 @@ void EpisodeManager::loadGoals() {
     goal_poses_.clear();
     goal_poses_.reserve(goals_num_);
 
-    std::mt19937 gen(static_cast<uint32_t>(goal_seed_));
     std::uniform_int_distribution<int> dist(0, width * height - 1);
 
     const int max_tries_per_goal = 1000;
 
     for (int i = 0; i < goals_num_; ++i) {
+      // Seeded per goal rather than once for the sequence, so goal k of this episode is
+      // independent of how many goals preceded it and of every other episode. Derived
+      // without reference to the controller, so all arms navigate to identical goals.
+      std::mt19937_64 gen(seedFor(navlearn::seed::Stream::GOAL_POSITION,
+                                  static_cast<uint64_t>(i)));
       int cell_index = -1;
 
       for (int attempt = 0; attempt < max_tries_per_goal; ++attempt) {
@@ -354,8 +375,11 @@ void EpisodeManager::loadGoals() {
       pose.pose.position.y = info.origin.position.y + (row + 0.5) * res;
       pose.pose.position.z = 0.0;
 
+      // Separate stream: goal orientation must not correlate with goal position.
+      std::mt19937_64 yaw_gen(seedFor(navlearn::seed::Stream::GOAL_ORIENTATION,
+                                      static_cast<uint64_t>(i)));
       std::uniform_real_distribution<double> dist_theta(-M_PI, M_PI);
-      double yaw = dist_theta(gen);
+      double yaw = dist_theta(yaw_gen);
 
       tf2::Quaternion q;
       q.setRPY(0.0, 0.0, yaw);
@@ -452,7 +476,11 @@ geometry_msgs::msg::PoseWithCovarianceStamped EpisodeManager::buildPoseWithCovar
 
 geometry_msgs::msg::PoseWithCovarianceStamped EpisodeManager::buildPerturbedPose(const geometry_msgs::msg::PoseStamped & base)
 {
-  std::mt19937 gen(static_cast<uint32_t>(initial_pose_seed_ + static_cast<int>(idx_)));
+  // The TTC displacement. Previously mt19937(1337 + goal_index), which ignored the run
+  // index entirely: every episode in a cell drew the same handful of offsets, so a cell
+  // of 25 episodes tested 5 distinct conditions. Now distinct per (run, goal), and still
+  // identical across controllers so the arms face the same perturbations.
+  std::mt19937_64 gen(seedFor(navlearn::seed::Stream::INITIAL_POSE, idx_));
   std::uniform_real_distribution<double> dist_lin(-bad_init_lin_range_m_, bad_init_lin_range_m_);
   std::uniform_real_distribution<double> dist_yaw(-bad_init_yaw_range_rad_, bad_init_yaw_range_rad_);
 
@@ -668,7 +696,9 @@ bool EpisodeManager::sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStam
 
   if (width <= 0 || height <= 0 || data.empty()) return false;
 
-  std::mt19937 gen(static_cast<uint32_t>(kidnap_seed_ + static_cast<int>(idx_)));
+  // The TTR teleport destination. Same defect as the TTC offset: fixed constant plus
+  // goal index, run index absent.
+  std::mt19937_64 gen(seedFor(navlearn::seed::Stream::KIDNAP_TARGET, idx_));
   std::uniform_int_distribution<int> dist_cell(0, width * height - 1);
   std::uniform_real_distribution<double> dist_theta(-M_PI, M_PI);
 
@@ -821,7 +851,10 @@ void EpisodeManager::maybeKidnap(const rclcpp::Time & now)
     return;
   }
 
-  kidnap_attempt_id_ = makeUUID_(static_cast<uint32_t>(kidnap_seed_ + static_cast<int>(idx_) * 101));
+  // An identifier, not an experimental condition — but derived the same way so that two
+  // episodes cannot share an attempt id.
+  kidnap_attempt_id_ = makeUUID_(static_cast<uint32_t>(
+    seedFor(navlearn::seed::Stream::ATTEMPT_ID, idx_)));
   kidnap_event_time_ = now;
   kidnap_target_pose_ = target;
 
@@ -955,7 +988,7 @@ void EpisodeManager::onGoalResponse(const rclcpp_action::ClientGoalHandle<nav2_m
   double hi = kidnap_delay_max_sec_;
   if (hi < lo) std::swap(lo, hi);
 
-  std::mt19937 gen(static_cast<uint32_t>(kidnap_seed_ + static_cast<int>(idx_) * 17));
+  std::mt19937_64 gen(seedFor(navlearn::seed::Stream::KIDNAP_DELAY, idx_));
   std::uniform_real_distribution<double> dist_delay(lo, hi);
   kidnap_sampled_delay_sec_ = dist_delay(gen);
 

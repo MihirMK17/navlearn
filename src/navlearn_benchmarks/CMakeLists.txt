@@ -135,6 +135,20 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_terminal_pose test/test_terminal_pose.py
     TIMEOUT 300
   )
+
+  # Seed derivation. Asserts the two invariants the campaign's statistics rest on:
+  # every (run, goal) draws a distinct condition, and all controllers draw identical
+  # ones. Golden vectors pin splitmix64 itself — its constants are load-bearing, and
+  # changing them would silently invalidate the reproducibility of prior runs.
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_navlearn_seed test/test_navlearn_seed.cpp)
+  target_include_directories(test_navlearn_seed PRIVATE include)
+
+  # The Python reference used by analysis, pinned to the same golden vectors so the two
+  # implementations cannot silently diverge.
+  ament_add_pytest_test(test_seed_reference test/test_seed_reference.py
+    TIMEOUT 120
+  )
 endif()
 
 ament_package()

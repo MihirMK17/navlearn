@@ -51,6 +51,7 @@
 #include <navlearn_msgs/msg/episode_event.hpp>
 #include <navlearn_msgs/msg/kidnap_event.hpp>
 #include <navlearn_msgs/msg/terminal_pose_report.hpp>
+#include <navlearn_benchmarks/navlearn_seed.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 
 #include <unique_identifier_msgs/msg/uuid.hpp>
@@ -133,8 +134,6 @@ private:
     double bad_cov_xy_;
     double bad_cov_yaw_;
 
-    int initial_pose_seed_;
-
     std::string set_pose_service_;
     std::string entity_name_;
 
@@ -146,7 +145,6 @@ private:
     double kidnap_distance_m_;
     double kidnap_max_distance_m_;
     double kidnap_z_;
-    int kidnap_seed_;
     int kidnap_max_sample_tries_;
 
     double kidnap_verify_pos_tol_m_;
@@ -219,7 +217,20 @@ private:
     std::vector<double> goal_poses_yaw_;
 
     int goals_num_;
-    unsigned int goal_seed_;
+    // Campaign-wide seed and this episode's index. Every random draw is derived from
+    // these plus the goal index, via navlearn::seed::derive. The controller is
+    // deliberately not an input, so all arms see identical conditions.
+    int64_t campaign_seed_;
+    int64_t run_index_;
+
+    /// Seed for one draw in this episode. Wraps navlearn::seed::derive with the node's
+    /// campaign seed and run index so call sites cannot accidentally omit either.
+    uint64_t seedFor(navlearn::seed::Stream stream, uint64_t goal_index) const
+    {
+      return navlearn::seed::derive(
+        static_cast<uint64_t>(campaign_seed_), stream,
+        static_cast<uint64_t>(run_index_), goal_index);
+    }
 
     rclcpp::QoS qos_profile_sub;
 

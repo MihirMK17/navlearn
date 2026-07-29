@@ -8,7 +8,11 @@ episode_manager:
     # --- Goals ---
     goals_num: 4              # number of goals per episode; must be > 0
     goal_source: map_random   # map_random | fixed | stress
-    goal_seed: 42             # RNG seed for reproducible goal sampling
+    # Campaign-wide seed. Every draw (goals, TTC offset, TTR target, kidnap delay) is
+    # derived from this plus run_index and the goal index via splitmix64. run_index is
+    # supplied per episode by the harness and MUST differ between episodes.
+    campaign_seed: 42
+    run_index: 0
     dwell_sec: 5.0            # seconds to wait at goal before dispatching next
 
     goal_poses_x: []          # fixed goal X positions [m] (used when goal_source=fixed)
@@ -37,7 +41,6 @@ episode_manager:
     set_initial_pose_srv: /set_initial_pose
     bad_init_lin_range_m: 0.10    # linear offset range for bad init [m]; [0.0, 1.0]
     bad_init_yaw_range_rad: 0.20  # yaw offset range for bad init [rad]; [0.0, 1.57]
-    initial_pose_seed: 1337
 
     # --- Pose Application (bad init) ---
     pose_apply_pos_tol_m: 0.02    # tolerance for confirming pose was applied [m]; [0.005, 0.1]
@@ -68,7 +71,6 @@ episode_manager:
     kidnap_min_travel_m: 0.25      # robot must travel this far before kidnap triggers [m]; [0.0, 2.0]
     kidnap_max_distance_m: 3.0     # max allowed teleport distance (sampling bound) [m]; [0.1, 10.0]
     kidnap_z: 0.01                 # Z height for kidnap pose (Gazebo) [m]
-    kidnap_seed: 4242              # RNG seed for kidnap sampling
     kidnap_max_sample_tries: 1500  # max rejection sampling attempts; [100, 10000]
 
     # --- Kidnap Verification ---

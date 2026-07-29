@@ -90,8 +90,13 @@ def generate_launch_description():
     use_sim_time_arg = DeclareLaunchArgument("use_sim_time", default_value="True")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
-    goal_seed_arg = DeclareLaunchArgument("goal_seed", default_value="42")
-    goal_seed = LaunchConfiguration("goal_seed")
+    # One seed for the whole campaign; run_index distinguishes episodes within it.
+    # These replace goal_seed, which seeded only goal placement — the perturbation
+    # seeds were fixed constants that no launch argument ever reached.
+    campaign_seed_arg = DeclareLaunchArgument("campaign_seed", default_value="42")
+    campaign_seed = LaunchConfiguration("campaign_seed")
+    run_index_arg = DeclareLaunchArgument("run_index", default_value="0")
+    run_index = LaunchConfiguration("run_index")
 
     goals_num_arg = DeclareLaunchArgument("goals_num", default_value="15")
     goals_num = LaunchConfiguration("goals_num")
@@ -304,7 +309,8 @@ def generate_launch_description():
             episode_manager_config_path,
             {
                 "use_sim_time": use_sim_time,
-                "goal_seed": goal_seed,
+                "campaign_seed": campaign_seed,
+                "run_index": run_index,
                 "goals_num": goals_num,
                 "goal_source": goal_source,
                 "bad_init_test": bad_init_test,
@@ -438,7 +444,8 @@ def generate_launch_description():
             bad_init_yaw_range_rad_arg,
             episode_start_delay_arg,
             use_sim_time_arg,
-            goal_seed_arg,
+            campaign_seed_arg,
+            run_index_arg,
             goals_num_arg,
             goal_source_arg,
             csv_path_arg,
