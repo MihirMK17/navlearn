@@ -103,6 +103,7 @@ install(DIRECTORY config launch
 install(PROGRAMS
   scripts/rate_monitor.py
   scripts/compute_sampler.py
+  scripts/collision_positive_control.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

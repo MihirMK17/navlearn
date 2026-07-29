@@ -266,6 +266,18 @@ def generate_launch_description():
     )
     collision_scan_threshold_m = LaunchConfiguration("collision_scan_threshold_m")
 
+    # Exactly one collision detector may count. Both used to increment the same counter,
+    # so a collision that tripped the scan threshold and the contact sensor was counted
+    # twice. "scan" is the campaign default: no contact sensor required, identical on any
+    # simulator and on hardware, and it is what collision_positive_control.py exercises.
+    collision_source_arg = DeclareLaunchArgument(
+        "collision_source",
+        default_value="scan",
+        description="Which detector counts collisions: scan | topic",
+    )
+    collision_source = LaunchConfiguration("collision_source")
+    use_contact_sensor = PythonExpression(["'", collision_source, "' == 'topic'"])
+
     perturbation_level_arg = DeclareLaunchArgument(
         "perturbation_level",
         default_value="medium",
@@ -377,6 +389,7 @@ def generate_launch_description():
             {
                 "use_sim_time": use_sim_time,
                 "collision_scan_threshold_m": collision_scan_threshold_m,
+                "collision_source": collision_source,
             },
         ],
     )
@@ -425,6 +438,7 @@ def generate_launch_description():
         name="collision_contact_bridge",
         arguments=[contact_bridge_topic],
         output="log",
+        condition=IfCondition(use_contact_sensor),
     )
 
     collision_monitor = Node(
@@ -432,6 +446,7 @@ def generate_launch_description():
         executable="collision_monitor",
         name="collision_monitor",
         output="log",
+        condition=IfCondition(use_contact_sensor),
         parameters=[
             os.path.join(
                 get_package_share_directory("navlearn_benchmarks"),
@@ -538,6 +553,7 @@ def generate_launch_description():
             world_name_arg,
             log_level_arg,
             collision_scan_threshold_m_arg,
+            collision_source_arg,
             perturbation_level_arg,
             OpaqueFunction(function=apply_perturbation_presets),
             goal_min_distance_m_arg,

@@ -41,6 +41,27 @@ TrajectoryMetric::TrajectoryMetric(const std::string &name) : rclcpp::Node(name)
   collision_topic_ = declare_parameter<std::string>("collision_topic", "/navlearn/collision");
   collision_scan_threshold_m_ = declare_parameter<double>("collision_scan_threshold_m", 0.15);
 
+  // Exactly one collision source may count.
+  //
+  // Two independent detectors both incremented collision_count_: the scan threshold below,
+  // and Empty messages on collision_topic_ published by collision_monitor from the Gazebo
+  // contact sensor. A single physical collision that trips both — which is what a
+  // collision normally does — was counted twice. Nothing in the pipeline could distinguish
+  // one double-counted collision from two real ones.
+  //
+  // "scan" is the campaign default per the execution spec: it needs no contact sensor, so
+  // it behaves identically across simulators and on hardware, and it is the detector the
+  // positive control exercises.
+  collision_source_ = declare_parameter<std::string>("collision_source", "scan");
+  if (collision_source_ != "scan" && collision_source_ != "topic") {
+    RCLCPP_FATAL(get_logger(),
+      "collision_source='%s' is invalid; expected 'scan' or 'topic'.",
+      collision_source_.c_str());
+    throw std::runtime_error("invalid collision_source");
+  }
+  RCLCPP_INFO(get_logger(), "Collision source: %s (the other detector will not count)",
+              collision_source_.c_str());
+
   if(ds_thresh_m_ < 0)
   {
     RCLCPP_FATAL(get_logger(), "Bad param: Jitter guard (%f) (m) has to be > 0", ds_thresh_m_);
@@ -180,7 +201,9 @@ void TrajectoryMetric::scanCallback(sensor_msgs::msg::LaserScan::ConstSharedPtr 
   // Scan-based collision detection (rising-edge).
   // Fires when any valid scan range <= collision_scan_threshold_m_.
   // Set collision_scan_threshold_m: 0 to disable.
-  if (collision_scan_threshold_m_ > 0.0 && min_range < std::numeric_limits<float>::max()) {
+  if (collision_source_ == "scan" && collision_scan_threshold_m_ > 0.0 &&
+      min_range < std::numeric_limits<float>::max())
+  {
     const bool in_contact = (static_cast<double>(min_range) <= collision_scan_threshold_m_);
     if (in_contact && !was_in_contact_) {
       ++collision_count_;
@@ -242,7 +265,10 @@ void TrajectoryMetric::collisionCallback(std_msgs::msg::Empty::ConstSharedPtr /*
 {
   // Each Empty message = one rising-edge collision event (published by collision_monitor
   // for Gazebo, or by the Isaac Sim OmniGraph extension for Isaac Sim).
-  if (!active_) return;
+  //
+  // Ignored unless this is the selected source. Counting here while the scan detector is
+  // also counting double-counts every collision that trips both, which is most of them.
+  if (!active_ || collision_source_ != "topic") return;
   ++collision_count_;
   RCLCPP_DEBUG(get_logger(), "Collision count this episode: %u", collision_count_);
 }
