@@ -374,6 +374,9 @@ def run_benchmark(
         f"run_index:={run_index}",
         f"csv_path:={csv_path}",
         f"json_path:={json_path}",
+        # Forwarded so control_metric resolves its velocity ceiling from the same spec the
+        # harness validated, rather than from whatever happens to be at the default path.
+        f"stack_spec:={args.stack_spec}",
     ]
     cmd.extend(args.extra_arg)
 
