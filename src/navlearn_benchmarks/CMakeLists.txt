@@ -78,6 +78,17 @@ target_include_directories(metrics_compiler PRIVATE
 ament_target_dependencies(metrics_compiler
   rclcpp unique_identifier_msgs navlearn_msgs tf2 geometry_msgs)
 
+# ========= ScanRateGovernor (sensor-rate leg) =========
+# Decimates the LiDAR stream to a commanded rate so the sensor-starvation leg varies
+# exactly one thing. Lowering the simulated sensor's own rate would also change what
+# Gazebo simulates and how the bridge is loaded, and would hide the rate in an edited
+# description file where no provenance check would see it.
+add_executable(scan_rate_governor src/scan_rate_governor.cpp)
+target_include_directories(scan_rate_governor PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+ament_target_dependencies(scan_rate_governor rclcpp sensor_msgs)
+
 install(TARGETS
   episode_manager
   episode_manager_node
@@ -85,6 +96,7 @@ install(TARGETS
   trajectory_metric
   metrics_compiler
   collision_monitor
+  scan_rate_governor
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -167,6 +179,15 @@ if(BUILD_TESTING)
     TIMEOUT 300
   )
 
+  # Scan-rate governor node. The gtest above proves the keep rule; this proves the node:
+  # correct topic wiring, the forwarded scan bit-identical to the input (a restamped
+  # header would shift every measurement in AMCL's TF lookup), and a misconfigured rate
+  # refused at startup rather than producing a cell that ran unstarved under a starved
+  # label.
+  ament_add_pytest_test(test_scan_rate_governor test/test_scan_rate_governor.py
+    TIMEOUT 300
+  )
+
   # Seed derivation. Asserts the two invariants the campaign's statistics rest on:
   # every (run, goal) draws a distinct condition, and all controllers draw identical
   # ones. Golden vectors pin splitmix64 itself — its constants are load-bearing, and
@@ -174,6 +195,13 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_navlearn_seed test/test_navlearn_seed.cpp)
   target_include_directories(test_navlearn_seed PRIVATE include)
+
+  # Scan-rate decimation rule. Pins the two properties leg 6 rests on: the keep decision
+  # is a pure function of the arrival index, so a rerun drops the same scans; and the
+  # delivered rate is reported rather than assumed, so a starved cell cannot silently run
+  # at a rate nobody requested.
+  ament_add_gtest(test_scan_decimator test/test_scan_decimator.cpp)
+  target_include_directories(test_scan_decimator PRIVATE include)
 
   # The Python reference used by analysis, pinned to the same golden vectors so the two
   # implementations cannot silently diverge.
