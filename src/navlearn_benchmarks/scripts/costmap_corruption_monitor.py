@@ -49,6 +49,7 @@ Usage
 
 import argparse
 import json
+import math
 import os
 import signal
 import sys
@@ -80,10 +81,16 @@ def latched_qos():
 class CostmapCorruptionMonitor(Node):
     """Compares the live global costmap against the static map it was built from."""
 
-    def __init__(self, output_prefix, map_topic, costmap_topic, interval):
+    def __init__(self, output_prefix, map_topic, costmap_topic, interval,
+                 inflation_radius_m):
         super().__init__("costmap_corruption_monitor")
         self.output_prefix = output_prefix
         self.interval = interval
+        # Must match the costmap's inflation_layer.inflation_radius, otherwise legitimate
+        # wall inflation is counted as corruption (too small) or real phantoms adjacent to
+        # walls are missed (too large).
+        self.inflation_radius_m = inflation_radius_m
+        self.inflation_mask = None
         self.static = None
         self.costmap = None
         self.samples = []
@@ -100,14 +107,56 @@ class CostmapCorruptionMonitor(Node):
 
     def _on_map(self, msg):
         self.static = msg
+        self.inflation_mask = None  # recompute; a new map invalidates the old mask
 
     def _on_costmap(self, msg):
         self.costmap = msg
+
+    def _build_inflation_mask(self):
+        """Mark every cell within the inflation radius of a real static obstacle.
+
+        Without this the metric is meaningless. The inflation layer spreads cost
+        inflation_radius (0.55 m) outward from every real wall, so thousands of cells that
+        the static map calls free or unknown are legitimately blocked in the costmap. A
+        first version of this monitor counted them all as corruption and reported ~11,000
+        phantom cells at the first sample, before the robot had navigated anywhere — a
+        static baseline masquerading as damage.
+
+        Only cells further than the inflation radius from any real obstacle can be
+        phantoms. This mask is computed once per map and excludes the rest.
+        """
+        s = self.static
+        w, h = s.info.width, s.info.height
+        reach = int(math.ceil(self.inflation_radius_m / s.info.resolution)) + 1
+        mask = bytearray(w * h)
+
+        occupied = [i for i, v in enumerate(s.data) if v >= 65]
+        for i in occupied:
+            r0, c0 = divmod(i, w)
+            for dr in range(-reach, reach + 1):
+                r = r0 + dr
+                if r < 0 or r >= h:
+                    continue
+                span = int(math.sqrt(max(0, reach * reach - dr * dr)))
+                lo = max(0, c0 - span)
+                hi = min(w - 1, c0 + span)
+                base = r * w
+                for c in range(lo, hi + 1):
+                    mask[base + c] = 1
+
+        self.get_logger().info(
+            f"inflation mask: {sum(mask)} of {w*h} cells within {self.inflation_radius_m} m "
+            f"of {len(occupied)} static obstacles; these are excluded from phantom counts"
+        )
+        return mask
 
     def _compare(self):
         """Count disagreeing cells by category, or None if either grid is missing."""
         if self.static is None or self.costmap is None:
             return None
+
+        if self.inflation_mask is None:
+            self.inflation_mask = self._build_inflation_mask()
 
         s, c = self.static, self.costmap
         # Only a like-for-like grid comparison is meaningful. Nav2 sizes the global costmap
@@ -120,8 +169,12 @@ class CostmapCorruptionMonitor(Node):
                 f"vs costmap {c.info.width}x{c.info.height}@{c.info.resolution}")}
 
         phantom_clearable = phantom_permanent = erased_wall = 0
-        for sv, cv in zip(s.data, c.data):
+        mask = self.inflation_mask
+        for i, (sv, cv) in enumerate(zip(s.data, c.data)):
             if cv >= BLOCKED:
+                # Skip anything the inflation layer could legitimately have blocked.
+                if mask[i]:
+                    continue
                 if sv == STATIC_FREE:
                     phantom_clearable += 1
                 elif sv == STATIC_UNKNOWN:
@@ -161,6 +214,7 @@ class CostmapCorruptionMonitor(Node):
             "schema": "navlearn.costmap_corruption/1",
             "samples": len(self.samples),
             "sample_interval_s": self.interval,
+            "inflation_radius_m": self.inflation_radius_m,
             "series": valid[-200:],
             "peak": {
                 "phantom_clearable": peak("phantom_clearable"),
@@ -207,12 +261,17 @@ def main():
     parser.add_argument("--map-topic", default="/map")
     parser.add_argument("--costmap-topic", default="/global_costmap/costmap")
     parser.add_argument("--interval", type=float, default=2.0)
+    parser.add_argument(
+        "--inflation-radius-m", type=float, default=0.55,
+        help="Must match the global costmap inflation_layer.inflation_radius",
+    )
     args, ros_args = parser.parse_known_args()
 
     sys.stdout.reconfigure(line_buffering=True)
     rclpy.init(args=ros_args)
     node = CostmapCorruptionMonitor(
-        args.output_prefix, args.map_topic, args.costmap_topic, args.interval
+        args.output_prefix, args.map_topic, args.costmap_topic, args.interval,
+        args.inflation_radius_m,
     )
 
     running = {"value": True}
