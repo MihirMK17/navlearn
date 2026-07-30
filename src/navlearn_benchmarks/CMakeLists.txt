@@ -145,6 +145,18 @@ if(BUILD_TESTING)
     TIMEOUT 300
   )
 
+  # Kidnap reference pose reaching the metrics CSV. The secondary claim regresses
+  # recovery on realised displacement, which is unrecoverable unless the robot's pose
+  # immediately before the teleport is recorded; the fallback — the nominal commanded
+  # band — is a bin label, and regressing on it handicaps distance against the predictor
+  # it is being compared with. Guards the two silent modes: a defaulted reference at the
+  # origin, which is real free space on the campaign map and would yield a plausible
+  # fabricated displacement, and a destination written without yaw, which cannot be
+  # scored for ambiguity at all.
+  ament_add_pytest_test(test_kidnap_reference test/test_kidnap_reference.py
+    TIMEOUT 300
+  )
+
   # Seed derivation. Asserts the two invariants the campaign's statistics rest on:
   # every (run, goal) draws a distinct condition, and all controllers draw identical
   # ones. Golden vectors pin splitmix64 itself — its constants are load-bearing, and

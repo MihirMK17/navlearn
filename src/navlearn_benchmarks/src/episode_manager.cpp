@@ -44,6 +44,7 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   , pose_seq_stage_(PoseSeqStage::IDLE)
   , kidnap_stage_(KidnapStage::IDLE)
   , kidnap_sampled_delay_sec_(0.0)
+  , have_kidnap_reference_(false)
   , have_start_gt_(false)
   , have_amcl_pose_(false)
   , reinit_in_flight_(false)
@@ -788,6 +789,18 @@ void EpisodeManager::publishKidnapEvent_(bool success)
   ev.kidnap_pose = kidnap_target_pose_;
   ev.success = success;
   ev.attempt_id = kidnap_attempt_id_;
+  ev.reference_pose = kidnap_reference_pose_;
+  ev.reference_available = have_kidnap_reference_;
+
+  if (!have_kidnap_reference_) {
+    // Loud, because it is otherwise undetectable until analysis months later: the goal
+    // still produces a complete-looking row, it simply has no measurable displacement,
+    // and the distance-vs-ambiguity comparison quietly loses a trial.
+    RCLCPP_ERROR(get_logger(),
+      "Kidnap event for goal %zu carries NO reference pose. Realised displacement is "
+      "unrecoverable for this goal and it must be excluded from any distance-based "
+      "analysis.", idx_);
+  }
 
   kidnap_pub_->publish(ev);
 }
@@ -909,6 +922,12 @@ void EpisodeManager::maybeKidnap(const rclcpp::Time & now)
   if (!have_map_) {
     return;
   }
+
+  // Latched here, at the last point before the teleport is committed, because this is the
+  // last instant at which the robot is still where it was. Everything after this either
+  // moves it or fails trying, and both outcomes need the same "before" to be meaningful.
+  kidnap_reference_pose_ = ref_pose.pose;
+  have_kidnap_reference_ = true;
 
   geometry_msgs::msg::Pose target;
   if (!sampleKidnapPoseFromMap_(ref_pose, target)) {
@@ -1068,6 +1087,7 @@ void EpisodeManager::onGoalResponse(const rclcpp_action::ClientGoalHandle<nav2_m
   kidnap_sampled_delay_sec_ = dist_delay(gen);
 
   kidnap_stage_ = KidnapStage::IDLE;
+  have_kidnap_reference_ = false;
 }
 
 void EpisodeManager::onFeedback(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::SharedPtr &,
@@ -1310,6 +1330,7 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
 
     kidnap_stage_ = KidnapStage::IDLE;
     have_start_gt_ = false;
+    have_kidnap_reference_ = false;
     kidnap_sampled_delay_sec_ = 0.0;
 
     if (idx_ >= goal_poses_.size()) {
@@ -1478,6 +1499,7 @@ void EpisodeManager::advanceRecovery(const rclcpp::Time & now)
       pose_seq_stage_ = PoseSeqStage::IDLE;
       kidnap_stage_ = KidnapStage::IDLE;
       have_start_gt_ = false;
+      have_kidnap_reference_ = false;
       kidnap_sampled_delay_sec_ = 0.0;
 
       if (idx_ >= goal_poses_.size()) {

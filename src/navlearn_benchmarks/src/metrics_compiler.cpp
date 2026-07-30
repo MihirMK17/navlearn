@@ -191,7 +191,15 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
          // Was the perturbation actually applied? A TTR goal whose kidnap never fired is
          // not a TTR trial. Nothing recorded this before, so a cell could silently contain
          // unperturbed episodes pooled with perturbed ones.
-         << "Kidnap Attempted,Kidnap Applied,Kidnap Target_X (m),Kidnap Target_Y (m)"
+         << "Kidnap Attempted,Kidnap Applied,"
+         << "Kidnap Target_X (m),Kidnap Target_Y (m),Kidnap Target_Yaw (deg),"
+         // The teleport's "before". Displacement is derived from it here for convenience
+         // and is -1 whenever it is not a measurement: no kidnap, no reference, or an
+         // attempt that never moved the robot. Never 0, which would read as a teleport
+         // that happened to land where it started.
+         << "Kidnap Reference Available,"
+         << "Kidnap Reference_X (m),Kidnap Reference_Y (m),Kidnap Reference_Yaw (deg),"
+         << "Kidnap Displacement (m),Kidnap Yaw Change (deg)"
          << "\n";
     header_written_ = true;
   }
@@ -314,8 +322,38 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
        << (episode.have_kidnap ? 1 : 0) << ","
        << (episode.have_kidnap && episode.kidnap.success ? 1 : 0) << ","
        << (episode.have_kidnap ? episode.kidnap.kidnap_pose.position.x : -1.0) << ","
-       << (episode.have_kidnap ? episode.kidnap.kidnap_pose.position.y : -1.0)
-       << "\n";
+       << (episode.have_kidnap ? episode.kidnap.kidnap_pose.position.y : -1.0) << ","
+       << (episode.have_kidnap
+             ? yaw_degrees(episode.kidnap.kidnap_pose.orientation) : -1.0) << ",";
+
+  {
+    const bool have_ref = episode.have_kidnap && episode.kidnap.reference_available;
+
+    // Displacement requires both a "before" and a teleport that actually happened. A
+    // failed attempt left the robot at the reference, so writing the commanded target's
+    // distance would record a perturbation the robot never experienced.
+    const bool measurable = have_ref && episode.kidnap.success;
+
+    const auto & ref = episode.kidnap.reference_pose;
+    const auto & tgt = episode.kidnap.kidnap_pose;
+
+    csv_ << (have_ref ? 1 : 0) << ","
+         << (have_ref ? ref.position.x : -1.0) << ","
+         << (have_ref ? ref.position.y : -1.0) << ","
+         << (have_ref ? yaw_degrees(ref.orientation) : -1.0) << ","
+         << (measurable
+               ? std::hypot(tgt.position.x - ref.position.x,
+                            tgt.position.y - ref.position.y)
+               : -1.0) << ","
+         // Shorter arc: a rotation across the pi boundary is a small turn, not a large
+         // one, and severity should not jump by 340 degrees at the wrap point.
+         << (measurable
+               ? std::fabs(std::remainder(yaw_degrees(tgt.orientation)
+                                          - yaw_degrees(ref.orientation), 360.0))
+               : -1.0);
+  }
+
+  csv_ << "\n";
 
   csv_.flush();
 

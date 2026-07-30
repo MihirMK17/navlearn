@@ -44,6 +44,7 @@ from builtin_interfaces.msg import Duration  # noqa: E402
 from navlearn_msgs.msg import (  # noqa: E402
     ControlMetric,
     EpisodeEvent,
+    KidnapEvent,
     TrajectoryMetric,
 )
 from unique_identifier_msgs.msg import UUID  # noqa: E402
@@ -121,8 +122,12 @@ def _compiler_executable():
 _node_counter = itertools.count()
 
 
-def _run_compiler(tmp_path, events):
+def _run_compiler(tmp_path, events, kidnaps=()):
     """Run metrics_compiler against a set of episodes and return the parsed CSV rows.
+
+    `kidnaps` are published before the episodes they belong to. The compiler folds a
+    KidnapEvent into an episode by goal id but does not wait for one — clean and TTC
+    cells produce none — so a kidnap arriving after the flush would be dropped silently.
 
     The node binary is executed directly rather than through `ros2 run`. `ros2 run` is a
     wrapper process: terminating it leaves the node it spawned running, and a surviving
@@ -146,6 +151,7 @@ def _run_compiler(tmp_path, events):
     ep_pub = node.create_publisher(EpisodeEvent, "/navlearn/episode_event", 10)
     cm_pub = node.create_publisher(ControlMetric, "/navlearn/control_metric", 10)
     tm_pub = node.create_publisher(TrajectoryMetric, "/navlearn/trajectory_metric", 10)
+    kd_pub = node.create_publisher(KidnapEvent, "/navlearn/kidnap_event", 10)
 
     try:
         # Wait for the compiler's subscriptions to appear rather than sleeping a fixed
@@ -154,11 +160,17 @@ def _run_compiler(tmp_path, events):
         while time.monotonic() < deadline:
             if (ep_pub.get_subscription_count() > 0
                     and cm_pub.get_subscription_count() > 0
-                    and tm_pub.get_subscription_count() > 0):
+                    and tm_pub.get_subscription_count() > 0
+                    and kd_pub.get_subscription_count() > 0):
                 break
             rclpy.spin_once(node, timeout_sec=0.1)
         else:
             pytest.fail("metrics_compiler never subscribed; is the workspace sourced?")
+
+        for kd in kidnaps:
+            kd_pub.publish(kd)
+        for _ in range(10):
+            rclpy.spin_once(node, timeout_sec=0.05)
 
         for ev in events:
             cm = ControlMetric(goal_id=ev.goal_id, samples=100)

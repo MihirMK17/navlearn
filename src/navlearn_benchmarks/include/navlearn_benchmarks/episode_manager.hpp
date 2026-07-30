@@ -186,6 +186,14 @@ private:
     bool have_start_gt_;
 
     geometry_msgs::msg::Pose kidnap_target_pose_;
+
+    // Ground truth at the instant the teleport was triggered. Captured rather than
+    // re-looked-up when the event is published: the service round-trip takes long enough
+    // that a second lookup would return a pose from after the robot had already moved,
+    // which is the one thing this field exists to rule out.
+    geometry_msgs::msg::Pose kidnap_reference_pose_;
+    bool have_kidnap_reference_;
+
     unique_identifier_msgs::msg::UUID kidnap_attempt_id_;
     rclcpp::Time kidnap_event_time_;
     rclcpp::Time kidnap_verify_started_at_;
