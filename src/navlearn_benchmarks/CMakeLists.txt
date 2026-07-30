@@ -188,6 +188,16 @@ if(BUILD_TESTING)
     TIMEOUT 300
   )
 
+  # Nested logistic-model comparison. statsmodels and scikit-learn are not installed on
+  # the campaign machine, so the fit is hand-rolled on scipy and has to earn trust from
+  # tests rather than from use: every reported quantity is checked against a closed form,
+  # a textbook identity, or data whose answer is known by construction. Also pins the two
+  # ways a logistic regression lies quietly -- separation returning a runaway coefficient
+  # as an overwhelming effect, and in-sample fit passing off an overfit as a real one.
+  ament_add_pytest_test(test_nested_models test/test_nested_models.py
+    TIMEOUT 300
+  )
+
   # Seed derivation. Asserts the two invariants the campaign's statistics rest on:
   # every (run, goal) draws a distinct condition, and all controllers draw identical
   # ones. Golden vectors pin splitmix64 itself — its constants are load-bearing, and

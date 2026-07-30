@@ -45,6 +45,7 @@ from map_ambiguity import (  # noqa: E402
     AmbiguityField,
     LikelihoodFieldAmbiguity,
     load_occupancy,
+    resample_occupancy,
     spread_report,
 )
 
@@ -347,6 +348,69 @@ def test_spread_report_flags_a_measure_that_is_almost_all_zero():
     values = np.zeros(200)
     values[:2] = 5.0
     assert spread_report(values)["degenerate"] is True
+
+
+# ------------------------------------------------------------------ resolution normalising
+#
+# The three campaign maps ship at different resolutions (small_house 0.05 m, warehouse
+# 0.02 m, bookstore 0.05 m). Ambiguity is computed over a discretised pose set and a
+# raycast stepped in cells, so resolution changes the number. Comparing maps scored at
+# different resolutions would confound "this map is more ambiguous" with "this map was
+# sampled more finely", and the campaign's whole map axis rests on that comparison.
+
+
+def test_resample_is_identity_at_the_same_resolution():
+    """A no-op resample must not perturb the grid."""
+    occupied = _blank(4.0, 4.0)
+    out = resample_occupancy(occupied, RES, RES)
+    assert out.shape == occupied.shape
+    assert np.array_equal(out, occupied)
+
+
+def test_resample_coarsens_by_the_integer_factor():
+    """0.05 m from 0.025 m halves each axis."""
+    occupied = np.zeros((40, 60), dtype=bool)
+    out = resample_occupancy(occupied, 0.025, 0.05)
+    assert out.shape == (20, 30)
+
+
+def test_resample_is_conservative_about_obstacles():
+    """A coarse cell is occupied if ANY of its sub-cells is.
+
+    Averaging or majority voting would erase thin walls: a 0.05 m wall in a 0.02 m grid is
+    a single cell, outvoted in every block it belongs to. A map whose walls dissolve reads
+    as wide-open free space, which would score as maximally ambiguous for reasons that have
+    nothing to do with the building.
+    """
+    fine = np.zeros((4, 4), dtype=bool)
+    fine[0, 0] = True                      # one occupied sub-cell in the first 2x2 block
+    out = resample_occupancy(fine, 0.025, 0.05)
+    assert out.shape == (2, 2)
+    assert out[0, 0], "a wall thinner than the coarse cell was erased"
+    assert not out[0, 1] and not out[1, 0] and not out[1, 1]
+
+
+def test_resample_preserves_a_thin_wall_across_a_whole_grid():
+    """End-to-end version of the above on a wall one fine-cell thick."""
+    fine = np.zeros((20, 20), dtype=bool)
+    fine[10, :] = True
+    out = resample_occupancy(fine, 0.025, 0.05)
+    assert out[5, :].all(), "thin wall did not survive coarsening"
+
+
+def test_resample_refuses_to_upsample():
+    """Coarse to fine would invent detail the map never had."""
+    with pytest.raises(ValueError):
+        resample_occupancy(np.zeros((4, 4), dtype=bool), 0.05, 0.025)
+
+
+def test_resample_handles_a_non_integer_factor():
+    """0.02 m to 0.05 m is a factor of 2.5; the grid must still coarsen conservatively."""
+    fine = np.zeros((10, 10), dtype=bool)
+    fine[3, 3] = True
+    out = resample_occupancy(fine, 0.02, 0.05)
+    assert out.shape == (4, 4)
+    assert out.sum() == 1, "one obstacle cell became more or fewer than one"
 
 
 # --------------------------------------------------------------------------- map loading

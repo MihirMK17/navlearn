@@ -133,6 +133,57 @@ def load_occupancy(map_yaml_path):
     return OccupancyMap(occupied, free, meta["resolution"], meta["origin"])
 
 
+def resample_occupancy(occupied, from_resolution, to_resolution):
+    """Coarsen an occupancy grid to a target resolution, conservatively.
+
+    Why this exists
+        The campaign's three maps ship at different resolutions. Ambiguity is computed
+        over a discretised pose set with a raycast stepped in cells, so the resolution is
+        part of the measurement. Scoring maps at their native resolutions would confound
+        "this map is more ambiguous" with "this map was sampled more finely", and the map
+        axis of the campaign rests entirely on that comparison being clean.
+
+    Why any-occupied rather than averaging or majority vote
+        A wall thinner than the coarse cell would be outvoted in every block it belongs
+        to and would vanish. A map whose walls dissolve reads as open free space and
+        scores as maximally ambiguous for a reason that has nothing to do with the
+        building. Over-reporting obstacles is the safe direction here.
+
+    Upsampling is refused: it would invent detail the survey never captured.
+    """
+    occupied = np.asarray(occupied, dtype=bool)
+    if to_resolution < from_resolution * (1.0 - 1e-9):
+        raise ValueError(
+            f"cannot resample {from_resolution} m to a finer {to_resolution} m; "
+            "upsampling would invent detail the map does not contain")
+
+    factor = to_resolution / from_resolution
+    if abs(factor - 1.0) < 1e-9:
+        return occupied.copy()
+
+    rows, cols = occupied.shape
+    out_rows = int(math.floor(rows / factor))
+    out_cols = int(math.floor(cols / factor))
+    if out_rows < 1 or out_cols < 1:
+        raise ValueError("target resolution coarser than the whole map")
+
+    # Block boundaries in fine-cell indices. Computed per output cell rather than by
+    # reshaping, so a non-integer factor (0.02 m to 0.05 m is 2.5) is handled exactly
+    # instead of being rounded into drift that accumulates across the grid.
+    row_edges = np.floor(np.arange(out_rows + 1) * factor).astype(np.int64)
+    col_edges = np.floor(np.arange(out_cols + 1) * factor).astype(np.int64)
+
+    # Cumulative counts give each block's occupied total in constant time per cell.
+    integral = np.zeros((rows + 1, cols + 1), dtype=np.int64)
+    integral[1:, 1:] = np.cumsum(np.cumsum(occupied.astype(np.int64), axis=0), axis=1)
+
+    r0, r1 = row_edges[:-1, None], row_edges[1:, None]
+    c0, c1 = col_edges[None, :-1], col_edges[None, 1:]
+    block_sum = (integral[r1, c1] - integral[r0, c1]
+                 - integral[r1, c0] + integral[r0, c0])
+    return block_sum > 0
+
+
 class AmbiguityField:
     """Entropy of the map-derived likelihood field, evaluated at arbitrary poses.
 
