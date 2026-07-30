@@ -26,3 +26,13 @@ float64 optimal_path_m      # shortest Euclidean start-to-goal distance [m]; -1.
 # Populated only on END events; the flags inside are false on START. See
 # TerminalPoseReport.msg for why a SUCCEEDED result is not sufficient evidence of arrival.
 TerminalPoseReport terminal
+
+# Bad-initialization displacement this goal was ASKED for, in metres; -1 when TTC severity
+# was not drawn from a continuous range.
+#
+# The independent variable of the TTC curve, so it belongs in the record rather than being
+# reconstructed from a cell's configuration: a cell label is a claim about what ran, and
+# this is the measurement. In curve mode the realised displacement equals this value by
+# construction, unlike the legacy square draw whose nominal range bounds each axis rather
+# than the displacement.
+float64 bad_init_commanded_magnitude_m

@@ -340,10 +340,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--magnitude-curve",
         metavar="MIN:MAX",
-        help="Draw each goal's kidnap displacement from a continuous range instead of a "
-             "categorical level, e.g. 0.3:3.0. The magnitude comes from the campaign seed, "
-             "so every goal in the sweep gets its own severity and the whole sweep still "
-             "reproduces from one number. Overrides --perturbation-level",
+        help="Draw each goal's perturbation displacement from a continuous range instead "
+             "of a categorical level, e.g. 0.3:3.0. Applies to the kidnap for --perturbation "
+             "ttr and to the bad initialization for ttc. The magnitude comes from the "
+             "campaign seed, so every goal in the sweep gets its own severity and the whole "
+             "sweep still reproduces from one number. Overrides --perturbation-level",
     )
     parser.add_argument(
         "--magnitude-scale",
@@ -477,13 +478,18 @@ def run_benchmark(
 
     # Continuous severity, stated explicitly for the same reason as the condition above:
     # it is the cell's independent variable and must appear verbatim in the run record.
+    #
+    # Routed to whichever perturbation the cell actually runs. Setting both sweeps from
+    # one flag would make a ttc cell carry a kidnap range it never uses, which reads in
+    # the record as a condition that was configured and is a lie about what ran.
     if args.magnitude_curve:
         lo, hi = _parse_magnitude_curve(args.magnitude_curve)
+        prefix = "kidnap" if args.perturbation == "ttr" else "bad_init"
         cmd += [
-            "kidnap_magnitude_mode:=curve",
-            f"kidnap_magnitude_min_m:={lo}",
-            f"kidnap_magnitude_max_m:={hi}",
-            f"kidnap_magnitude_scale:={args.magnitude_scale}",
+            f"{prefix}_magnitude_mode:=curve",
+            f"{prefix}_magnitude_min_m:={lo}",
+            f"{prefix}_magnitude_max_m:={hi}",
+            f"{prefix}_magnitude_scale:={args.magnitude_scale}",
         ]
 
     cmd.extend(args.extra_arg)

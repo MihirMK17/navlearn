@@ -75,6 +75,10 @@ enum class Stream : uint64_t
   /// with where the goal is or where the teleport lands: a sweep in which severity tracked
   /// position would confound the two, and the curve would no longer be a curve in severity.
   PERTURBATION_MAGNITUDE = 0xC0AC29B7C97C50DDULL,
+  /// Continuous bad-initialization severity. Separate from PERTURBATION_MAGNITUDE, which
+  /// drives the kidnap sweep: a cell that enabled both would otherwise draw the same
+  /// value for each, correlating the two perturbations by construction.
+  BAD_INIT_MAGNITUDE = 0x9216D5D98979FB1BULL,
 };
 
 /// splitmix64 mixing function.

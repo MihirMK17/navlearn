@@ -53,6 +53,7 @@
 #include <navlearn_msgs/msg/terminal_pose_report.hpp>
 #include <navlearn_benchmarks/navlearn_seed.hpp>
 #include <navlearn_benchmarks/magnitude_sampler.hpp>
+#include <navlearn_benchmarks/bad_init_offset.hpp>
 
 #include <memory>
 #include <string>
@@ -128,6 +129,15 @@ private:
 
     double bad_init_lin_range_m_;
     double bad_init_yaw_range_rad_;
+
+    /// Continuous TTC severity. Null in fixed mode, where the legacy square draw applies.
+    std::string bad_init_magnitude_mode_;
+    std::string bad_init_magnitude_scale_;
+    double bad_init_magnitude_min_m_ = 0.05;
+    double bad_init_magnitude_max_m_ = 2.0;
+    std::unique_ptr<navlearn::MagnitudeSampler> bad_init_magnitude_sampler_;
+    /// Displacement this goal was asked for; -1 outside curve mode.
+    double bad_init_commanded_magnitude_m_ = -1.0;
 
     double pose_apply_pos_tol_m_;
     double pose_apply_yaw_tol_rad_;

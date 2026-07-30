@@ -203,6 +203,46 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
       kidnap_magnitude_scale_.c_str(), kidnap_magnitude_min_m_, kidnap_magnitude_max_m_,
       100.0 * kidnap_magnitude_band_);
   }
+
+  // The TTC leg sweeps the same way, over the bad-initialization displacement. Its own
+  // range so a cell can sweep one perturbation without inheriting the other's bounds,
+  // and its own seed stream so enabling both cannot correlate them.
+  bad_init_magnitude_mode_ =
+    this->declare_parameter<std::string>("bad_init_magnitude_mode", "fixed");
+  bad_init_magnitude_min_m_ =
+    this->declare_parameter<double>("bad_init_magnitude_min_m", 0.05);
+  bad_init_magnitude_max_m_ =
+    this->declare_parameter<double>("bad_init_magnitude_max_m", 2.0);
+  bad_init_magnitude_scale_ =
+    this->declare_parameter<std::string>("bad_init_magnitude_scale", "log");
+
+  if (bad_init_magnitude_mode_ != "fixed" && bad_init_magnitude_mode_ != "curve") {
+    RCLCPP_FATAL(get_logger(),
+      "bad_init_magnitude_mode must be 'fixed' or 'curve', got '%s'",
+      bad_init_magnitude_mode_.c_str());
+    throw std::invalid_argument("invalid bad_init_magnitude_mode");
+  }
+
+  if (bad_init_magnitude_mode_ == "curve") {
+    if (bad_init_magnitude_scale_ != "linear" && bad_init_magnitude_scale_ != "log") {
+      RCLCPP_FATAL(get_logger(),
+        "bad_init_magnitude_scale must be 'log' or 'linear', got '%s'",
+        bad_init_magnitude_scale_.c_str());
+      throw std::invalid_argument("invalid bad_init_magnitude_scale");
+    }
+    bad_init_magnitude_sampler_ = std::make_unique<navlearn::MagnitudeSampler>(
+      bad_init_magnitude_min_m_, bad_init_magnitude_max_m_,
+      (bad_init_magnitude_scale_ == "linear") ? navlearn::MagnitudeScale::LINEAR
+                                              : navlearn::MagnitudeScale::LOG);
+
+    RCLCPP_INFO(get_logger(),
+      "Bad-init severity: CURVE, %s-uniform over [%.3f, %.3f] m, drawn per goal and "
+      "applied at exactly that displacement (polar, not the legacy square draw). "
+      "Orientation error stays at its configured +/-%.3f rad, so the sweep moves one "
+      "variable.",
+      bad_init_magnitude_scale_.c_str(), bad_init_magnitude_min_m_,
+      bad_init_magnitude_max_m_, bad_init_yaw_range_rad_);
+  }
   kidnap_z_             = this->declare_parameter<double>("kidnap_z", 0.01);
   kidnap_max_sample_tries_ = this->declare_parameter<int>("kidnap_max_sample_tries", 1500);
 
@@ -557,13 +597,28 @@ geometry_msgs::msg::PoseWithCovarianceStamped EpisodeManager::buildPerturbedPose
   // index entirely: every episode in a cell drew the same handful of offsets, so a cell
   // of 25 episodes tested 5 distinct conditions. Now distinct per (run, goal), and still
   // identical across controllers so the arms face the same perturbations.
-  std::mt19937_64 gen(seedFor(navlearn::seed::Stream::INITIAL_POSE, idx_));
-  std::uniform_real_distribution<double> dist_lin(-bad_init_lin_range_m_, bad_init_lin_range_m_);
-  std::uniform_real_distribution<double> dist_yaw(-bad_init_yaw_range_rad_, bad_init_yaw_range_rad_);
+  // In curve mode the displacement magnitude is the independent variable, so it is drawn
+  // per goal and applied at exactly that distance. The legacy square draw bounds each
+  // axis rather than the displacement, which makes its nominal range a label rather than
+  // a measurement -- see bad_init_offset.hpp.
+  navlearn::PoseOffset offset;
+  bad_init_commanded_magnitude_m_ = -1.0;
 
-  const double dx = dist_lin(gen);
-  const double dy = dist_lin(gen);
-  const double dyaw = dist_yaw(gen);
+  if (bad_init_magnitude_sampler_) {
+    bad_init_commanded_magnitude_m_ = bad_init_magnitude_sampler_->sample(
+      seedFor(navlearn::seed::Stream::BAD_INIT_MAGNITUDE, idx_));
+    offset = navlearn::polarOffset(
+      seedFor(navlearn::seed::Stream::INITIAL_POSE, idx_),
+      bad_init_commanded_magnitude_m_, bad_init_yaw_range_rad_);
+  } else {
+    offset = navlearn::squareOffset(
+      seedFor(navlearn::seed::Stream::INITIAL_POSE, idx_),
+      bad_init_lin_range_m_, bad_init_yaw_range_rad_);
+  }
+
+  const double dx = offset.dx;
+  const double dy = offset.dy;
+  const double dyaw = offset.dyaw;
 
   geometry_msgs::msg::PoseStamped p = base;
   p.header.frame_id = fixed_frame_;
@@ -1319,6 +1374,7 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
   navlearn_msgs::msg::EpisodeEvent ev;
   ev.header.stamp = this->get_clock()->now();
   ev.state = navlearn_msgs::msg::EpisodeEvent::END;
+  ev.bad_init_commanded_magnitude_m = bad_init_commanded_magnitude_m_;
 
   switch (result.code) {
     case rclcpp_action::ResultCode::SUCCEEDED:

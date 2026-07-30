@@ -203,7 +203,9 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
          // What the design asked for, as opposed to what the geometry allowed. The curve
          // is fitted against this; the predictor comparison uses the realised
          // displacement above. -1 when severity was not drawn from a continuous range.
-         << "Kidnap Commanded Magnitude (m)"
+         << "Kidnap Commanded Magnitude (m),"
+         // The TTC curve's independent variable, recorded for the same reason.
+         << "Bad Init Commanded Magnitude (m)"
          << "\n";
     header_written_ = true;
   }
@@ -355,7 +357,8 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
                ? std::fabs(std::remainder(yaw_degrees(tgt.orientation)
                                           - yaw_degrees(ref.orientation), 360.0))
                : -1.0) << ","
-         << (episode.have_kidnap ? episode.kidnap.commanded_magnitude_m : -1.0);
+         << (episode.have_kidnap ? episode.kidnap.commanded_magnitude_m : -1.0) << ","
+         << ev.bad_init_commanded_magnitude_m;
   }
 
   csv_ << "\n";

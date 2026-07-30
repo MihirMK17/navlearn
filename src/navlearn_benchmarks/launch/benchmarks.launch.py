@@ -260,6 +260,29 @@ def generate_launch_description():
     )
     kidnap_magnitude_band = LaunchConfiguration("kidnap_magnitude_band")
 
+    # The TTC leg sweeps the same way, over bad-initialization displacement. Separate
+    # range and seed stream from the kidnap sweep, so a cell can sweep one perturbation
+    # without inheriting the other's bounds and enabling both cannot correlate them.
+    bad_init_magnitude_mode_arg = DeclareLaunchArgument(
+        "bad_init_magnitude_mode", default_value="fixed", choices=["fixed", "curve"],
+    )
+    bad_init_magnitude_mode = LaunchConfiguration("bad_init_magnitude_mode")
+
+    bad_init_magnitude_min_m_arg = DeclareLaunchArgument(
+        "bad_init_magnitude_min_m", default_value="0.05"
+    )
+    bad_init_magnitude_min_m = LaunchConfiguration("bad_init_magnitude_min_m")
+
+    bad_init_magnitude_max_m_arg = DeclareLaunchArgument(
+        "bad_init_magnitude_max_m", default_value="2.0"
+    )
+    bad_init_magnitude_max_m = LaunchConfiguration("bad_init_magnitude_max_m")
+
+    bad_init_magnitude_scale_arg = DeclareLaunchArgument(
+        "bad_init_magnitude_scale", default_value="log", choices=["log", "linear"],
+    )
+    bad_init_magnitude_scale = LaunchConfiguration("bad_init_magnitude_scale")
+
     bad_init_lin_range_m_arg = DeclareLaunchArgument(
         "bad_init_lin_range_m",
         default_value="0.50",
@@ -457,6 +480,12 @@ def generate_launch_description():
                 "kidnap_magnitude_scale": kidnap_magnitude_scale,
                 "kidnap_magnitude_band": ParameterValue(
                     kidnap_magnitude_band, value_type=float),
+                "bad_init_magnitude_mode": bad_init_magnitude_mode,
+                "bad_init_magnitude_min_m": ParameterValue(
+                    bad_init_magnitude_min_m, value_type=float),
+                "bad_init_magnitude_max_m": ParameterValue(
+                    bad_init_magnitude_max_m, value_type=float),
+                "bad_init_magnitude_scale": bad_init_magnitude_scale,
                 "goal_min_distance_m": goal_min_distance_m,
                 "recovery_timeout_sec": recovery_timeout_sec,
                 "bad_init_lin_range_m": bad_init_lin_range_m,
@@ -587,6 +616,10 @@ def generate_launch_description():
             kidnap_magnitude_max_m_arg,
             kidnap_magnitude_scale_arg,
             kidnap_magnitude_band_arg,
+            bad_init_magnitude_mode_arg,
+            bad_init_magnitude_min_m_arg,
+            bad_init_magnitude_max_m_arg,
+            bad_init_magnitude_scale_arg,
             bad_init_lin_range_m_arg,
             bad_init_yaw_range_rad_arg,
             episode_start_delay_arg,

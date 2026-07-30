@@ -222,6 +222,16 @@ if(BUILD_TESTING)
   ament_add_gtest(test_magnitude_sampler test/test_magnitude_sampler.cpp)
   target_include_directories(test_magnitude_sampler PRIVATE include)
 
+  # Bad-initialization offset sampling. The legacy sampler draws dx and dy independently
+  # over a square, so its nominal range bounds each axis rather than the displacement and
+  # the realised magnitude depends on direction -- fine for a categorical level, wrong for
+  # a sweep whose independent variable IS the magnitude. Pins that the curve sampler
+  # delivers exactly the commanded displacement, that bearings cover the circle so
+  # severity is not confounded with direction, and documents the square sampler's
+  # diagonal overshoot rather than leaving it to be rediscovered.
+  ament_add_gtest(test_bad_init_offset test/test_bad_init_offset.cpp)
+  target_include_directories(test_bad_init_offset PRIVATE include)
+
   # The Python reference used by analysis, pinned to the same golden vectors so the two
   # implementations cannot silently diverge.
   ament_add_pytest_test(test_seed_reference test/test_seed_reference.py
