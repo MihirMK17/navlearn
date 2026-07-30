@@ -266,6 +266,30 @@ def git_sha(workspace: pathlib.Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
+def _parse_magnitude_curve(spec: str) -> tuple:
+    """Parse a MIN:MAX magnitude range, refusing anything a sweep cannot run.
+
+    Validated here rather than left to the node so a mistyped range fails before a bringup
+    is launched, instead of after the sim has spun up. An inverted or non-positive range
+    is a configuration error, not a severity: a log sweep has no lower bound at zero, and
+    silently clamping one would pile goals at the bottom of the range the sweep never
+    asked for.
+    """
+    try:
+        lo_text, hi_text = spec.split(":", 1)
+        lo, hi = float(lo_text), float(hi_text)
+    except ValueError:
+        raise SystemExit(
+            f"--magnitude-curve expects MIN:MAX in metres, e.g. 0.3:3.0; got {spec!r}")
+    if lo <= 0.0:
+        raise SystemExit(
+            f"--magnitude-curve minimum must be positive, got {lo}; a zero displacement "
+            "is not a perturbation and has no place on a log scale")
+    if hi < lo:
+        raise SystemExit(f"--magnitude-curve maximum {hi} is below its minimum {lo}")
+    return lo, hi
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="NavLearn multi-run benchmark harness",
@@ -311,7 +335,23 @@ def parse_args() -> argparse.Namespace:
         "--perturbation-level",
         choices=("easy", "medium", "hard", "extreme"),
         default="medium",
-        help="Severity preset for ttc/ttr; ignored for clean",
+        help="Severity preset for ttc/ttr; ignored for clean and in curve mode",
+    )
+    parser.add_argument(
+        "--magnitude-curve",
+        metavar="MIN:MAX",
+        help="Draw each goal's kidnap displacement from a continuous range instead of a "
+             "categorical level, e.g. 0.3:3.0. The magnitude comes from the campaign seed, "
+             "so every goal in the sweep gets its own severity and the whole sweep still "
+             "reproduces from one number. Overrides --perturbation-level",
+    )
+    parser.add_argument(
+        "--magnitude-scale",
+        choices=("log", "linear"),
+        default="log",
+        help="Spacing of the curve draws. Log by default: a displacement sweep spans an "
+             "order of magnitude, and uniform-in-metres leaves the onset of degradation "
+             "-- the part the curve exists to locate -- sparsely covered",
     )
     parser.add_argument(
         "--expected-scan-hz",
@@ -434,6 +474,18 @@ def run_benchmark(
         f"kidnap_enabled:={'true' if args.perturbation == 'ttr' else 'false'}",
         f"perturbation_level:={args.perturbation_level}",
     ]
+
+    # Continuous severity, stated explicitly for the same reason as the condition above:
+    # it is the cell's independent variable and must appear verbatim in the run record.
+    if args.magnitude_curve:
+        lo, hi = _parse_magnitude_curve(args.magnitude_curve)
+        cmd += [
+            "kidnap_magnitude_mode:=curve",
+            f"kidnap_magnitude_min_m:={lo}",
+            f"kidnap_magnitude_max_m:={hi}",
+            f"kidnap_magnitude_scale:={args.magnitude_scale}",
+        ]
+
     cmd.extend(args.extra_arg)
 
     if args.dry_run:
@@ -450,6 +502,8 @@ def run_benchmark(
         "run_index": run_index,
         "perturbation": args.perturbation,
         "perturbation_level": args.perturbation_level,
+        "magnitude_curve": args.magnitude_curve,
+        "magnitude_scale": args.magnitude_scale if args.magnitude_curve else None,
         "goals": args.goals,
         "goal_source": args.goal_source,
         "extra_args": list(args.extra_arg),

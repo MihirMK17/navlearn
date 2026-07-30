@@ -228,6 +228,38 @@ def generate_launch_description():
     )
     kidnap_distance_m = LaunchConfiguration("kidnap_distance_m")
 
+    # Continuous severity. In "curve" mode each goal draws its own displacement from the
+    # campaign seed over [min, max], so the sweep is the experiment and the curve is the
+    # reported result rather than a discarded calibration input. The banded presets above
+    # are ignored in this mode. Default "fixed" so no existing cell changes meaning.
+    kidnap_magnitude_mode_arg = DeclareLaunchArgument(
+        "kidnap_magnitude_mode", default_value="fixed",
+        choices=["fixed", "curve"],
+    )
+    kidnap_magnitude_mode = LaunchConfiguration("kidnap_magnitude_mode")
+
+    kidnap_magnitude_min_m_arg = DeclareLaunchArgument(
+        "kidnap_magnitude_min_m", default_value="0.3"
+    )
+    kidnap_magnitude_min_m = LaunchConfiguration("kidnap_magnitude_min_m")
+
+    kidnap_magnitude_max_m_arg = DeclareLaunchArgument(
+        "kidnap_magnitude_max_m", default_value="3.0"
+    )
+    kidnap_magnitude_max_m = LaunchConfiguration("kidnap_magnitude_max_m")
+
+    # Log by default: a displacement sweep spans an order of magnitude, and uniform-in-
+    # metres would leave the onset of degradation sparsely covered.
+    kidnap_magnitude_scale_arg = DeclareLaunchArgument(
+        "kidnap_magnitude_scale", default_value="log", choices=["log", "linear"],
+    )
+    kidnap_magnitude_scale = LaunchConfiguration("kidnap_magnitude_scale")
+
+    kidnap_magnitude_band_arg = DeclareLaunchArgument(
+        "kidnap_magnitude_band", default_value="0.05"
+    )
+    kidnap_magnitude_band = LaunchConfiguration("kidnap_magnitude_band")
+
     bad_init_lin_range_m_arg = DeclareLaunchArgument(
         "bad_init_lin_range_m",
         default_value="0.50",
@@ -417,6 +449,14 @@ def generate_launch_description():
                 "kidnap_enabled": kidnap_test,
                 "kidnap_max_distance_m": kidnap_max_distance_m,
                 "kidnap_distance_m": kidnap_distance_m,
+                "kidnap_magnitude_mode": kidnap_magnitude_mode,
+                "kidnap_magnitude_min_m": ParameterValue(
+                    kidnap_magnitude_min_m, value_type=float),
+                "kidnap_magnitude_max_m": ParameterValue(
+                    kidnap_magnitude_max_m, value_type=float),
+                "kidnap_magnitude_scale": kidnap_magnitude_scale,
+                "kidnap_magnitude_band": ParameterValue(
+                    kidnap_magnitude_band, value_type=float),
                 "goal_min_distance_m": goal_min_distance_m,
                 "recovery_timeout_sec": recovery_timeout_sec,
                 "bad_init_lin_range_m": bad_init_lin_range_m,
@@ -542,6 +582,11 @@ def generate_launch_description():
             kidnap_enabled_arg,
             kidnap_max_distance_m_arg,
             kidnap_distance_m_arg,
+            kidnap_magnitude_mode_arg,
+            kidnap_magnitude_min_m_arg,
+            kidnap_magnitude_max_m_arg,
+            kidnap_magnitude_scale_arg,
+            kidnap_magnitude_band_arg,
             bad_init_lin_range_m_arg,
             bad_init_yaw_range_rad_arg,
             episode_start_delay_arg,
