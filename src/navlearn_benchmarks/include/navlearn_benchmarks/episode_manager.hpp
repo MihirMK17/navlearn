@@ -66,6 +66,7 @@
 #include <nav2_msgs/srv/set_initial_pose.hpp>
 #include <navlearn_msgs/srv/set_entity_pose.hpp>
 #include <std_srvs/srv/empty.hpp>
+#include <nav2_msgs/srv/clear_entire_costmap.hpp>
 
 namespace navlearn_benchmarks{
 
@@ -142,6 +143,18 @@ private:
     /// Whether a kidnap also forces an AMCL global reinit. False = true kidnapped-robot
     /// condition: the filter gets no hint and must recover from scan mismatch alone.
     bool kidnap_notify_localizer_;
+
+    // Costmap clearing. A mislocalized robot writes phantom obstacles into the map-frame
+    // global costmap and erases real walls; Nav2 never undoes this by itself, and cells
+    // beyond walls can never be raytraced clear, so corruption is permanent and cumulative.
+    rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedPtr clear_global_costmap_client_;
+    rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedPtr clear_local_costmap_client_;
+    std::string clear_global_costmap_srv_;
+    std::string clear_local_costmap_srv_;
+    bool clear_costmaps_between_goals_;
+
+    /// Clear both costmaps. \param reason logged so the data shows when and why.
+    void clearCostmaps(const std::string & reason);
     double kidnap_delay_sec_;                 // deprecated (kept for compatibility, not used)
     double kidnap_delay_min_sec_;
     double kidnap_delay_max_sec_;

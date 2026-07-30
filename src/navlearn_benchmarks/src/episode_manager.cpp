@@ -129,6 +129,16 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   kidnap_notify_localizer_ =
     this->declare_parameter<bool>("kidnap_notify_localizer", false);
 
+  clear_global_costmap_srv_ = this->declare_parameter<std::string>(
+    "clear_global_costmap_srv", "/global_costmap/clear_entirely_global_costmap");
+  clear_local_costmap_srv_ = this->declare_parameter<std::string>(
+    "clear_local_costmap_srv", "/local_costmap/clear_entirely_local_costmap");
+  // Clearing between goals keeps episodes independent. Within-episode costmap corruption
+  // is a real phenomenon worth measuring; carrying it into the NEXT episode is
+  // contamination, and n=25 per cell assumes the episodes are independent trials.
+  clear_costmaps_between_goals_ = this->declare_parameter<bool>(
+    "clear_costmaps_between_goals", true);
+
   // deprecated (kept only so old configs don’t crash). Not used in logic.
   kidnap_delay_sec_ = this->declare_parameter<double>("kidnap_delay_sec", 0.0);
 
@@ -169,6 +179,11 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   client_ = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(this, action_server_);
   map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>("map", qos_profile_sub,
               std::bind(&EpisodeManager::mapCallback, this, _1));
+  clear_global_costmap_client_ =
+    create_client<nav2_msgs::srv::ClearEntireCostmap>(clear_global_costmap_srv_);
+  clear_local_costmap_client_ =
+    create_client<nav2_msgs::srv::ClearEntireCostmap>(clear_local_costmap_srv_);
+
   amcl_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
               amcl_pose_topic_, qos_profile_sub,
               std::bind(&EpisodeManager::amclPoseCallback, this, _1));
@@ -1061,6 +1076,32 @@ void EpisodeManager::onFeedback(const rclcpp_action::ClientGoalHandle<nav2_msgs:
   (void)feedback;
 }
 
+void EpisodeManager::clearCostmaps(const std::string & reason)
+{
+  auto request = std::make_shared<nav2_msgs::srv::ClearEntireCostmap::Request>();
+  int dispatched = 0;
+
+  for (auto & [name, client] :
+       std::vector<std::pair<std::string, rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedPtr>>{
+         {"global", clear_global_costmap_client_}, {"local", clear_local_costmap_client_}})
+  {
+    if (!client) continue;
+    if (!client->service_is_ready()) {
+      RCLCPP_WARN(get_logger(),
+        "Cannot clear %s costmap (%s): service not ready. Phantom obstacles from any "
+        "mislocalized period will persist into the next goal.",
+        name.c_str(), reason.c_str());
+      continue;
+    }
+    // Fire and forget: a clear is idempotent and the next goal must not be blocked waiting
+    // on it. Failure is reported above rather than silently swallowed.
+    client->async_send_request(request);
+    ++dispatched;
+  }
+
+  RCLCPP_INFO(get_logger(), "Cleared %d/2 costmaps (%s).", dispatched, reason.c_str());
+}
+
 void EpisodeManager::amclPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
 {
   last_amcl_pose_ = *msg;
@@ -1249,6 +1290,15 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
     recovery_start_time_ = this->get_clock()->now();
     initiateRecoveryTeleport(goal_poses_[idx_]);
   } else {
+    // Clear before advancing, during the inter-goal dwell, so the costmaps have the full
+    // dwell to refill from live scans before the next goal is planned. Episodes are meant
+    // to be independent trials; inheriting the previous episode's phantom obstacles is
+    // contamination, and because cells beyond walls never raytrace clear it would
+    // accumulate monotonically over a 72-cell campaign.
+    if (clear_costmaps_between_goals_) {
+      clearCostmaps("between goals");
+    }
+
     idx_++;
     next_allowed_send_ = this->get_clock()->now() + rclcpp::Duration::from_seconds(dwell_sec_);
 
@@ -1360,17 +1410,34 @@ void EpisodeManager::advanceRecovery(const rclcpp::Time & now)
 
     case RecoveryStage::REINIT_PENDING:
     {
-      forceReinitGlobalLocalization();
-
-      // Publish correct initial pose at teleport location
+      // Deliberately no global reinit here.
+      //
+      // This used to call forceReinitGlobalLocalization() and then immediately publish the
+      // correct pose — two contradictory operations racing each other. The robot has just
+      // been teleported to a pose we chose, so its location is known exactly; scattering
+      // particles across the map discards that and then asks the filter to rediscover it.
+      // Setting the known pose with tight covariance is both correct and instant.
       geometry_msgs::msg::PoseWithCovarianceStamped correct_pose =
           buildPoseWithCovariance(goal_poses_[idx_], correct_cov_xy_, correct_cov_yaw_);
       sendInitialPoseRequest(correct_pose);
 
+      // Clear the costmaps. While the filter was wrong, every scan was inserted at the
+      // wrong map coordinates: phantom obstacles appeared in open floor and real walls
+      // were raytraced away as free space. Nothing in Nav2 undoes that on its own — an
+      // obstacle cell clears only when the robot later raytraces through it with correct
+      // localization, and cells placed beyond walls can never be raytraced through at all,
+      // so they persist for the lifetime of the node and their inflation keeps bleeding
+      // into traversable space.
+      //
+      // Left uncleared, the corruption outlives the goal that produced it and accumulates
+      // monotonically across a campaign, which would make late cells measurably harder
+      // than early ones for reasons that have nothing to do with the stack under test.
+      clearCostmaps("recovery");
+
       recovery_start_time_ = now;  // reset timer for convergence wait
       recovery_stage_ = RecoveryStage::WAIT_CONVERGENCE;
-      RCLCPP_INFO(get_logger(), "Recovery: waiting for AMCL convergence (timeout %.1fs).",
-                  recovery_timeout_sec_);
+      RCLCPP_INFO(get_logger(), "Recovery: known pose set, costmaps cleared; waiting for "
+                  "AMCL convergence (timeout %.1fs).", recovery_timeout_sec_);
       break;
     }
 

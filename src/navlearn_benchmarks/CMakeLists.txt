@@ -104,6 +104,7 @@ install(PROGRAMS
   scripts/rate_monitor.py
   scripts/compute_sampler.py
   scripts/collision_positive_control.py
+  scripts/costmap_corruption_monitor.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

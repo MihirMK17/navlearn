@@ -189,6 +189,29 @@ def _log_rate_verdict(prefix: pathlib.Path) -> None:
         logging.error("RATE: %s", rates.get("verdict"))
 
 
+def _log_costmap_verdict(prefix: pathlib.Path) -> None:
+    """Surface how far the global costmap drifted from the static map during this run."""
+    path = pathlib.Path(f"{prefix}_costmap.json")
+    if not path.is_file():
+        logging.warning("No costmap record at %s", path)
+        return
+    try:
+        rec = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        logging.warning("Costmap record at %s is unreadable", path)
+        return
+
+    peak = rec.get("peak", {})
+    logging.info(
+        "Costmap : peak phantom %s cells (%s permanent), erased wall %s cells",
+        peak.get("phantom_clearable"), peak.get("phantom_permanent"),
+        peak.get("erased_wall"),
+    )
+    verdict = rec.get("verdict", "")
+    if verdict.startswith("CORRUPTED"):
+        logging.warning("COSTMAP: %s", verdict)
+
+
 def validate_run_output(
     episode_id: int, args: argparse.Namespace, csv_path: pathlib.Path,
     log_path: pathlib.Path,
@@ -295,6 +318,17 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=10.0,
         help="LiDAR rate this cell is meant to test; the monitor flags under-delivery",
+    )
+    parser.add_argument(
+        "--costmap-interval",
+        type=float,
+        default=2.0,
+        help="Global-costmap vs static-map comparison interval in seconds",
+    )
+    parser.add_argument(
+        "--no-costmap-monitor",
+        action="store_true",
+        help="Disable costmap corruption measurement (not advised for campaign runs)",
     )
     parser.add_argument(
         "--no-rate-monitor",
@@ -441,6 +475,13 @@ def run_benchmark(
             "--interval", str(args.compute_interval),
         ]))
 
+    if not args.no_costmap_monitor:
+        monitors.append(subprocess.Popen([
+            sys.executable, str(here / "costmap_corruption_monitor.py"),
+            "--output-prefix", str(prefix).format("costmap"),
+            "--interval", str(args.costmap_interval),
+        ]))
+
     if not args.no_rate_monitor:
         monitors.append(subprocess.Popen([
             sys.executable, str(here / "rate_monitor.py"),
@@ -482,6 +523,7 @@ def run_benchmark(
 
     _log_compute_verdict(pathlib.Path(str(prefix).format("compute")))
     _log_rate_verdict(pathlib.Path(str(prefix).format("rates")))
+    _log_costmap_verdict(pathlib.Path(str(prefix).format("costmap")))
     validate_run_output(episode_id, args, csv_path, log_path)
     logging.info("Run %d/%d completed successfully.", episode_id, args.episodes)
 
