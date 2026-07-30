@@ -19,6 +19,7 @@
 #include <random>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "navlearn_benchmarks/episode_manager.hpp"
 #include "navlearn_benchmarks/navlearn_utils.hpp"
@@ -33,22 +34,25 @@ using namespace std::chrono_literals;
 namespace navlearn_benchmarks{
 
 EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
+  // Initializer order follows declaration order in the header (-Wreorder). None of
+  // these members depend on another, so the order is a compiler-warning contract only.
   : rclcpp::Node("episode_manager", options)
+  , reinit_in_flight_(false)
+  , last_reinit_time_(0,0,RCL_ROS_TIME)
+  , is_first_bad_init_(false)
+  , have_amcl_pose_(false)
+  , kidnap_stage_(KidnapStage::IDLE)
+  , kidnap_sampled_delay_sec_(0.0)
+  , have_start_gt_(false)
+  , kidnap_target_pose_(unsampledKidnapPose_())
+  , have_kidnap_reference_(false)
   , idx_(0)
   , active_(false)
   , goal_request_inflight_(false)
   , stamp_received_(0,0,RCL_ROS_TIME)
   , qos_profile_sub(10)
-  , is_first_bad_init_(false)
   , pose_sequence_pending_(false)
   , pose_seq_stage_(PoseSeqStage::IDLE)
-  , kidnap_stage_(KidnapStage::IDLE)
-  , kidnap_sampled_delay_sec_(0.0)
-  , have_kidnap_reference_(false)
-  , have_start_gt_(false)
-  , have_amcl_pose_(false)
-  , reinit_in_flight_(false)
-  , last_reinit_time_(0,0,RCL_ROS_TIME)
 {
   dwell_sec_ = this->declare_parameter<double>("dwell_sec", 5.0);
   goal_source_ = this->declare_parameter<std::string>("goal_source", "map_random");
@@ -695,6 +699,23 @@ void EpisodeManager::advancePoseSequence(const rclcpp::Time & t)
 }
 
 // ---------------- kidnap helpers ----------------
+
+geometry_msgs::msg::Pose EpisodeManager::unsampledKidnapPose_()
+{
+  // Sentinel for "no target was sampled this goal". NaN rather than zero because the
+  // origin is legitimate free space on the campaign map: a stale or defaulted target
+  // there reads as a plausible teleport, while NaN is unmistakably not a measurement.
+  // Without this, a kidnap whose sampling failed published the PREVIOUS goal's target —
+  // observed in cmp_ttr run 1 (2026-07-29), where goals 0 and 1 carried the identical
+  // target (0.8616, 0.1936) and goal 1's kidnap never fired.
+  geometry_msgs::msg::Pose p;
+  p.position.x = std::numeric_limits<double>::quiet_NaN();
+  p.position.y = std::numeric_limits<double>::quiet_NaN();
+  p.position.z = std::numeric_limits<double>::quiet_NaN();
+  p.orientation.w = 1.0;
+  return p;
+}
+
 unique_identifier_msgs::msg::UUID EpisodeManager::makeUUID_(uint32_t seed)
 {
   unique_identifier_msgs::msg::UUID id;
@@ -1290,9 +1311,12 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
   // measurably elsewhere. Logged at WARN so it is visible while a cell runs, not only in
   // post-hoc analysis. The threshold is the goal checker's own tolerance with a margin,
   // so this fires only when the discrepancy exceeds what success was supposed to mean.
-  if (ev.result == navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED &&
-      ev.terminal.gt_available &&
-      ev.terminal.true_distance_to_goal_m > end_error_pos_threshold_m_) {
+  const bool false_success =
+    ev.result == navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED &&
+    ev.terminal.gt_available &&
+    ev.terminal.true_distance_to_goal_m > end_error_pos_threshold_m_;
+
+  if (false_success) {
     RCLCPP_WARN(get_logger(),
                 "  FALSE SUCCESS: reported SUCCEEDED but ground truth is %.3f m from the "
                 "goal (threshold %.3f m); the filter believed it was %.3f m away.",
@@ -1302,10 +1326,19 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
 
   active_ = false;
 
-  if (ev.result != navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED &&
-      (bad_init_test_ || kidnap_enabled_)) {
+  // A false success must take the recovery path, not the success path. Nav2 said
+  // SUCCEEDED, but the robot is measurably elsewhere and the filter is still wrong;
+  // advancing without correction hands that error to the next goal as its starting
+  // state. Measured on 2026-07-29 (cmp_ttr run 1): goal 0 ended a false success, goal
+  // 1's kidnap never applied, and goal 1 still terminated 11.15 m from its goal as a
+  // second false success — pure carryover. Episodes are meant to be independent trials;
+  // the costmap-clearing decision already says so, and the filter is subject to the
+  // same rule.
+  if ((ev.result != navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED || false_success)
+      && (bad_init_test_ || kidnap_enabled_)) {
     // Recovery: teleport to current goal, re-localize, then advance
-    RCLCPP_WARN(get_logger(), "Goal %zu FAILED during TTC/TTR experiment. Initiating recovery.", idx_);
+    RCLCPP_WARN(get_logger(), "Goal %zu %s during TTC/TTR experiment. Initiating recovery.",
+                idx_, false_success ? "was a FALSE SUCCESS" : "FAILED");
     recovery_stage_ = RecoveryStage::TELEPORT_PENDING;
     recovery_start_time_ = this->get_clock()->now();
     initiateRecoveryTeleport(goal_poses_[idx_]);
@@ -1331,6 +1364,7 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
     kidnap_stage_ = KidnapStage::IDLE;
     have_start_gt_ = false;
     have_kidnap_reference_ = false;
+    kidnap_target_pose_ = unsampledKidnapPose_();
     kidnap_sampled_delay_sec_ = 0.0;
 
     if (idx_ >= goal_poses_.size()) {
@@ -1500,6 +1534,7 @@ void EpisodeManager::advanceRecovery(const rclcpp::Time & now)
       kidnap_stage_ = KidnapStage::IDLE;
       have_start_gt_ = false;
       have_kidnap_reference_ = false;
+      kidnap_target_pose_ = unsampledKidnapPose_();
       kidnap_sampled_delay_sec_ = 0.0;
 
       if (idx_ >= goal_poses_.size()) {

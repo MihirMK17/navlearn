@@ -185,6 +185,9 @@ private:
     geometry_msgs::msg::PoseStamped start_gt_pose_;
     bool have_start_gt_;
 
+    // NaN-position sentinel published when a kidnap event has no sampled target.
+    static geometry_msgs::msg::Pose unsampledKidnapPose_();
+
     geometry_msgs::msg::Pose kidnap_target_pose_;
 
     // Ground truth at the instant the teleport was triggered. Captured rather than

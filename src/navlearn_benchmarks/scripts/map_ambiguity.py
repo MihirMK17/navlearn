@@ -340,6 +340,119 @@ class AmbiguityField:
         return self._entropy_from_scans(self._raycast(poses))
 
 
+class LikelihoodFieldAmbiguity(AmbiguityField):
+    """Destination ambiguity under AMCL's own measurement model, not an ideal one.
+
+    The parent class compares full expected scans — the information available to a
+    perfectly informed localizer. AMCL's likelihood-field model uses strictly less:
+
+      * it projects the measured beam endpoints from each hypothesis and scores each by
+        the distance to the NEAREST obstacle, discarding which obstacle it is, so an
+        endpoint near any wall looks as good as an endpoint near the right wall;
+      * that distance is capped at laser_likelihood_max_dist, so once an endpoint is in
+        deep free space it stops mattering how deep;
+      * beams that return max range are discarded entirely, so a destination whose scan
+        mostly maxes out is scored on the few beams that remain.
+
+    A map can therefore be unambiguous to the ideal model and still confusing to AMCL.
+    The gap between the two measures at the same pose is not noise — it is the
+    information AMCL's model throws away, and it is where the filter actually fails.
+
+    Extra parameters
+        likelihood_max_dist_m: AMCL's laser_likelihood_max_dist (deployed: 6.0 tuned,
+            3.0 default).
+    """
+
+    def __init__(self, occupied, resolution, origin=(0.0, 0.0), *, free=None,
+                 pose_spacing_m=0.5, yaw_bins=8, n_beams=36,
+                 max_range_m=12.0, sigma_m=0.20, z_hit=0.85, z_rand=0.05,
+                 likelihood_max_dist_m=2.0):
+        """Build the pose set and the distance-to-obstacle field AMCL scores against."""
+        super().__init__(occupied, resolution, origin, free=free,
+                         pose_spacing_m=pose_spacing_m, yaw_bins=yaw_bins,
+                         n_beams=n_beams, max_range_m=max_range_m, sigma_m=sigma_m,
+                         z_hit=z_hit, z_rand=z_rand)
+        from scipy.ndimage import distance_transform_edt
+
+        self.likelihood_max_dist_m = float(likelihood_max_dist_m)
+        if self.likelihood_max_dist_m <= 0.0:
+            raise ValueError("likelihood_max_dist_m must be positive")
+
+        # Distance from every free cell to the nearest occupied cell, in metres, capped
+        # exactly as AMCL caps it. Endpoints outside the grid score the cap: there is
+        # nothing known to be near them, which is the same statement the cap makes.
+        edt = distance_transform_edt(~self.occupied) * self.resolution
+        self._clamped_edt = np.minimum(edt, self.likelihood_max_dist_m)
+
+    def ambiguity(self, x, y, yaw, radius_m=None):
+        """Entropy of AMCL's likelihood over hypotheses, given the scan expected here.
+
+        radius_m restricts the hypothesis set to a disc around the destination. That is
+        the post-kidnap regime: the filter's belief is already concentrated, recovery
+        hinges on whether hypotheses near the truth out-score each other once particles
+        land there, and the competition is local, not map-wide. None means the full pose
+        set — the global-relocalization regime.
+
+        Returns a dict:
+            entropy_bits: ambiguity of the destination under this model.
+            max_range_fraction: fraction of beams AMCL would discard at this pose. 1.0
+                means the observation has no content at all under the deployed model.
+            n_hypotheses: size of the competition set the entropy is over.
+        """
+        if self.is_occupied(x, y):
+            raise ValueError(
+                f"pose ({x:.3f}, {y:.3f}) is not in free space; "
+                "check the map frame and the kidnap target transform")
+
+        candidates = self.poses
+        if radius_m is not None:
+            keep = np.hypot(candidates[:, 0] - x, candidates[:, 1] - y) <= float(radius_m)
+            candidates = candidates[keep]
+            if candidates.shape[0] == 0:
+                raise ValueError(f"no candidate poses within {radius_m} m of ({x}, {y})")
+
+        scan = self.expected_scan(x, y, yaw)
+        valid = scan < (self.max_range_m - 1e-9)
+        max_range_fraction = float(1.0 - valid.mean())
+
+        n = candidates.shape[0]
+        if not valid.any():
+            # Every beam discarded: the posterior is the prior, exactly.
+            return {"entropy_bits": float(math.log2(n)),
+                    "max_range_fraction": max_range_fraction,
+                    "n_hypotheses": n}
+
+        ranges = scan[valid]
+        angles = candidates[:, 2, None] + self._beam_angles[valid][None, :]
+        ex = candidates[:, 0, None] + ranges[None, :] * np.cos(angles)
+        ey = candidates[:, 1, None] + ranges[None, :] * np.sin(angles)
+
+        rows, cols = self.occupied.shape
+        col = np.floor((ex - self.origin[0]) / self.resolution).astype(np.int64)
+        row = np.floor((ey - self.origin[1]) / self.resolution).astype(np.int64)
+        inside = (row >= 0) & (row < rows) & (col >= 0) & (col < cols)
+        np.clip(row, 0, rows - 1, out=row)
+        np.clip(col, 0, cols - 1, out=col)
+
+        d = np.where(inside, self._clamped_edt[row, col], self.likelihood_max_dist_m)
+
+        peak = self.z_hit
+        floor = self.z_rand / self.max_range_m
+        beam = peak * np.exp(-0.5 * (d * d) / (self.sigma_m ** 2)) + floor
+        loglik = np.sum(np.log(beam), axis=1)
+
+        loglik -= loglik.max()
+        weights = np.exp(loglik)
+        weights /= weights.sum()
+
+        safe = np.where(weights > 0.0, weights, 1.0)
+        entropy = float(max(0.0, -np.sum(weights * np.log2(safe))))
+
+        return {"entropy_bits": entropy,
+                "max_range_fraction": max_range_fraction,
+                "n_hypotheses": n}
+
+
 # --------------------------------------------------------------------- degeneracy guard
 
 # A predictor is unusable below these. The thresholds are properties of the measure, not

@@ -41,7 +41,12 @@ pytest.importorskip("PIL", reason="Pillow not available; needed to read the map 
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
-from map_ambiguity import AmbiguityField, load_occupancy, spread_report  # noqa: E402
+from map_ambiguity import (  # noqa: E402
+    AmbiguityField,
+    LikelihoodFieldAmbiguity,
+    load_occupancy,
+    spread_report,
+)
 
 RES = 0.1
 
@@ -233,6 +238,89 @@ def test_higher_random_measurement_weight_increases_ambiguity():
     tight = _field(occupied, max_range_m=2.0, z_rand=0.01).ambiguity(*query)
     loose = _field(occupied, max_range_m=2.0, z_rand=0.40).ambiguity(*query)
     assert loose > tight
+
+
+# ------------------------------------------------------- AMCL likelihood-field ambiguity
+#
+# The AmbiguityField above scores poses by comparing full expected scans — the information
+# available to an IDEAL localizer. AMCL does not do that. Its likelihood-field model
+# projects the measured beam endpoints from each hypothesis and scores only the distance
+# from each endpoint to the NEAREST obstacle, capped at laser_likelihood_max_dist, and it
+# discards beams at max range entirely. Both steps throw information away, so a map can be
+# unambiguous to the ideal model and still confusing to AMCL. The RCA question is exactly
+# that gap, so the deployed model needs its own measure.
+
+
+def _lf(occupied, **kwargs):
+    """Build a LikelihoodFieldAmbiguity over a grid whose origin is at (0, 0)."""
+    params = dict(pose_spacing_m=0.5, yaw_bins=8, n_beams=36,
+                  max_range_m=6.0, sigma_m=0.1, z_hit=0.85, z_rand=0.05,
+                  likelihood_max_dist_m=2.0)
+    params.update(kwargs)
+    return LikelihoodFieldAmbiguity(occupied, resolution=RES, origin=(0.0, 0.0), **params)
+
+
+def test_lf_all_max_range_beams_carry_no_information():
+    """AMCL discards beams at max range; a scan that is all discards constrains nothing.
+
+    From the centre of a room much larger than the sensor range, every beam maxes out,
+    every hypothesis scores identically, and the posterior is the prior: entropy must sit
+    at the log2(N) ceiling. This is the measurable meaning of 'the lidar fails in open
+    space' — not noise, an observation with zero content under the deployed model.
+    """
+    field = _lf(_blank(30.0, 30.0), max_range_m=5.0)
+    result = field.ambiguity(15.0, 15.0, 0.0)
+    assert result["max_range_fraction"] == pytest.approx(1.0)
+    assert result["entropy_bits"] == pytest.approx(math.log2(len(field.poses)), abs=0.01)
+
+
+def test_lf_max_range_fraction_is_zero_when_walls_are_in_reach():
+    """A pose whose every beam returns must report zero discarded beams."""
+    field = _lf(_blank(4.0, 4.0), max_range_m=6.0)
+    assert field.ambiguity(2.0, 2.0, 0.0)["max_range_fraction"] == pytest.approx(0.0)
+
+
+def test_lf_corridor_is_more_ambiguous_than_a_distinctive_corner():
+    """The corridor ordering must survive the change of measurement model.
+
+    Sliding a hypothesis along the corridor keeps every projected endpoint on or near a
+    wall, so the likelihood field cannot tell positions along the run apart — same
+    geometry as the ideal model, different mechanism (endpoint distances, not ranges).
+    """
+    l_shaped = _carved(14.0, 6.0, [
+        (0.1, 0.1, 10.0, 1.1),
+        (10.0, 0.1, 13.9, 5.9),
+    ])
+    field = _lf(l_shaped, max_range_m=2.0)
+    corridor = field.ambiguity(5.0, 0.6, 0.0)["entropy_bits"]
+    corner = field.ambiguity(13.6, 5.6, math.pi / 4)["entropy_bits"]
+    assert corridor > corner
+
+
+def test_lf_local_ambiguity_only_considers_nearby_hypotheses():
+    """The local variant models a filter whose belief is already concentrated.
+
+    Post-kidnap AMCL is not a global localizer: its particles sit in a tight, wrong
+    cluster, and recovery hinges on whether hypotheses NEAR the truth out-score each
+    other once injected. The competition set is a disc, so the entropy ceiling is the
+    log2 of the hypotheses inside the disc, not of the whole map.
+    """
+    field = _lf(_blank(20.0, 20.0), max_range_m=6.0)
+    result = field.ambiguity(10.0, 10.0, 0.0, radius_m=2.0)
+    n_local = result["n_hypotheses"]
+    assert n_local < len(field.poses)
+    assert result["entropy_bits"] <= math.log2(n_local) + 1e-9
+
+    # Every hypothesis in the disc is genuinely within it.
+    assert result["n_hypotheses"] == int(np.sum(
+        np.hypot(field.poses[:, 0] - 10.0, field.poses[:, 1] - 10.0) <= 2.0))
+
+
+def test_lf_refuses_a_pose_outside_free_space():
+    """Same contract as the ideal measure: a destination in a wall is an upstream bug."""
+    field = _lf(_blank(4.0, 4.0))
+    with pytest.raises(ValueError):
+        field.ambiguity(0.0, 0.0, 0.0)
 
 
 # -------------------------------------------------------------------- degeneracy guard
