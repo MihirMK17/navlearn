@@ -26,3 +26,13 @@ geometry_msgs/Pose reference_pose
 # the origin, which is legitimate free space on the campaign map: an absent reference
 # would otherwise yield a plausible displacement rather than an obviously missing one.
 bool reference_available
+
+# Displacement this goal was ASKED for, in metres; -1 when severity was not drawn from a
+# continuous range.
+#
+# Distinct from the realised displacement, which is (kidnap_pose - reference_pose). The
+# curve is fitted against what the design commanded; the predictor comparison uses what
+# the robot actually experienced. The two differ because free space rarely offers a valid
+# pose at exactly the commanded radius, and collapsing them would either hide that error
+# or discard the design variable.
+float64 commanded_magnitude_m

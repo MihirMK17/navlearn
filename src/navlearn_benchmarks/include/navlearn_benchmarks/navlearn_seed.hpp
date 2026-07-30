@@ -70,6 +70,11 @@ enum class Stream : uint64_t
   KIDNAP_TARGET     = 0x082EFA98EC4E6C89ULL,  ///< TTR teleport destination
   KIDNAP_DELAY      = 0x452821E638D01377ULL,  ///< delay before the kidnap fires
   ATTEMPT_ID        = 0xBE5466CF34E90C6CULL,  ///< identifiers, not experimental conditions
+  /// Continuous perturbation severity, once the campaign made the curve the result rather
+  /// than four categorical levels. Its own stream because magnitude must not correlate
+  /// with where the goal is or where the teleport lands: a sweep in which severity tracked
+  /// position would confound the two, and the curve would no longer be a curve in severity.
+  PERTURBATION_MAGNITUDE = 0xC0AC29B7C97C50DDULL,
 };
 
 /// splitmix64 mixing function.

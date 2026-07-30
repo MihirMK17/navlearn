@@ -213,6 +213,15 @@ if(BUILD_TESTING)
   ament_add_gtest(test_scan_decimator test/test_scan_decimator.cpp)
   target_include_directories(test_scan_decimator PRIVATE include)
 
+  # Continuous perturbation magnitude. The campaign made the curve the result instead of a
+  # discarded calibration input, which only works if each goal's magnitude is derived from
+  # the campaign seed rather than configured per cell. Pins that every goal draws a
+  # distinct magnitude (the hardcoded-seed defect that invalidated the retired campaign's
+  # confidence intervals had exactly this shape), that draws are reproducible, and that
+  # coverage is even in the space the regression is fitted in.
+  ament_add_gtest(test_magnitude_sampler test/test_magnitude_sampler.cpp)
+  target_include_directories(test_magnitude_sampler PRIVATE include)
+
   # The Python reference used by analysis, pinned to the same golden vectors so the two
   # implementations cannot silently diverge.
   ament_add_pytest_test(test_seed_reference test/test_seed_reference.py

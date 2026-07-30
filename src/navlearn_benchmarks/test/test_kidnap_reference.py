@@ -55,6 +55,7 @@ KIDNAP_COLUMNS = [
     "Kidnap Reference Available",
     "Kidnap Reference_X (m)", "Kidnap Reference_Y (m)", "Kidnap Reference_Yaw (deg)",
     "Kidnap Displacement (m)", "Kidnap Yaw Change (deg)",
+    "Kidnap Commanded Magnitude (m)",
 ]
 
 
@@ -71,12 +72,13 @@ def _yaw_quat(yaw):
 
 
 def _kidnap(goal_id, *, target_xy, target_yaw=0.0, reference_xy=None,
-            reference_yaw=0.0, success=True):
+            reference_yaw=0.0, success=True, commanded_magnitude=-1.0):
     """Build a KidnapEvent; reference_xy=None means the reference was never captured."""
     ev = KidnapEvent()
     ev.goal_id = goal_id
     ev.attempt_id = goal_id
     ev.success = success
+    ev.commanded_magnitude_m = commanded_magnitude
 
     ev.kidnap_pose.position.x, ev.kidnap_pose.position.y = target_xy
     q = _yaw_quat(target_yaw)
@@ -180,6 +182,34 @@ def test_missing_reference_is_not_a_zero_displacement(sourced, tmp_path):  # noq
     assert row["Kidnap Reference Available"] == "0"
     assert float(row["Kidnap Displacement (m)"]) == -1.0
     assert float(row["Kidnap Yaw Change (deg)"]) == -1.0
+
+
+def test_commanded_magnitude_is_recorded_separately_from_the_realised_one(
+        sourced, tmp_path):  # noqa: F811
+    """The curve is fitted on what was asked for; the predictor comparison on what happened.
+
+    Free space rarely offers a valid destination at exactly the commanded radius, so the
+    two differ. Collapsing them would either hide that error or throw away the design
+    variable the sweep is built around.
+    """
+    ep = _plain_episode(19)
+    rows, _ = _run(tmp_path, ep, _kidnap(ep.goal_id, target_xy=(4.0, 5.0),
+                                         reference_xy=(1.0, 1.0),
+                                         commanded_magnitude=4.8))
+    row = rows[0]
+    assert float(row["Kidnap Commanded Magnitude (m)"]) == pytest.approx(4.8, abs=1e-6)
+    assert float(row["Kidnap Displacement (m)"]) == pytest.approx(5.0, abs=1e-6)
+
+
+def test_fixed_severity_reports_no_commanded_magnitude(sourced, tmp_path):  # noqa: F811
+    """Outside a continuous sweep there is no commanded magnitude; -1, never 0.
+
+    Zero would enter a curve fit as a real datum at the bottom of the range.
+    """
+    ep = _plain_episode(20)
+    rows, _ = _run(tmp_path, ep, _kidnap(ep.goal_id, target_xy=(1.0, 1.0),
+                                         reference_xy=(0.0, 0.0)))
+    assert float(rows[0]["Kidnap Commanded Magnitude (m)"]) == -1.0
 
 
 def test_unkidnapped_goal_reports_no_reference(sourced, tmp_path):  # noqa: F811

@@ -199,7 +199,11 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
          // that happened to land where it started.
          << "Kidnap Reference Available,"
          << "Kidnap Reference_X (m),Kidnap Reference_Y (m),Kidnap Reference_Yaw (deg),"
-         << "Kidnap Displacement (m),Kidnap Yaw Change (deg)"
+         << "Kidnap Displacement (m),Kidnap Yaw Change (deg),"
+         // What the design asked for, as opposed to what the geometry allowed. The curve
+         // is fitted against this; the predictor comparison uses the realised
+         // displacement above. -1 when severity was not drawn from a continuous range.
+         << "Kidnap Commanded Magnitude (m)"
          << "\n";
     header_written_ = true;
   }
@@ -350,7 +354,8 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
          << (measurable
                ? std::fabs(std::remainder(yaw_degrees(tgt.orientation)
                                           - yaw_degrees(ref.orientation), 360.0))
-               : -1.0);
+               : -1.0) << ","
+         << (episode.have_kidnap ? episode.kidnap.commanded_magnitude_m : -1.0);
   }
 
   csv_ << "\n";

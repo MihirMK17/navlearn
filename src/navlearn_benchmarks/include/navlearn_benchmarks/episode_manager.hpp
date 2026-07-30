@@ -52,6 +52,10 @@
 #include <navlearn_msgs/msg/kidnap_event.hpp>
 #include <navlearn_msgs/msg/terminal_pose_report.hpp>
 #include <navlearn_benchmarks/navlearn_seed.hpp>
+#include <navlearn_benchmarks/magnitude_sampler.hpp>
+
+#include <memory>
+#include <string>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 
 #include <unique_identifier_msgs/msg/uuid.hpp>
@@ -161,6 +165,19 @@ private:
     double kidnap_min_travel_m_;
     double kidnap_distance_m_;
     double kidnap_max_distance_m_;
+
+    // Continuous-severity sweep. Null in "fixed" mode, which keeps the banded behaviour
+    // the ablation legs need.
+    std::string kidnap_magnitude_mode_;
+    std::string kidnap_magnitude_scale_;
+    double kidnap_magnitude_min_m_;
+    double kidnap_magnitude_max_m_;
+    double kidnap_magnitude_band_;
+    std::unique_ptr<navlearn::MagnitudeSampler> magnitude_sampler_;
+    /// What this goal was asked for; -1 outside curve mode. Recorded alongside the
+    /// realised displacement because the curve is fitted against the commanded value
+    /// while the predictor comparison uses what the robot actually experienced.
+    double kidnap_commanded_magnitude_m_ = -1.0;
     double kidnap_z_;
     int kidnap_max_sample_tries_;
 
@@ -337,7 +354,10 @@ private:
 
     // Kidnap helpers
     unique_identifier_msgs::msg::UUID makeUUID_(uint32_t seed);
-    bool sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStamped & ref, geometry_msgs::msg::Pose & out_pose);
+    /// Samples a teleport destination inside the annulus [ring_min_m, ring_max_m] around
+    /// `ref`. The ring is passed rather than read from configuration because in curve mode
+    /// it is drawn per goal from the campaign seed.
+    bool sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStamped & ref, geometry_msgs::msg::Pose & out_pose, double ring_min_m, double ring_max_m);
     void publishKidnapEvent_(bool success);
     bool isKidnapGTVerified_();
     bool setEntityPose_(double x, double y, double z, double yaw);

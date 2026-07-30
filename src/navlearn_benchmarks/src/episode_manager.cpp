@@ -152,6 +152,57 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   kidnap_min_travel_m_  = this->declare_parameter<double>("kidnap_min_travel_m", 0.25);
   kidnap_distance_m_    = this->declare_parameter<double>("kidnap_distance_m", 0.20);
   kidnap_max_distance_m_ = this->declare_parameter<double>("kidnap_max_distance_m", 3.0);
+
+  // Continuous severity. In "curve" mode each goal draws its own displacement from
+  // [kidnap_magnitude_min_m, kidnap_magnitude_max_m], so the sweep itself is the
+  // experiment and the curve is the reported result rather than a discarded calibration
+  // input. "fixed" keeps the banded behaviour, which the ablation legs still need.
+  //
+  // Default is "fixed" so no existing cell changes meaning by upgrading.
+  kidnap_magnitude_mode_ =
+    this->declare_parameter<std::string>("kidnap_magnitude_mode", "fixed");
+  kidnap_magnitude_min_m_ =
+    this->declare_parameter<double>("kidnap_magnitude_min_m", 0.3);
+  kidnap_magnitude_max_m_ =
+    this->declare_parameter<double>("kidnap_magnitude_max_m", 3.0);
+  kidnap_magnitude_scale_ =
+    this->declare_parameter<std::string>("kidnap_magnitude_scale", "log");
+  // Half-width of the annulus the destination is drawn from, as a fraction of the
+  // commanded magnitude. Free space rarely offers a valid pose at exactly one radius, so
+  // a thin band is the difference between a sampler that usually succeeds and one that
+  // reports "no valid pose" for reasons that are about geometry rather than severity.
+  kidnap_magnitude_band_ =
+    this->declare_parameter<double>("kidnap_magnitude_band", 0.05);
+
+  if (kidnap_magnitude_mode_ != "fixed" && kidnap_magnitude_mode_ != "curve") {
+    RCLCPP_FATAL(get_logger(),
+      "kidnap_magnitude_mode must be 'fixed' or 'curve', got '%s'. Refusing to run: a "
+      "misspelled mode would silently fall back to a severity the cell did not request.",
+      kidnap_magnitude_mode_.c_str());
+    throw std::invalid_argument("invalid kidnap_magnitude_mode");
+  }
+
+  if (kidnap_magnitude_mode_ == "curve") {
+    const auto scale = (kidnap_magnitude_scale_ == "linear")
+                         ? navlearn::MagnitudeScale::LINEAR
+                         : navlearn::MagnitudeScale::LOG;
+    if (kidnap_magnitude_scale_ != "linear" && kidnap_magnitude_scale_ != "log") {
+      RCLCPP_FATAL(get_logger(),
+        "kidnap_magnitude_scale must be 'log' or 'linear', got '%s'",
+        kidnap_magnitude_scale_.c_str());
+      throw std::invalid_argument("invalid kidnap_magnitude_scale");
+    }
+    // Throws on an inverted range or a non-positive log bound; allowed to escape so a
+    // misconfigured sweep fails to start rather than running a range nobody asked for.
+    magnitude_sampler_ = std::make_unique<navlearn::MagnitudeSampler>(
+      kidnap_magnitude_min_m_, kidnap_magnitude_max_m_, scale);
+
+    RCLCPP_INFO(get_logger(),
+      "Kidnap severity: CURVE, %s-uniform over [%.3f, %.3f] m, drawn per goal from the "
+      "campaign seed; destination sampled in a +/-%.0f%% band around the draw.",
+      kidnap_magnitude_scale_.c_str(), kidnap_magnitude_min_m_, kidnap_magnitude_max_m_,
+      100.0 * kidnap_magnitude_band_);
+  }
   kidnap_z_             = this->declare_parameter<double>("kidnap_z", 0.01);
   kidnap_max_sample_tries_ = this->declare_parameter<int>("kidnap_max_sample_tries", 1500);
 
@@ -727,7 +778,7 @@ unique_identifier_msgs::msg::UUID EpisodeManager::makeUUID_(uint32_t seed)
   return id;
 }
 
-bool EpisodeManager::sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStamped & ref, geometry_msgs::msg::Pose & out_pose)
+bool EpisodeManager::sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStamped & ref, geometry_msgs::msg::Pose & out_pose, double ring_min_m, double ring_max_m)
 {
   if (!have_map_) return false;
 
@@ -761,9 +812,8 @@ bool EpisodeManager::sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStam
   // rather than crowding the inner edge. The remaining rejections are then genuine: a
   // failure now means the ring really has no valid pose, which is a fact about the map
   // worth recording rather than an artifact of the sampler.
-  const double r_min = std::max(0.0, kidnap_distance_m_);
-  const double r_max = (kidnap_max_distance_m_ > 0.0)
-                         ? kidnap_max_distance_m_ : (r_min + 1.0);
+  const double r_min = std::max(0.0, ring_min_m);
+  const double r_max = (ring_max_m > 0.0) ? ring_max_m : (r_min + 1.0);
   if (r_max < r_min) return false;
 
   for (int attempt = 0; attempt < kidnap_max_sample_tries_; ++attempt)
@@ -812,6 +862,7 @@ void EpisodeManager::publishKidnapEvent_(bool success)
   ev.attempt_id = kidnap_attempt_id_;
   ev.reference_pose = kidnap_reference_pose_;
   ev.reference_available = have_kidnap_reference_;
+  ev.commanded_magnitude_m = kidnap_commanded_magnitude_m_;
 
   if (!have_kidnap_reference_) {
     // Loud, because it is otherwise undetectable until analysis months later: the goal
@@ -950,8 +1001,23 @@ void EpisodeManager::maybeKidnap(const rclcpp::Time & now)
   kidnap_reference_pose_ = ref_pose.pose;
   have_kidnap_reference_ = true;
 
+  // Severity for THIS goal. In curve mode it is drawn from the campaign seed, so every
+  // goal in the sweep gets its own magnitude and the whole sweep still reproduces from a
+  // single number. In fixed mode the configured band is used unchanged.
+  double ring_min = kidnap_distance_m_;
+  double ring_max = kidnap_max_distance_m_;
+  kidnap_commanded_magnitude_m_ = -1.0;
+
+  if (magnitude_sampler_) {
+    kidnap_commanded_magnitude_m_ = magnitude_sampler_->sample(
+      seedFor(navlearn::seed::Stream::PERTURBATION_MAGNITUDE, idx_));
+    const double band = std::max(0.0, kidnap_magnitude_band_);
+    ring_min = kidnap_commanded_magnitude_m_ * (1.0 - band);
+    ring_max = kidnap_commanded_magnitude_m_ * (1.0 + band);
+  }
+
   geometry_msgs::msg::Pose target;
-  if (!sampleKidnapPoseFromMap_(ref_pose, target)) {
+  if (!sampleKidnapPoseFromMap_(ref_pose, target, ring_min, ring_max)) {
     // Reported as a failed attempt, not merely warned about. Previously this path
     // published nothing at all, so a goal whose kidnap never fired was recorded as an
     // ordinary TTR trial — the perturbation was the independent variable and its absence
@@ -959,7 +1025,7 @@ void EpisodeManager::maybeKidnap(const rclcpp::Time & now)
     RCLCPP_WARN(get_logger(),
       "Kidnap sample failed for goal %zu (no valid pose in the %.2f-%.2f m ring). This "
       "goal has NO perturbation applied and must not be pooled with kidnapped goals.",
-      idx_, kidnap_distance_m_, kidnap_max_distance_m_);
+      idx_, ring_min, ring_max);
     kidnap_event_time_ = this->get_clock()->now();
     publishKidnapEvent_(false);
     kidnap_stage_ = KidnapStage::DONE;
