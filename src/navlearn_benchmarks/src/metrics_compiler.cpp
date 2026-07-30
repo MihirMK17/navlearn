@@ -34,6 +34,7 @@ MetricsCompiler::MetricsCompiler(const std::string &name): Node(name)
   episode_event_topic_ = this->declare_parameter<std::string>("episode_event_topic", "/navlearn/episode_event");
   control_metric_topic_ = this->declare_parameter<std::string>("control_metric_topic", "/navlearn/control_metric");
   trajectory_metric_topic_ = this->declare_parameter<std::string>("trajectory_metric_topic", "/navlearn/trajectory_metric");
+  kidnap_event_topic_ = this->declare_parameter<std::string>("kidnap_event_topic", "/navlearn/kidnap_event");
   // Distance beyond which a SUCCEEDED goal is recorded as a false success. Defaults to
   // the episode manager's end_error_pos_threshold_m so the two nodes agree; both are
   // reported in the data, so analysis is never left inferring which value applied.
@@ -52,6 +53,8 @@ MetricsCompiler::MetricsCompiler(const std::string &name): Node(name)
   control_sub_ = create_subscription<navlearn_msgs::msg::ControlMetric>(control_metric_topic_, 10,
                   std::bind(&MetricsCompiler::controlCallback, this, std::placeholders::_1));
 
+  kidnap_sub_ = create_subscription<navlearn_msgs::msg::KidnapEvent>(kidnap_event_topic_, 10,
+      [this](navlearn_msgs::msg::KidnapEvent::ConstSharedPtr m){ onKidnap(*m); });
   traj_sub_ = create_subscription<navlearn_msgs::msg::TrajectoryMetric>(trajectory_metric_topic_, 10,
                 std::bind(&MetricsCompiler::trajCallback, this, std::placeholders::_1));
 
@@ -134,6 +137,21 @@ void MetricsCompiler::trajCallback(navlearn_msgs::msg::TrajectoryMetric::SharedP
   maybe_flush_episode(key, episode);
 }
 
+void MetricsCompiler::onKidnap(const navlearn_msgs::msg::KidnapEvent & ev)
+{
+  // Not part of the flush gate: clean and TTC cells produce no kidnap events at all, so
+  // requiring one would stall every non-TTR episode forever. Recorded if it arrives.
+  auto & episode = get_or_create(ev.goal_id);
+  episode.kidnap = ev;
+  episode.have_kidnap = true;
+
+  if (!ev.success) {
+    RCLCPP_WARN(get_logger(),
+      "Kidnap attempt FAILED for this goal — no perturbation was applied. The row will "
+      "carry Kidnap Applied=0 and must not be pooled with kidnapped goals.");
+  }
+}
+
 // ---------- Flush to CSV ----------
 
 void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggregate & episode)
@@ -169,7 +187,11 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
          << "True Yaw Error (deg),"
          << "Covariance_XX (m2),Covariance_YY (m2),Covariance_Yaw (rad2),"
          << "Filter Converged,Convergence Threshold (m2),Estimate Age (sec),"
-         << "False Success"
+         << "False Success,"
+         // Was the perturbation actually applied? A TTR goal whose kidnap never fired is
+         // not a TTR trial. Nothing recorded this before, so a cell could silently contain
+         // unperturbed episodes pooled with perturbed ones.
+         << "Kidnap Attempted,Kidnap Applied,Kidnap Target_X (m),Kidnap Target_Y (m)"
          << "\n";
     header_written_ = true;
   }
@@ -286,6 +308,13 @@ void MetricsCompiler::maybe_flush_episode(const std::string & key, EpisodeAggreg
             if (ev.result != navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED) return 0;
             return ev.terminal.true_distance_to_goal_m > false_success_threshold_m_ ? 1 : 0;
           }()
+       << ","
+
+       // --- perturbation actually applied? ---
+       << (episode.have_kidnap ? 1 : 0) << ","
+       << (episode.have_kidnap && episode.kidnap.success ? 1 : 0) << ","
+       << (episode.have_kidnap ? episode.kidnap.kidnap_pose.position.x : -1.0) << ","
+       << (episode.have_kidnap ? episode.kidnap.kidnap_pose.position.y : -1.0)
        << "\n";
 
   csv_.flush();

@@ -138,6 +138,10 @@ private:
     std::string entity_name_;
 
     bool kidnap_enabled_;
+
+    /// Whether a kidnap also forces an AMCL global reinit. False = true kidnapped-robot
+    /// condition: the filter gets no hint and must recover from scan mismatch alone.
+    bool kidnap_notify_localizer_;
     double kidnap_delay_sec_;                 // deprecated (kept for compatibility, not used)
     double kidnap_delay_min_sec_;
     double kidnap_delay_max_sec_;

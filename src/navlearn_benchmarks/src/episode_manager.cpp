@@ -123,6 +123,12 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
 
   kidnap_enabled_ = this->declare_parameter<bool>("kidnap_enabled", false);
 
+  // Whether the teleport is accompanied by an AMCL global reinit. False is the true
+  // kidnapped-robot condition: the filter gets no hint and must recover from scans alone.
+  // See the callReinitGlobalLocalization call site for why this was previously forced on.
+  kidnap_notify_localizer_ =
+    this->declare_parameter<bool>("kidnap_notify_localizer", false);
+
   // deprecated (kept only so old configs don’t crash). Not used in logic.
   kidnap_delay_sec_ = this->declare_parameter<double>("kidnap_delay_sec", 0.0);
 
@@ -699,28 +705,49 @@ bool EpisodeManager::sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStam
   // The TTR teleport destination. Same defect as the TTC offset: fixed constant plus
   // goal index, run index absent.
   std::mt19937_64 gen(seedFor(navlearn::seed::Stream::KIDNAP_TARGET, idx_));
-  std::uniform_int_distribution<int> dist_cell(0, width * height - 1);
   std::uniform_real_distribution<double> dist_theta(-M_PI, M_PI);
+  std::uniform_real_distribution<double> dist_unit(0.0, 1.0);
+
+  // Sampled INSIDE the annulus, not rejected into it.
+  //
+  // This previously drew a uniformly random cell from the whole map and discarded it
+  // unless it happened to land in the ring [kidnap_distance_m, kidnap_max_distance_m]
+  // around the robot. At the medium preset that ring is 0.8-1.2 m, an area of about
+  // 2.5 m^2 against a map of a couple of hundred square metres — so roughly one draw in a
+  // hundred was even a candidate before the free-space, clearance and exclusion tests ran.
+  // With the robot in a corridor or a small room, most of the ring is wall and all 1500
+  // tries could miss: the pilot logged 7 "no valid pose found" failures, none of which
+  // meant the ring was actually empty.
+  //
+  // Drawing radius and bearing directly puts every attempt in the ring by construction.
+  // Radius uses sqrt of a uniform over the squared bounds so samples are area-uniform
+  // rather than crowding the inner edge. The remaining rejections are then genuine: a
+  // failure now means the ring really has no valid pose, which is a fact about the map
+  // worth recording rather than an artifact of the sampler.
+  const double r_min = std::max(0.0, kidnap_distance_m_);
+  const double r_max = (kidnap_max_distance_m_ > 0.0)
+                         ? kidnap_max_distance_m_ : (r_min + 1.0);
+  if (r_max < r_min) return false;
 
   for (int attempt = 0; attempt < kidnap_max_sample_tries_; ++attempt)
   {
-    int idx = dist_cell(gen);
+    const double u = dist_unit(gen);
+    const double r = std::sqrt(r_min * r_min + u * (r_max * r_max - r_min * r_min));
+    const double bearing = dist_theta(gen);
+
+    const double x = ref.pose.position.x + r * std::cos(bearing);
+    const double y = ref.pose.position.y + r * std::sin(bearing);
+
+    const int col = static_cast<int>((x - info.origin.position.x) / res);
+    const int row = static_cast<int>((y - info.origin.position.y) / res);
+    if (col < 0 || col >= width || row < 0 || row >= height) continue;
+
+    const int idx = row * width + col;
     if (idx < 0 || idx >= static_cast<int>(data.size())) continue;
-
     if (data[idx] != 0) continue;
-
-    int row = idx / width;
-    int col = idx % width;
-
-    const double x = info.origin.position.x + (col + 0.5) * res;
-    const double y = info.origin.position.y + (row + 0.5) * res;
 
     if (inExclusionZone(x, y)) continue;
     if (!hasClearanceCell(col, row, width, height, res, data)) continue;
-
-    const double d = std::hypot(x - ref.pose.position.x, y - ref.pose.position.y);
-    if (kidnap_distance_m_ > 0.0 && d < kidnap_distance_m_) continue;
-    if (kidnap_max_distance_m_ > 0.0 && d > kidnap_max_distance_m_) continue;
 
     out_pose.position.x = x;
     out_pose.position.y = y;
@@ -816,7 +843,30 @@ void EpisodeManager::maybeKidnap(const rclcpp::Time & now)
     }
 
     publishKidnapEvent_(true);
-    callReinitGlobalLocalization();
+
+    // A kidnap must not tell the localizer it has been kidnapped.
+    //
+    // This unconditionally called global localization reinit immediately after the
+    // teleport, which scatters AMCL's particles across the whole map. That is not a
+    // kidnapped robot. A real kidnapped robot's filter remains converged and confidently
+    // wrong, with no odometry cue — the wheels never turned — and must discover the error
+    // from scan mismatch alone. Handing it "you are completely lost" replaces the
+    // phenomenon under study with global re-localization from scratch while driving, which
+    // is a different and much harder problem, and one the harness inflicted on itself.
+    //
+    // It also accounts for the pilot's terminal covariance of 32 m^2: the filter was not
+    // lost by the kidnap, it was scattered by this call.
+    //
+    // Kept as an opt-in parameter because "the robot knows it was moved" is a legitimate
+    // alternative condition to study (a wheel-lift or IMU-drop sensor would provide it) —
+    // but it is a different experiment and must be requested explicitly, not inherited.
+    if (kidnap_notify_localizer_) {
+      RCLCPP_WARN(get_logger(),
+        "kidnap_notify_localizer is enabled: forcing AMCL global reinit after the "
+        "teleport. The filter is being told it is lost, so this measures global "
+        "re-localization, not unaided recovery from a kidnap.");
+      callReinitGlobalLocalization();
+    }
     kidnap_stage_ = KidnapStage::DONE;
     return;
   }
@@ -847,7 +897,17 @@ void EpisodeManager::maybeKidnap(const rclcpp::Time & now)
 
   geometry_msgs::msg::Pose target;
   if (!sampleKidnapPoseFromMap_(ref_pose, target)) {
-    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Kidnap sample failed (no valid pose found)");
+    // Reported as a failed attempt, not merely warned about. Previously this path
+    // published nothing at all, so a goal whose kidnap never fired was recorded as an
+    // ordinary TTR trial — the perturbation was the independent variable and its absence
+    // was invisible in the data. The pilot hit this seven times in one run.
+    RCLCPP_WARN(get_logger(),
+      "Kidnap sample failed for goal %zu (no valid pose in the %.2f-%.2f m ring). This "
+      "goal has NO perturbation applied and must not be pooled with kidnapped goals.",
+      idx_, kidnap_distance_m_, kidnap_max_distance_m_);
+    kidnap_event_time_ = this->get_clock()->now();
+    publishKidnapEvent_(false);
+    kidnap_stage_ = KidnapStage::DONE;
     return;
   }
 
