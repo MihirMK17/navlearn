@@ -1,0 +1,304 @@
+#!/usr/bin/env python3
+# Copyright 2026 Mihir Kulkarni
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for the map-derived destination ambiguity measure.
+
+What is being measured
+    For a destination pose p, the ambiguity is the entropy of the posterior a perfectly
+    informed global localizer would hold after observing the scan expected at p, under a
+    uniform prior over free space. High entropy means the observation does not pin the
+    pose down: many places in the map look the same from there.
+
+Why it is tested against hand-checkable geometry rather than a golden file
+    The measure only earns its place in the paper if it means what it claims to mean. A
+    golden-value test would pin the implementation without ever checking that a corridor
+    scores as ambiguous, and the failure mode that matters is a measure that is
+    self-consistent and wrong. Every assertion here is a geometric fact about the test
+    map that would hold for any correct implementation.
+"""
+
+import math
+import os
+import sys
+
+import pytest
+
+np = pytest.importorskip("numpy", reason="numpy not available")
+pytest.importorskip("PIL", reason="Pillow not available; needed to read the map image")
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+
+from map_ambiguity import AmbiguityField, load_occupancy, spread_report  # noqa: E402
+
+RES = 0.1
+
+
+def _blank(width_m, height_m, res=RES):
+    """An enclosed rectangular room: free interior, one cell of wall all round."""
+    cols = int(round(width_m / res))
+    rows = int(round(height_m / res))
+    occupied = np.zeros((rows, cols), dtype=bool)
+    occupied[0, :] = True
+    occupied[-1, :] = True
+    occupied[:, 0] = True
+    occupied[:, -1] = True
+    return occupied
+
+
+def _carved(width_m, height_m, rects, res=RES):
+    """An all-occupied grid with the given world rectangles carved out as free space."""
+    cols = int(round(width_m / res))
+    rows = int(round(height_m / res))
+    occupied = np.ones((rows, cols), dtype=bool)
+    for x0, y0, x1, y1 in rects:
+        occupied[int(round(y0 / res)):int(round(y1 / res)),
+                 int(round(x0 / res)):int(round(x1 / res))] = False
+    return occupied
+
+
+def _field(occupied, **kwargs):
+    """Build an AmbiguityField over a grid whose origin is at (0, 0)."""
+    params = dict(pose_spacing_m=0.5, yaw_bins=8, n_beams=36,
+                  max_range_m=6.0, sigma_m=0.15)
+    params.update(kwargs)
+    return AmbiguityField(occupied, resolution=RES, origin=(0.0, 0.0), **params)
+
+
+# --------------------------------------------------------------------------- raycasting
+
+
+def test_raycast_measures_distance_to_wall():
+    """Beam 0 points along the pose's heading; its range is the distance to the wall.
+
+    A 4 m x 4 m room with 0.1 m walls: from (2.0, 2.0) facing +x the inner wall face is
+    at x = 3.9, so the range is 1.9 m, within one cell.
+    """
+    field = _field(_blank(4.0, 4.0))
+    scan = field.expected_scan(2.0, 2.0, 0.0)
+    assert scan[0] == pytest.approx(1.9, abs=RES)
+
+
+def test_raycast_follows_the_heading():
+    """Rotating the pose rotates the observation; a long room proves it."""
+    field = _field(_blank(8.0, 3.0))
+    ahead = field.expected_scan(4.0, 1.5, 0.0)[0]          # down the long axis
+    across = field.expected_scan(4.0, 1.5, math.pi / 2)[0]  # into the near wall
+    assert ahead == pytest.approx(3.9, abs=RES)
+    assert across == pytest.approx(1.4, abs=RES)
+
+
+def test_raycast_saturates_at_max_range():
+    """A beam that reaches nothing within max_range reports max_range, not infinity."""
+    field = _field(_blank(20.0, 20.0), max_range_m=2.0)
+    scan = field.expected_scan(10.0, 10.0, 0.0)
+    assert np.all(scan <= 2.0 + 1e-9)
+    assert scan[0] == pytest.approx(2.0, abs=1e-9)
+
+
+# ---------------------------------------------------------------------------- ambiguity
+
+
+def test_entropy_is_bounded_by_log2_of_the_pose_count():
+    """Entropy of a distribution over N poses cannot exceed log2(N), or it is not one."""
+    field = _field(_blank(4.0, 4.0))
+    h = field.ambiguity(2.0, 2.0, 0.0)
+    assert 0.0 <= h <= math.log2(len(field.poses)) + 1e-9
+
+
+def test_corridor_is_more_ambiguous_than_a_distinctive_corner():
+    """The hand-checkable case: a featureless corridor tells a localizer almost nothing.
+
+    Both queries are scored in ONE map, against ONE pose set. Comparing entropies from
+    two separate maps would compare two different ceilings — log2(N) differs with the
+    number of free poses — and a corridor could then score lower in bits while being more
+    ambiguous, which would make the test pass or fail for the wrong reason.
+
+    Mid-corridor, with the sensor unable to reach either end, every position along the
+    run produces the same observation. The room corner sees two walls meeting at a fixed
+    distance, a pattern only the corners satisfy.
+    """
+    l_shaped = _carved(14.0, 6.0, [
+        (0.1, 0.1, 10.0, 1.1),   # long featureless corridor
+        (10.0, 0.1, 13.9, 5.9),  # room at the far end
+    ])
+    field = _field(l_shaped, max_range_m=2.0)
+
+    corridor_h = field.ambiguity(5.0, 0.6, 0.0)
+    corner_h = field.ambiguity(13.6, 5.6, math.pi / 4)
+
+    assert corridor_h > corner_h, (
+        f"corridor {corridor_h:.3f} bits should exceed corner {corner_h:.3f} bits")
+
+
+def test_adding_a_landmark_reduces_ambiguity():
+    """Same map, same query pose, one distinctive feature added: ambiguity must fall.
+
+    A differential test needs no absolute calibration, so it holds whatever the units or
+    the discretisation. If cutting a unique alcove into an otherwise featureless corridor
+    does not make the pose beside it easier to identify, the measure is not measuring
+    identifiability.
+
+    Sensor range is capped below the corridor length so the baseline is genuinely
+    ambiguous; with the ends in view, distance-to-end already identifies the pose and the
+    alcove would have nothing left to contribute.
+    """
+    corridor = [(0.1, 0.1, 11.9, 1.1)]
+    plain = _carved(12.0, 2.0, corridor)
+    notched = _carved(12.0, 2.0, corridor + [(5.0, 1.1, 5.4, 1.6)])
+
+    query = (5.2, 0.6, math.pi / 2)  # facing the alcove
+    assert (_field(notched, max_range_m=2.0).ambiguity(*query)
+            < _field(plain, max_range_m=2.0).ambiguity(*query))
+
+
+def test_ambiguity_is_deterministic():
+    """No RNG anywhere: the same map and pose give bit-identical answers."""
+    occupied = _blank(5.0, 5.0)
+    first = _field(occupied).ambiguity(2.5, 2.5, 0.0)
+    second = _field(occupied).ambiguity(2.5, 2.5, 0.0)
+    assert first == second
+
+
+def test_batch_matches_single_queries():
+    """The vectorised path used on the campaign's destinations must not diverge.
+
+    Ambiguity is scored for a couple of hundred kidnap targets at once; if that path
+    disagreed with the single-pose one, the paper's numbers would come from code no test
+    ever checked.
+    """
+    field = _field(_blank(5.0, 5.0))
+    queries = np.array([
+        [2.5, 2.5, 0.0],
+        [1.0, 1.0, math.pi / 2],
+        [4.0, 2.0, math.pi],
+    ])
+    batch = field.ambiguity_many(queries)
+    singles = [field.ambiguity(x, y, yaw) for x, y, yaw in queries]
+    assert np.allclose(batch, singles, atol=1e-12)
+
+
+def test_pose_outside_free_space_is_refused():
+    """A destination in a wall is a bug upstream, not a zero-ambiguity pose.
+
+    Returning a number here would let a mis-transformed kidnap target enter the
+    regression as an ordinary observation.
+    """
+    field = _field(_blank(4.0, 4.0))
+    with pytest.raises(ValueError):
+        field.ambiguity(0.0, 0.0, 0.0)
+
+
+def test_pose_set_excludes_occupied_cells():
+    """The uniform prior is over free space; walls are not candidate poses."""
+    field = _field(_blank(4.0, 4.0))
+    for x, y, _ in field.poses:
+        assert not field.is_occupied(x, y), f"pose ({x}, {y}) is inside an obstacle"
+
+
+def test_entropy_is_never_negative():
+    """Rounding may drive a near-delta posterior slightly below zero; a bit count cannot be.
+
+    Reported ambiguities of -0.000 are harmless to read and corrosive to analyse: they
+    survive a log transform as NaN and a sign test as a negative.
+    """
+    field = _field(_blank(6.0, 6.0), sigma_m=0.05)
+    values = field.ambiguity_many(field.poses[:64])
+    assert np.all(values >= 0.0)
+
+
+def test_higher_random_measurement_weight_increases_ambiguity():
+    """z_rand is a floor on how badly one beam can condemn a pose, so it raises entropy.
+
+    AMCL's likelihood is a mixture: a Gaussian around the expected range plus a uniform
+    random-measurement term. Without the uniform part, a single grossly mismatched beam
+    drives a pose's likelihood to zero and the posterior collapses to a delta regardless
+    of how similar the map actually looks. Modelling only the Gaussian would make every
+    destination score as unambiguous by construction.
+    """
+    occupied = _carved(12.0, 2.0, [(0.1, 0.1, 11.9, 1.1)])
+    query = (5.2, 0.6, 0.0)
+    tight = _field(occupied, max_range_m=2.0, z_rand=0.01).ambiguity(*query)
+    loose = _field(occupied, max_range_m=2.0, z_rand=0.40).ambiguity(*query)
+    assert loose > tight
+
+
+# -------------------------------------------------------------------- degeneracy guard
+
+
+def test_spread_report_flags_a_degenerate_measure():
+    """A predictor with no variance must announce itself, not be silently regressed on.
+
+    If every destination scores the same, a model containing that predictor cannot
+    distinguish anything — and the null result would look like evidence against the
+    hypothesis rather than what it is: a measure with nothing to say on this map.
+    """
+    report = spread_report(np.zeros(200))
+    assert report["degenerate"] is True
+
+    varied = spread_report(np.linspace(0.0, 8.0, 200))
+    assert varied["degenerate"] is False
+    assert varied["median"] == pytest.approx(4.0, abs=0.1)
+    assert varied["iqr"] > 0.0
+
+
+def test_spread_report_flags_a_measure_that_is_almost_all_zero():
+    """Near-degenerate counts too: a handful of non-zero scores is not usable variance."""
+    values = np.zeros(200)
+    values[:2] = 5.0
+    assert spread_report(values)["degenerate"] is True
+
+
+# --------------------------------------------------------------------------- map loading
+
+
+def _campaign_map():
+    """Path to the map the campaign actually runs on."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.normpath(os.path.join(
+        here, "..", "..", "bumperbot_mapping", "maps", "small_house", "map.yaml"))
+    if not os.path.isfile(path):
+        pytest.skip(f"campaign map not found at {path}")
+    return path
+
+
+def test_campaign_map_loads_with_declared_geometry():
+    """The real map parses, and its metadata survives the load.
+
+    Guards the axis convention: a ROS occupancy grid's first row is the map origin, while
+    the PGM stores the image top-down. Getting that backwards mirrors the map vertically,
+    which produces a perfectly plausible ambiguity field for the wrong world.
+    """
+    occ = load_occupancy(_campaign_map())
+    assert occ.resolution == pytest.approx(0.05)
+    assert occ.origin == pytest.approx((-12.5, -12.5))
+    assert occ.occupied.dtype == bool
+    assert occ.occupied.shape == occ.free.shape
+    assert occ.free.any(), "map has no free space; the thresholds are inverted"
+    assert not (occ.free & occ.occupied).any(), "a cell cannot be both free and occupied"
+
+
+def test_campaign_map_origin_maps_to_grid_corner():
+    """World-to-grid must place the declared origin at cell (0, 0), x to col and y to row.
+
+    Queried at cell centres, not cell edges. A boundary coordinate is not exactly
+    representable in binary — -12.5 + 0.05 * 7 evaluates just below the edge and floors
+    into the cell beneath — so asserting there tests floating-point representation rather
+    than the axis convention this is meant to pin down.
+    """
+    occ = load_occupancy(_campaign_map())
+    assert occ.world_to_cell(-12.5 + 0.025, -12.5 + 0.025) == (0, 0)
+    row, col = occ.world_to_cell(-12.5 + 0.05 * 3.5, -12.5 + 0.05 * 7.5)
+    assert (row, col) == (7, 3), "x must index columns and y must index rows"

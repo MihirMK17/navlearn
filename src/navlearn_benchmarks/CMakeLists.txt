@@ -157,6 +157,16 @@ if(BUILD_TESTING)
     TIMEOUT 300
   )
 
+  # Map-derived destination ambiguity. Asserted against hand-checkable geometry rather
+  # than golden values, because the failure mode that matters is a measure that is
+  # self-consistent and wrong: a corridor must score as ambiguous and a landmark must
+  # reduce ambiguity, or the number is not measuring identifiability whatever else it is
+  # doing. Also pins the map axis convention, which if mirrored yields a perfectly
+  # plausible field for a world that does not exist.
+  ament_add_pytest_test(test_map_ambiguity test/test_map_ambiguity.py
+    TIMEOUT 300
+  )
+
   # Seed derivation. Asserts the two invariants the campaign's statistics rest on:
   # every (run, goal) draws a distinct condition, and all controllers draw identical
   # ones. Golden vectors pin splitmix64 itself — its constants are load-bearing, and
