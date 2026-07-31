@@ -111,6 +111,20 @@ install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Campaign occupancy maps for the environments beyond small_house.
+#
+# They live here rather than in bumperbot_mapping because these are campaign assets, not
+# robot assets: they exist for the three-map leg and are versioned with the analysis that
+# consumes them. small_house stays where it is -- it predates the campaign and the bringup
+# resolves it.
+#
+# Upstream is aws-robomaker (MIT-0), whose repositories were archived 2026-07-21, so
+# vendoring is also the only way these stay reachable. Provenance and the re-SLAM decision
+# are recorded in maps/README.md.
+install(DIRECTORY maps
+  DESTINATION share/${PROJECT_NAME}
+)
+
 # Python instrumentation run per benchmark episode by multi_run_harness.py.
 install(PROGRAMS
   scripts/rate_monitor.py
