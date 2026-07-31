@@ -212,6 +212,15 @@ if(BUILD_TESTING)
     TIMEOUT 300
   )
 
+  # Kidnap feasibility. Replicates the node's own free-space-plus-clearance rule offline
+  # so the attempt budget describes the experiment that actually runs. Pins the property
+  # that justifies the magnitude band as a knob (widening never loses feasibility) and
+  # the distinction between a valid pose existing and the bounded-draw sampler finding
+  # it -- budgeting on existence would under-provision every cluttered cell.
+  ament_add_pytest_test(test_kidnap_feasibility test/test_kidnap_feasibility.py
+    TIMEOUT 300
+  )
+
   # Seed derivation. Asserts the two invariants the campaign's statistics rest on:
   # every (run, goal) draws a distinct condition, and all controllers draw identical
   # ones. Golden vectors pin splitmix64 itself — its constants are load-bearing, and
