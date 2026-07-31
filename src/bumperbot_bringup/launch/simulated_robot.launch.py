@@ -121,6 +121,15 @@ def generate_launch_description():
     )
     headless = LaunchConfiguration("headless")
 
+    # Starve the LiDAR for the sensor-rate leg. Forwarded to gazebo.launch.py, which only
+    # inserts the governor when this is above zero; the default leaves the scan path
+    # byte-identical to what it was before the argument existed.
+    scan_rate_hz_arg = DeclareLaunchArgument(
+        "scan_rate_hz",
+        default_value="0.0",
+        description="Starve the LiDAR to this rate. 0 disables the governor.",
+    )
+
     # RViz is a second renderer. It draws the map, costmaps, particle cloud and laser scan
     # continuously, on the same integrated GPU and the same CPU as the navigation stack
     # being measured — so leaving it on during a compute benchmark contaminates the very
@@ -160,7 +169,12 @@ def generate_launch_description():
             "launch",
             "gazebo.launch.py"
         ),
-        launch_arguments={"world_name": world_name, "headless": headless}.items(),
+        launch_arguments={
+            "world_name": world_name,
+            "headless": headless,
+            # Sensor-rate leg. 0.0 leaves the scan path exactly as it was.
+            "scan_rate_hz": LaunchConfiguration("scan_rate_hz"),
+        }.items(),
     )
     
     controller = IncludeLaunchDescription(
@@ -262,6 +276,7 @@ def generate_launch_description():
         stack_spec_out_arg,
         world_name_arg,
         headless_arg,
+        scan_rate_hz_arg,
         use_rviz_arg,
         amcl_config_arg,
         localizer_resolver,   # must precede `localization` — it sets amcl_config

@@ -5,6 +5,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.conditions import IfCondition
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
@@ -23,6 +24,22 @@ def generate_launch_description():
     )
 
     world_name_arg = DeclareLaunchArgument(name="world_name", default_value="empty")
+
+    # Sensor-rate leg. Starves the LiDAR stream to a commanded rate by decimating what is
+    # published, rather than by lowering the simulated sensor's own rate: that would also
+    # change what Gazebo simulates and how the bridge is loaded, so a rate cell would
+    # differ from baseline in more than one variable. Decimating leaves the simulation
+    # identical and varies exactly one thing — how many scans reach the stack.
+    #
+    # Default 0.0 means the governor is not launched at all and the scan path is
+    # byte-identical to what it was before this argument existed.
+    scan_rate_hz_arg = DeclareLaunchArgument(
+        name="scan_rate_hz", default_value="0.0",
+        description="Starve the LiDAR to this rate for the sensor-rate leg. "
+                    "0 disables the governor and leaves the scan path unchanged.",
+    )
+    scan_rate_hz = LaunchConfiguration("scan_rate_hz")
+    scan_governor_enabled = PythonExpression(["float('", scan_rate_hz, "') > 0.0"])
 
     # Headless operation. Gazebo has always been launched with `-r` (run) and no `-s`
     # (server only), so every benchmark run so far rendered a GUI — roughly 29 hours of
@@ -114,12 +131,32 @@ def generate_launch_description():
         output="screen"
     )
 
+    # Launched only when a rate is requested, so the default path is unchanged.
+    scan_rate_governor_node = Node(
+        package="navlearn_benchmarks",
+        executable="scan_rate_governor",
+        parameters=[{
+            "use_sim_time": True,
+            "input_topic": "scan_unfiltered",
+            "output_topic": "scan_governed",
+            "native_rate_hz": 10.0,   # RPLidar A1; matches the xacro update_rate
+            "target_rate_hz": ParameterValue(scan_rate_hz, value_type=float),
+        }],
+        condition=IfCondition(scan_governor_enabled),
+        output="screen"
+    )
+
     scan_sanitizer_node = Node(
         package="bumperbot_description",
         executable="scan_sanitizer",
         parameters=[{
             "use_sim_time" : True,
-            "input_topic": "scan_unfiltered",
+            # Reads the governed stream when the governor is running, the raw one
+            # otherwise. Everything downstream of the sanitizer is untouched either way.
+            "input_topic": PythonExpression([
+                "'scan_governed' if float('", scan_rate_hz, "') > 0.0 "
+                "else 'scan_unfiltered'"
+            ]),
             "output_topic": "scan",
             "min_valid_range": 0.12,
             "max_valid_range": 12.0,
@@ -131,11 +168,13 @@ def generate_launch_description():
     return LaunchDescription([  
         model_arg,
         world_name_arg,
+        scan_rate_hz_arg,
         headless_arg,
         gazebo_resource_path,
         robot_state_publisher_node,
         gazebo,
         gz_spawn_entity,
         gz_ros2_bridge,
+        scan_rate_governor_node,
         scan_sanitizer_node
     ])
