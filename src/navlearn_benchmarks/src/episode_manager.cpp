@@ -1566,8 +1566,39 @@ void EpisodeManager::initiateRecoveryTeleport(
                       goal_pose.pose.position.y,
                       kidnap_z_,
                       yaw)) {
-    RCLCPP_ERROR(get_logger(), "Recovery: setEntityPose_ failed. Skipping recovery.");
-    recovery_stage_ = RecoveryStage::DONE;
+    // The teleport is unavailable -- in TTC cells the pose server is only launched when
+    // kidnap is enabled, so this path is the NORM there, not an edge case. The teleport
+    // is optional (it repositions the robot for convenience); the hygiene is not. Jumping
+    // straight to DONE skipped both the corrective initialpose and the costmap clear, so
+    // every failed TTC goal left phantom obstacles behind: the next goal's pose sequence
+    // corrects the filter but nothing corrects the map, one early failure can ignite a
+    // run-wide planning-failure spiral, and episodes stop being independent trials --
+    // exactly what PROTOCOL.md forbids. Observed 2026-08-01: leg1 mppi v3 collapsed to
+    // 0/120 while an identically-configured 20-goal probe scored 65%, the divergence
+    // starting at the first goal after a skipped recovery.
+    //
+    // So: skip only the teleport. Correct the filter at the robot's ACTUAL pose (ground
+    // truth, which the episode manager has), clear both costmaps, and wait for
+    // convergence exactly as the teleport path does.
+    RCLCPP_ERROR(get_logger(),
+      "Recovery: setEntityPose_ unavailable. Skipping teleport but still correcting the "
+      "filter at the robot's actual pose and clearing costmaps.");
+
+    geometry_msgs::msg::PoseStamped gt_pose;
+    if (lookupPose(gt_error_frame_, rclcpp::Time(0, 0, RCL_ROS_TIME), gt_pose)) {
+      sendInitialPoseRequest(
+        buildPoseWithCovariance(gt_pose, correct_cov_xy_, correct_cov_yaw_));
+      clearCostmaps("recovery (teleport unavailable)");
+      recovery_start_time_ = this->get_clock()->now();
+      recovery_stage_ = RecoveryStage::WAIT_CONVERGENCE;
+    } else {
+      // No ground truth either: nothing can be corrected against. Advance rather than
+      // hang, but say so loudly -- this goal's successor starts contaminated.
+      RCLCPP_ERROR(get_logger(),
+        "Recovery: no ground truth available; next goal starts CONTAMINATED "
+        "(uncorrected filter, uncleared costmaps).");
+      recovery_stage_ = RecoveryStage::DONE;
+    }
   }
 }
 
