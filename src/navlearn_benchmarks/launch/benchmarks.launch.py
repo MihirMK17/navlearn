@@ -189,6 +189,15 @@ def generate_launch_description():
     )
     csv_path = LaunchConfiguration("csv_path")
 
+    # localization_metrics writes a LONG-format CSV (metric name/value rows) and was
+    # handed the same csv_path as metrics_compiler's WIDE format. Nothing noticed for a
+    # month because the node was segfaulting at startup in every bad-init cell; the
+    # 2026-07-31 rebuild revived it and the two formats interleaved into one file
+    # (leg1 mppi_v2, salvaged by column count). Distinct file, derived from csv_path so
+    # the pair always lands in the same run directory.
+    loc_csv_path = PythonExpression(
+        ["'", csv_path, "'.replace('.csv', '_localization.csv')"])
+
     json_path_arg = DeclareLaunchArgument(
         "json_path",
         default_value=PathJoinSubstitution(
@@ -576,7 +585,7 @@ def generate_launch_description():
                 "kidnap_test": kidnap_test,
                 "ttc_timeout_sec": ttc_timeout_sec,
                 "ttr_timeout_sec": ttr_timeout_sec,
-                "csv_path": csv_path,
+                "csv_path": loc_csv_path,
             },
         ],
     )
