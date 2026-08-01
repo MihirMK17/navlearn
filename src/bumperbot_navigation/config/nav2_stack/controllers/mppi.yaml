@@ -92,20 +92,31 @@ controller_server:
       GoalCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 15.0                 # CORRECTED 2026-07-31 (was 5.0). At 5.0 the
-                                          # goal term was outvoted by PathAlignCritic (18)
-                                          # + PathFollowCritic (10) in the final approach:
-                                          # MPPI parked 0.150 m short of the 0.05 m
-                                          # tolerance, perfectly aligned (0.51 deg), for
-                                          # 158 s median -- reported success 30.8% against
-                                          # TRUE success 62.5% in leg 1 (n=120). Probe of
-                                          # 4x20 clean goals: this single change took
-                                          # reported success 36.8% -> 90.0%, true success
-                                          # -> 100%, nav time 153 s -> 28.8 s. The two
-                                          # alternative knobs probed (iteration_count 2,
-                                          # vx_std 0.10) both made it WORSE. MPPI-internal
-                                          # -- shared tolerances and speed envelope
+        cost_weight: 8.0                  # CORRECTED 2026-08-01 (was 5.0; briefly 15.0).
+                                          # Chosen from a measured weight-by-regime
+                                          # interaction, true-success rates:
+                                          #
+                                          #   weight   clean    TTC bad-init
+                                          #      5     89.5%      62.5%   parks 0.150 m
+                                          #                               short for 158 s
+                                          #      8    100.0%      65.0%   <- this value
+                                          #     15    100.0%      30.3%   1 cm/s crawls
+                                          #                               while AMCL
+                                          #                               re-converges
+                                          #
+                                          # At 5 the goal term is outvoted by
+                                          # PathAlignCritic (18) + PathFollowCritic (10)
+                                          # in the final approach and MPPI cannot finish;
+                                          # at 15 the amplified term follows the swinging
+                                          # estimate under injected covariance and the
+                                          # optimizer dithers. Neither endpoint serves
+                                          # both regimes -- itself a finding. Alternative
+                                          # knobs (iteration_count 2, vx_std 0.10) both
+                                          # made the clean regime worse. MPPI-internal:
+                                          # shared tolerances and speed envelope
                                           # untouched, so cross-controller parity holds.
+                                          # Evidence: results/mppi_probe3_*,
+                                          # results/mppi_goalw8_*, leg1 v1/v2 arms.
         threshold_to_consider: 1.4        # m
 
       GoalAngleCritic:
