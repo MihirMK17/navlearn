@@ -695,8 +695,17 @@ void EpisodeManager::startPoseSequence(const rclcpp::Time & t)
   geometry_msgs::msg::PoseStamped est_pose;
   const bool have_est = lookupPose(est_error_frame_, t, est_pose);
 
+  // Correct on EVERY goal that needs it, including goal 0. The old `idx_ > 0` gate
+  // assumed a run starts with a converged filter, but a run inherits AMCL from wherever
+  // the previous run left it -- all runs of a cell share one bringup -- and goal 0 then
+  // depended on its own bad-init injection, an unverified single publish, to reset the
+  // filter through possibly metres of inherited error. When that reset did not take, the
+  // whole run started wrecked and stayed wrecked: measured 2026-08-01 as identical
+  // 20-goal cells swinging 65% / 10% / 10% / 0% true success, with the collapsed cells'
+  // localization error persisting 2.6-4.9 m across entire runs. Independence of episodes
+  // must be constructed at every goal start, not inherited from the previous exit path.
   const bool need_correct =
-    (idx_ > 0) && have_est && needCorrection(gt_pose, est_pose);
+    have_est && needCorrection(gt_pose, est_pose);
 
   correct_pose_msg_ = buildPoseWithCovariance(gt_pose, correct_cov_xy_, correct_cov_yaw_);
   bad_pose_msg_ = buildPerturbedPose(gt_pose);
