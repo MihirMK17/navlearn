@@ -61,6 +61,7 @@ import logging
 import os
 import pathlib
 import resource
+import signal
 import subprocess
 import sys
 import time
@@ -456,6 +457,22 @@ def parse_args() -> argparse.Namespace:
         help="Apport spool to harvest crash reports from after each episode",
     )
     parser.add_argument(
+        "--no-rosbag",
+        dest="rosbag",
+        action="store_false",
+        help="Do not record a rosbag per episode. On by default: the bag is the only "
+             "artefact that lets a finished run be re-examined for a question nobody "
+             "thought to ask while it was running",
+    )
+    parser.add_argument(
+        "--rosbag-compression",
+        type=str,
+        default=None,
+        choices=("zstd",),
+        help="Compress each bag file at close. Off by default; it costs CPU and wall clock "
+             "between episodes, and disk is the resource this machine has most of",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print launch commands without executing them",
@@ -627,28 +644,47 @@ def run_benchmark(
     # or hung ROS graph still leaves usable traces behind.
     prefix = report_dir / f"navlearn_{{}}_run_{episode_id}_{stamp}"
     here = pathlib.Path(__file__).parent
+    # (process, stop signal). The signal is per-monitor because rosbag2 finalises its
+    # metadata only on SIGINT; the samplers write their records on SIGTERM.
     monitors = []
 
     if args.compute_interval > 0:
-        monitors.append(subprocess.Popen([
+        monitors.append((subprocess.Popen([
             sys.executable, str(here / "compute_sampler.py"),
             "--output-prefix", str(prefix).format("compute"),
             "--interval", str(args.compute_interval),
-        ]))
+        ]), signal.SIGTERM))
 
     if not args.no_costmap_monitor:
-        monitors.append(subprocess.Popen([
+        monitors.append((subprocess.Popen([
             sys.executable, str(here / "costmap_corruption_monitor.py"),
             "--output-prefix", str(prefix).format("costmap"),
             "--interval", str(args.costmap_interval),
-        ]))
+        ]), signal.SIGTERM))
 
     if not args.no_rate_monitor:
-        monitors.append(subprocess.Popen([
+        monitors.append((subprocess.Popen([
             sys.executable, str(here / "rate_monitor.py"),
             "--output-prefix", str(prefix).format("rates"),
             "--expected-scan-hz", str(args.expected_scan_hz),
-        ]))
+        ]), signal.SIGTERM))
+
+    # The bag. Started before the launch so the first messages of the episode -- the goal
+    # that is about to be sent, the TF tree settling -- are inside it rather than lost to
+    # recorder startup. Its own stdout goes to a file so a recorder that fails says why.
+    if args.rosbag:
+        bag_path = run_forensics.rosbag_dir(report_dir, episode_id, stamp)
+        bag_log = pathlib.Path(str(prefix).format("rosbag")).with_suffix(".log")
+        recorder = run_forensics.start_recorder(
+            bag_path,
+            compression=args.rosbag_compression,
+            log_handle=open(bag_log, "w"),
+        )
+        if recorder is not None:
+            monitors.append((recorder, signal.SIGINT))
+            logging.info("BAG  --> %s", bag_path)
+        else:
+            logging.error("No rosbag for run %d: the recorder would not start.", episode_id)
 
     # Node stdout and stderr go to the run directory, not to the terminal and not to
     # /tmp. They are the only record of why a cell failed, and /tmp does not survive a
@@ -708,18 +744,13 @@ def run_benchmark(
                 env=episode_env, on_abort=on_abort,
             )
     finally:
-        # Stop instrumentation on every path, including a failed or interrupted run.
-        # SIGTERM is each monitor's cue to write its record, so they must be given the
-        # chance to exit cleanly or the run's traces are lost.
-        for monitor in monitors:
-            if monitor.poll() is None:
-                monitor.terminate()
-                try:
-                    monitor.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    logging.warning("Monitor pid %d ignored SIGTERM; killing.", monitor.pid)
-                    monitor.kill()
-                    monitor.wait(timeout=5)
+        # Stop instrumentation on every path, including a failed or interrupted run. The
+        # signal is each monitor's cue to write its record, so they must be given the chance
+        # to exit cleanly or the run's traces are lost. The recorder gets SIGINT, which is
+        # the only path on which rosbag2 writes metadata.yaml; without it the bag exists on
+        # disk and no reader will open it.
+        for monitor, sig in monitors:
+            run_forensics.stop_process(monitor, sig=sig, grace_s=30.0)
 
     # After every episode, not only aborted ones. On 2026-08-01 planner_server segfaulted
     # during run 4's final goal; all five rows were already written, so the harness called

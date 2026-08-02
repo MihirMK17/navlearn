@@ -38,6 +38,8 @@ What it must get right
 import importlib.util
 import os
 import pathlib
+import signal
+import subprocess
 import time
 
 import pytest
@@ -204,6 +206,105 @@ def test_capture_stack_state_bounds_how_long_it_blocks_the_abort(fx, tmp_path):
     text = path.read_text()
     assert str(os.getpid()) in text, "the cheap process snapshot was dropped too"
     assert "budget" in text, "a skipped probe must be recorded, not silently omitted"
+
+
+# --- rosbag recording ---------------------------------------------------------------
+
+
+def test_rosbag_records_every_topic(fx, tmp_path):
+    """A bag that omits a topic cannot answer the question nobody thought to ask.
+
+    There are no image or point-cloud topics on this robot -- 68 topics, the heaviest being
+    two OccupancyGrids at 1 Hz -- so recording everything is affordable and is the only
+    option that does not require predicting which signal a future diagnosis will need.
+    """
+    argv = fx.rosbag_command(tmp_path / "rosbag_run_1")
+
+    assert argv[:3] == ["ros2", "bag", "record"]
+    assert "--all" in argv or "-a" in argv
+    assert str(tmp_path / "rosbag_run_1") in argv
+
+
+def test_rosbag_directory_is_not_created_in_advance(fx, tmp_path):
+    """`ros2 bag record -o DIR` refuses to start when DIR already exists."""
+    target = fx.rosbag_dir(tmp_path, episode_id=2, stamp="20260801_235959")
+
+    assert not target.exists()
+    assert target.parent == pathlib.Path(tmp_path)
+    assert "2" in target.name and "20260801_235959" in target.name
+
+
+def test_recorder_is_stopped_with_sigint_so_the_bag_is_finalised(fx, tmp_path):
+    """rosbag2 writes metadata.yaml on SIGINT.
+
+    rclcpp installs a SIGINT handler; SIGTERM kills the recorder outright and leaves a
+    directory with a .db3 in it and no metadata.yaml, which every rosbag2 reader refuses to
+    open. A whole campaign of unreadable bags looks exactly like a campaign of good ones
+    until someone tries to use them.
+    """
+    marker = tmp_path / "clean_exit"
+    process = subprocess.Popen(
+        ["bash", "-c", f'trap "touch {marker}; exit 0" INT; while true; do sleep 0.1; done'],
+        start_new_session=True,
+    )
+    time.sleep(0.5)
+
+    fx.stop_process(process, sig=signal.SIGINT, grace_s=5)
+
+    assert marker.exists(), "the recorder was not given SIGINT; the bag would be unreadable"
+    assert process.poll() is not None
+
+
+def test_stop_process_does_not_signal_the_callers_own_process_group(fx, tmp_path):
+    """Signalling a process group is only safe when the target leads its own group.
+
+    The three samplers are started without ``start_new_session``, so they share the
+    harness's process group. An unconditional ``killpg`` therefore signals the harness
+    itself and whatever shell launched it. Observed for real: the samplers wrote their
+    records, the harness died partway through its own cleanup loop, and the rosbag recorder
+    -- the one child in its own session, and the last entry in the list -- was never
+    stopped, leaving a bag with no metadata.yaml.
+
+    Two children in the caller's group: stopping one must not touch the other.
+    """
+    victim = subprocess.Popen(["bash", "-c", "while true; do sleep 0.1; done"])
+    bystander = subprocess.Popen(["bash", "-c", "while true; do sleep 0.1; done"])
+    try:
+        time.sleep(0.4)
+        assert os.getpgid(victim.pid) == os.getpgid(bystander.pid) == os.getpgid(0), \
+            "test precondition: both children must share the caller's group"
+
+        fx.stop_process(victim, sig=signal.SIGTERM, grace_s=5)
+
+        assert victim.poll() is not None, "the target was not stopped"
+        time.sleep(0.3)
+        assert bystander.poll() is None, \
+            "a sibling in the same process group was signalled too"
+    finally:
+        for p in (victim, bystander):
+            if p.poll() is None:
+                p.kill()
+            p.wait()
+
+
+def test_stop_process_escalates_when_the_signal_is_ignored(fx, tmp_path):
+    """A recorder wedged on a full disk must not hold the campaign open forever."""
+    process = subprocess.Popen(
+        ["bash", "-c", 'trap "" INT; while true; do sleep 0.1; done'],
+        start_new_session=True,
+    )
+    time.sleep(0.5)
+
+    fx.stop_process(process, sig=signal.SIGINT, grace_s=1)
+
+    assert process.poll() is not None, "an unresponsive recorder was left running"
+
+
+def test_a_recorder_that_cannot_start_does_not_abort_the_episode(fx, tmp_path):
+    """Losing the bag is bad; losing the run because the bag failed is worse."""
+    started = fx.start_recorder(tmp_path / "bag", executable="navlearn_no_such_binary")
+
+    assert started is None
 
 
 # --- node logs into the run directory ----------------------------------------------

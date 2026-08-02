@@ -35,11 +35,13 @@ Why it exists
 """
 
 import json
+import logging
 import os
 import pathlib
 import platform
 import resource
 import shutil
+import signal
 import subprocess
 import time
 
@@ -79,6 +81,108 @@ def episode_environment(ros_log_dir, base_env=None) -> dict:
     env = dict(os.environ if base_env is None else base_env)
     env["ROS_LOG_DIR"] = str(target)
     return env
+
+
+def rosbag_dir(report_dir, episode_id: int, stamp: str) -> pathlib.Path:
+    """Return the per-episode bag path. Deliberately NOT created.
+
+    ``ros2 bag record -o DIR`` refuses to start if DIR already exists, so creating it here
+    would silently cost the campaign every bag.
+    """
+    return pathlib.Path(report_dir) / f"rosbag_run_{episode_id}_{stamp}"
+
+
+def rosbag_command(bag_dir, storage="sqlite3", compression=None) -> list:
+    """Build the recorder command for one episode.
+
+    Records every topic. There are no image or point-cloud topics on this robot -- 68 in
+    total, the heaviest being two OccupancyGrids at 1 Hz -- so a full recording is
+    affordable, and it is the only choice that does not require predicting today which
+    signal a future diagnosis will need. The 2026-08-01 segfault was solved from an artefact
+    nobody had decided in advance to keep.
+
+    Compression is off by default: file-mode zstd compresses at file close, which lands as
+    CPU and wall-clock between episodes, and disk is the resource this machine has most of.
+    """
+    argv = [
+        "ros2", "bag", "record", "--all",
+        "-o", str(bag_dir),
+        "--storage", storage,
+    ]
+    if compression:
+        argv += ["--compression-mode", "file", "--compression-format", compression]
+    return argv
+
+
+def start_recorder(bag_dir, storage="sqlite3", compression=None, log_handle=None,
+                   executable=None):
+    """Start the episode recorder, or return None if it cannot be started.
+
+    Losing a bag is bad. Losing the run because the bag could not start is worse, so a
+    missing or broken recorder is reported and stepped over rather than raised.
+    """
+    argv = rosbag_command(bag_dir, storage=storage, compression=compression)
+    if executable:
+        argv[0] = executable
+    try:
+        return subprocess.Popen(
+            argv,
+            stdout=log_handle or subprocess.DEVNULL,
+            stderr=subprocess.STDOUT if log_handle else subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logging.error("Could not start the rosbag recorder (%s): %s", argv[0], exc)
+        return None
+
+
+def stop_process(process, sig=signal.SIGTERM, grace_s=15.0) -> bool:
+    """Signal a process group, escalating to SIGKILL if it does not go.
+
+    The signal matters for the recorder specifically. rclcpp installs a SIGINT handler;
+    rosbag2 writes ``metadata.yaml`` on that path and on no other. SIGTERM kills it outright
+    and leaves a directory holding a ``.db3`` and no metadata, which every rosbag2 reader
+    refuses to open -- and a campaign of unreadable bags looks exactly like a campaign of
+    good ones until someone tries to use one.
+
+    The group is signalled ONLY when the process leads its own group, which is what
+    ``start_new_session=True`` guarantees. Children started without it share the caller's
+    group, and an unconditional ``killpg`` there signals the caller and its siblings: in
+    testing that killed the harness partway through this very loop, leaving the recorder --
+    the last entry, and the only child in its own session -- running and its bag without
+    metadata.yaml. Deciding from the process's own pgid makes that unrepeatable rather than
+    a rule someone has to remember.
+
+    Returns True if the process exited within the grace period.
+    """
+    if process.poll() is not None:
+        return True
+
+    def deliver(signum):
+        try:
+            if os.getpgid(process.pid) == process.pid:
+                os.killpg(process.pid, signum)   # its own session: take the children too
+            else:
+                os.kill(process.pid, signum)     # shares our group: this process only
+        except OSError:
+            return False
+        return True
+
+    if not deliver(sig):
+        return True
+    try:
+        process.wait(timeout=grace_s)
+        return True
+    except subprocess.TimeoutExpired:
+        logging.warning(
+            "pid %d ignored %s after %.0f s; killing.", process.pid, sig.name, grace_s)
+
+    deliver(signal.SIGKILL)
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        logging.error("pid %d survived SIGKILL", process.pid)
+    return False
 
 
 def harvest_crash_reports(dest, since: float, crash_dir=DEFAULT_CRASH_DIR) -> list:

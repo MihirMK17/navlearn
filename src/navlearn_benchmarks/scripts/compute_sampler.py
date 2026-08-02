@@ -99,7 +99,11 @@ CLASSES = (
         "MEASUREMENT",
         re.compile(
             r"episode_manager|metrics_compiler|control_metric|trajectory_metric"
-            r"|localization_metrics|ground_truth_publisher|collision_",
+            r"|localization_metrics|ground_truth_publisher|collision_"
+            # The per-episode rosbag recorder. It is measurement apparatus, not navigation:
+            # counting its CPU under ROBOT would inflate the one number in this file that
+            # constitutes a claim about what the stack costs on a real robot.
+            r"|rosbag2?|bag[\s_]record",
             re.I,
         ),
     ),
