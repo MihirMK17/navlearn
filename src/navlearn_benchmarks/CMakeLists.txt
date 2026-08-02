@@ -278,6 +278,15 @@ if(BUILD_TESTING)
   ament_add_gtest(test_bad_init_offset test/test_bad_init_offset.cpp)
   target_include_directories(test_bad_init_offset PRIVATE include)
 
+  # Kidnap yaw policy. PROTOCOL.md records the design as "yaw ... currently fixed -- one
+  # variable moves"; the sampler drew yaw uniformly over the full circle instead, so the
+  # declared independent variable (displacement) did nothing measurable and an undeclared
+  # one did everything. Measured on the 2026-08-02 rpp arm: success 100% at 0-30 deg of
+  # yaw change against 26.8% at 90-180 deg, while the same goals showed no trend at all
+  # across displacement. Pins that the teleport preserves heading.
+  ament_add_gtest(test_kidnap_yaw test/test_kidnap_yaw.cpp)
+  target_include_directories(test_kidnap_yaw PRIVATE include)
+
   # The Python reference used by analysis, pinned to the same golden vectors so the two
   # implementations cannot silently diverge.
   ament_add_pytest_test(test_seed_reference test/test_seed_reference.py

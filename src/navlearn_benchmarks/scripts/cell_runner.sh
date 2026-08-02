@@ -43,8 +43,19 @@ navlearn_teardown() {
     if [ -n "$pid" ]; then kill -INT "$pid" 2>/dev/null || true; fi
     sleep 8
     for n in $NAVLEARN_NODES; do pkill -TERM -x "$(_comm "$n")" 2>/dev/null || true; done
+
+    # The rosbag recorder is not in NAVLEARN_NODES and cannot be: its process name is
+    # "ros2", shared with every other ros2 CLI invocation, so -x would be both too broad
+    # and useless. It also runs in its own session (start_new_session, so the harness can
+    # signal it without signalling itself), which means killing the harness or the campaign
+    # script from outside leaves it running -- subscribed to every topic, competing for DDS
+    # traffic. Observed 2026-08-02: an orphan from a stopped campaign survived teardown and
+    # made unrelated node tests flaky until it was found by hand. SIGINT first so a
+    # recorder caught mid-run still finalises its metadata.
+    pkill -INT -f "bag recor[d]" 2>/dev/null || true
     sleep 5
     for n in $NAVLEARN_NODES; do pkill -KILL -x "$(_comm "$n")" 2>/dev/null || true; done
+    pkill -KILL -f "bag recor[d]" 2>/dev/null || true
 
     # The part a fixed sleep cannot give: confirmation. Poll until no tracked process
     # remains, up to 60 s. gzserver/ruby holding the Ignition transport port is the
@@ -72,6 +83,12 @@ navlearn_teardown() {
 # named one.
 navlearn_preflight() {
     local n dirty=0
+    # A surviving recorder subscribes to every topic and competes for DDS traffic; it made
+    # unrelated node tests flaky on 2026-08-02 before it was found by hand.
+    if pgrep -f "bag recor[d]" >/dev/null 2>&1; then
+        _say "preflight: stale rosbag recorder still running"
+        dirty=1
+    fi
     for n in $NAVLEARN_NODES; do
         if pgrep -x "$(_comm "$n")" >/dev/null 2>&1; then
             _say "preflight: stale process '$n' still running"

@@ -22,6 +22,7 @@
 #include <limits>
 
 #include "navlearn_benchmarks/episode_manager.hpp"
+#include "navlearn_benchmarks/kidnap_yaw.hpp"
 #include "navlearn_benchmarks/navlearn_utils.hpp"
 
 using namespace std::placeholders;
@@ -936,7 +937,17 @@ bool EpisodeManager::sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStam
     out_pose.position.y = y;
     out_pose.position.z = kidnap_z_;
 
-    const double yaw = dist_theta(gen);
+    // Heading is carried through the teleport, not redrawn.
+    //
+    // This used to be `dist_theta(gen)` -- yaw uniform over the full circle, independent
+    // of the commanded displacement. PROTOCOL.md records the design as "yaw ... currently
+    // fixed -- one variable moves", and the sweep's declared independent variable is
+    // distance, so a random rotation made the campaign measure something nobody declared.
+    // Measured on the 2026-08-02 leg 2 rpp arm (120 goals): median |yaw change| was
+    // 93.5 deg at displacements under 5 cm, and outcome tracked yaw (100% success at
+    // 0-30 deg, 26.8% at 90-180 deg) while showing no trend at all across distance.
+    // Claim 2 would have been confirmed by the rotation rather than by landing geometry.
+    const double yaw = navlearn::kidnapYaw(tf2::getYaw(ref.pose.orientation));
     tf2::Quaternion q;
     q.setRPY(0.0, 0.0, yaw);
     out_pose.orientation = tf2::toMsg(q);
