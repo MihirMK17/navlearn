@@ -224,7 +224,8 @@ class RunWatchdog:
         return None
 
 
-def supervise(process, watchdog, poll_interval_s=2.0, grace_s=20.0, sleep=time.sleep):
+def supervise(process, watchdog, poll_interval_s=2.0, grace_s=20.0, sleep=time.sleep,
+              on_abort=None):
     """Wait for ``process``, aborting it if ``watchdog`` says the run is finished.
 
     Returns ``None`` when the run exits on its own -- the healthy path, and the one that
@@ -242,6 +243,14 @@ def supervise(process, watchdog, poll_interval_s=2.0, grace_s=20.0, sleep=time.s
 
         verdict = watchdog.poll()
         if verdict is not None:
+            if on_abort is not None:
+                # Runs while the stack is still standing: after the kill there is nothing
+                # left to photograph. Wrapped because a diagnostic that can fail must not
+                # become a second outage -- the launch has to die either way.
+                try:
+                    on_abort(verdict)
+                except Exception:  # noqa: BLE001 - forensics must never mask the abort
+                    logging.exception("Forensic capture failed; aborting the run anyway.")
             _kill_group(process, grace_s)
             return verdict
 

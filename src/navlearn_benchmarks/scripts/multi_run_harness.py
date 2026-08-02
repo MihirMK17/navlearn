@@ -60,6 +60,7 @@ import json
 import logging
 import os
 import pathlib
+import resource
 import subprocess
 import sys
 import time
@@ -85,6 +86,7 @@ def _load_sibling(name: str):
 
 
 run_watchdog = _load_sibling("run_watchdog")
+run_forensics = _load_sibling("run_forensics")
 
 
 def read_stack_spec(path: str, require_live: bool = True) -> dict:
@@ -439,6 +441,21 @@ def parse_args() -> argparse.Namespace:
         help="Seconds between watchdog polls",
     )
     parser.add_argument(
+        "--no-forensics",
+        dest="forensics",
+        action="store_false",
+        help="Disable per-run forensic capture: node logs into the run directory, crash "
+             "reports harvested from the apport spool, stack state at the moment of an "
+             "abort, and an environment record. On by default; a campaign that has to be "
+             "re-run because the evidence was discarded costs more than the disk",
+    )
+    parser.add_argument(
+        "--crash-dir",
+        type=str,
+        default=run_forensics.DEFAULT_CRASH_DIR,
+        help="Apport spool to harvest crash reports from after each episode",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print launch commands without executing them",
@@ -481,7 +498,8 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def launch_supervised(cmd, log_handle, watchdog, poll_interval_s=5.0, grace_s=20.0):
+def launch_supervised(cmd, log_handle, watchdog, poll_interval_s=5.0, grace_s=20.0,
+                      env=None, on_abort=None):
     """Run one launch under the watchdog.
 
     Returns ``(returncode, abort)``. ``abort`` is ``None`` when the launch ended on its own,
@@ -493,10 +511,11 @@ def launch_supervised(cmd, log_handle, watchdog, poll_interval_s=5.0, grace_s=20
     ``ros2 launch`` spawned, and stops short of the harness that owns the campaign.
     """
     process = subprocess.Popen(
-        cmd, stdout=log_handle, stderr=subprocess.STDOUT, start_new_session=True,
+        cmd, stdout=log_handle, stderr=subprocess.STDOUT, start_new_session=True, env=env,
     )
     abort = run_watchdog.supervise(
         process, watchdog, poll_interval_s=poll_interval_s, grace_s=grace_s,
+        on_abort=on_abort,
     )
     if abort is not None and process.returncode == 0:
         # A launch killed by signal can still report 0 if it exited between the abort
@@ -652,12 +671,41 @@ def run_benchmark(
         goals_total=args.goals,
     )
 
+    # Every node's rcl log goes into this episode's own directory rather than the shared
+    # ~/.ros/log, so a log found later is attributable to a cell by where it is rather than
+    # by matching timestamps. episode_start bounds the crash harvest below: reports older
+    # than it belong to an earlier run and are not evidence about this one.
+    episode_start = _time.time()
+    episode_env = None
+    on_abort = None
+    forensic_dir = report_dir / f"forensics_run_{episode_id}_{stamp}"
+    if args.forensics:
+        episode_env = run_forensics.episode_environment(
+            run_forensics.run_log_dir(report_dir, episode_id, stamp)
+        )
+
+        def on_abort(verdict):
+            """Photograph the stack while it is still standing.
+
+            Crash reports first: they are file operations that cannot block, and a core
+            dump is the artefact that actually solved the last failure. The stack probes
+            come second because they are the ones that can wait out a discovery timeout.
+            """
+            crashes = run_forensics.harvest_crash_reports(
+                forensic_dir, since=episode_start, crash_dir=args.crash_dir,
+            )
+            for crash in crashes:
+                logging.error("Forensics: crash report -> %s", crash)
+            state = run_forensics.capture_stack_state(forensic_dir, reason=verdict.reason)
+            logging.error("Forensics: stack state -> %s", state)
+
     try:
         with open(log_path, "w") as log_handle:
             log_handle.write(f"# {' '.join(cmd)}\n")
             log_handle.flush()
             returncode, abort = launch_supervised(
                 cmd, log_handle, watchdog, poll_interval_s=args.watchdog_interval,
+                env=episode_env, on_abort=on_abort,
             )
     finally:
         # Stop instrumentation on every path, including a failed or interrupted run.
@@ -672,6 +720,20 @@ def run_benchmark(
                     logging.warning("Monitor pid %d ignored SIGTERM; killing.", monitor.pid)
                     monitor.kill()
                     monitor.wait(timeout=5)
+
+    # After every episode, not only aborted ones. On 2026-08-01 planner_server segfaulted
+    # during run 4's final goal; all five rows were already written, so the harness called
+    # that run successful and moved on. The crash was the cause of everything that followed
+    # and nothing in the run's own directory recorded it.
+    if args.forensics:
+        crashes = run_forensics.harvest_crash_reports(
+            forensic_dir, since=episode_start, crash_dir=args.crash_dir,
+        )
+        for crash in crashes:
+            logging.error(
+                "CRASH: a process died during run %d and left %s. This run's data is "
+                "suspect even if its rows are complete.", episode_id, crash,
+            )
 
     if abort is not None:
         # Named, non-zero, and immediate. The failure this replaces was silent: the launch
@@ -718,6 +780,15 @@ def main() -> None:
     if not args.dry_run:
         report_dir.mkdir(parents=True, exist_ok=True)
         logging.info("Output directory: %s", report_dir)
+        if args.forensics:
+            env_path = run_forensics.write_environment(report_dir)
+            logging.info("Environment: %s", env_path)
+            if resource.getrlimit(resource.RLIMIT_CORE)[0] == 0:
+                logging.warning(
+                    "CORE LIMIT IS 0: a segfaulting node will leave no core dump. The "
+                    "2026-08-01 planner_server crash was only diagnosable because one "
+                    "was written. Run the campaign from a shell with 'ulimit -c unlimited'."
+                )
 
     logging.info(
         "Starting harness: %d episodes × %d goals, seed=%d",

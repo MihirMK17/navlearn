@@ -174,6 +174,17 @@ if(BUILD_TESTING)
     TIMEOUT 300
   )
 
+  # Per-run forensic capture. The 2026-08-01 segfault was solved from a core dump nobody
+  # had arranged to keep, which survived only because no second crash of the same
+  # executable overwrote it -- apport stores one report per binary and skips the write when
+  # one is present. Pins the invariant that makes moving reports out of the spool safe: the
+  # original is deleted only after the copy succeeded, so a failed harvest never destroys
+  # the only artefact of the failure being investigated. Also caps how long the probes may
+  # block the abort, since the launch is still alive while they run.
+  ament_add_pytest_test(test_run_forensics test/test_run_forensics.py
+    TIMEOUT 300
+  )
+
   # Terminal pose report reaching the metrics CSV. Publishes the three messages
   # MetricsCompiler needs and inspects the resulting row, so the whole contract-to-column
   # path is covered without a simulator. Guards against a header/row column mismatch,

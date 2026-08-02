@@ -17,15 +17,34 @@ metrics_compiler lifecycle_manager robot_state_publisher parameter_bridge \
 collision_monitor episode_manager_node rviz2 spawner scan_rate_governor scan_sanitizer \
 twist_mux joy_teleop controller_manager velocity_smoother waypoint_follower"
 
+# The kernel keeps 15 characters of a process name in /proc/PID/comm, so pgrep -x and
+# pkill -x match nothing at all for the 11 names above that are longer -- controller_server,
+# robot_state_publisher, lifecycle_manager and the rest. Teardown was therefore never
+# killing them by name and preflight was never seeing them: the environment could be
+# reported clean with the previous cell's controller_server still holding its DDS
+# endpoints. Truncating the pattern is what makes both checks match what the kernel stores.
+_comm() { printf '%.15s' "$1"; }
+
+# Say it once, keep it twice. The '###' lines are the only record of preflight verdicts,
+# teardown warnings and per-cell timing, and until now they existed solely on whatever
+# terminal happened to be open -- which is exactly the information missing from the
+# 2026-08-01 post-mortem. NAVLEARN_CELL_LOG is set per cell by run_cell.
+_say() {
+    printf '%s\n' "$*"
+    if [ -n "${NAVLEARN_CELL_LOG:-}" ]; then
+        printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >> "$NAVLEARN_CELL_LOG"
+    fi
+}
+
 # Kill everything a bringup starts, then WAIT until it is actually gone.
 navlearn_teardown() {
     local pid n deadline stale
     pid=$(pgrep -f "ros2 launch bumperbot_bringu[p]" | head -1) || true
     if [ -n "$pid" ]; then kill -INT "$pid" 2>/dev/null || true; fi
     sleep 8
-    for n in $NAVLEARN_NODES; do pkill -TERM -x "$n" 2>/dev/null || true; done
+    for n in $NAVLEARN_NODES; do pkill -TERM -x "$(_comm "$n")" 2>/dev/null || true; done
     sleep 5
-    for n in $NAVLEARN_NODES; do pkill -KILL -x "$n" 2>/dev/null || true; done
+    for n in $NAVLEARN_NODES; do pkill -KILL -x "$(_comm "$n")" 2>/dev/null || true; done
 
     # The part a fixed sleep cannot give: confirmation. Poll until no tracked process
     # remains, up to 60 s. gzserver/ruby holding the Ignition transport port is the
@@ -34,15 +53,15 @@ navlearn_teardown() {
     while [ $SECONDS -lt $deadline ]; do
         stale=0
         for n in $NAVLEARN_NODES; do
-            if pgrep -x "$n" >/dev/null 2>&1; then stale=1; break; fi
+            if pgrep -x "$(_comm "$n")" >/dev/null 2>&1; then stale=1; break; fi
         done
         if pgrep -f "ros2 launch bumperbot_bringu[p]" >/dev/null 2>&1; then stale=1; fi
         if [ "$stale" -eq 0 ]; then break; fi
         sleep 2
     done
     if [ "$stale" -ne 0 ]; then
-        echo "navlearn_teardown: WARNING - stale processes survived KILL:" >&2
-        for n in $NAVLEARN_NODES; do pgrep -x "$n" >/dev/null 2>&1 && echo "    $n" >&2; done
+        _say "navlearn_teardown: WARNING - stale processes survived KILL:"
+        for n in $NAVLEARN_NODES; do pgrep -x "$(_comm "$n")" >/dev/null 2>&1 && _say "    $n"; done
     fi
     # Settle for DDS discovery and the Ignition transport socket to actually close.
     sleep 10
@@ -54,8 +73,8 @@ navlearn_teardown() {
 navlearn_preflight() {
     local n dirty=0
     for n in $NAVLEARN_NODES; do
-        if pgrep -x "$n" >/dev/null 2>&1; then
-            echo "preflight: stale process '$n' still running" >&2
+        if pgrep -x "$(_comm "$n")" >/dev/null 2>&1; then
+            _say "preflight: stale process '$n' still running"
             dirty=1
         fi
     done
@@ -68,24 +87,34 @@ navlearn_preflight() {
 run_cell() {
     local dir="$1"; shift
     local -a harness_args=() launch_args=()
-    local seen_sep=0 arg
+    local seen_sep=0 arg rc=0
     for arg in "$@"; do
         if [ "$arg" = "--" ]; then seen_sep=1; continue; fi
         if [ $seen_sep -eq 0 ]; then harness_args+=("$arg"); else launch_args+=("$arg"); fi
     done
 
     rm -rf "$dir"; mkdir -p "$dir"
+    NAVLEARN_CELL_LOG="$dir/cell_runner.log"
 
     if ! navlearn_preflight; then
-        echo "### $dir: PREFLIGHT DIRTY - forcing teardown first"
+        _say "### $dir: PREFLIGHT DIRTY - forcing teardown first"
         navlearn_teardown
         if ! navlearn_preflight; then
-            echo "### $dir: environment still dirty after teardown; cell skipped"
+            _say "### $dir: environment still dirty after teardown; cell skipped"
             return 1
         fi
     fi
 
-    echo "### $dir: launching bringup  ($(date +%H:%M:%S))"
+    # A segfaulting node leaves a core only if the limit allows it. The 2026-08-01
+    # planner_server crash was diagnosable purely because one was written; the root cause
+    # was in the core and in nothing else that was kept.
+    ulimit -c unlimited 2>/dev/null || _say "### $dir: WARNING - cannot raise core limit"
+
+    _say "### $dir: launching bringup  ($(date +%H:%M:%S))"
+    # The bringup's own node logs land inside the cell rather than in the shared
+    # ~/.ros/log, so they are attributable to this cell by location.
+    mkdir -p "$dir/ros_logs/bringup"
+    ROS_LOG_DIR="$dir/ros_logs/bringup" \
     ros2 launch bumperbot_bringup simulated_robot.launch.py \
         world_name:=small_house headless:=true use_rviz:=false \
         "${launch_args[@]}" > "$dir/bringup.log" 2>&1 &
@@ -96,25 +125,41 @@ run_cell() {
         if [ "${n:-0}" -ge 2 ]; then break; fi
         # Fail fast on the race signature instead of waiting out the full deadline.
         if grep -q "Failed to bring up all requested nodes" "$dir/bringup.log" 2>/dev/null; then
-            echo "### $dir: BRINGUP ABORTED (lifecycle failure - the startup race signature)"
+            _say "### $dir: BRINGUP ABORTED (lifecycle failure - the startup race signature)"
             navlearn_teardown
             return 1
         fi
         sleep 4
     done
     if [ "${n:-0}" -lt 2 ]; then
-        echo "### $dir: BRINGUP TIMED OUT - cell skipped, not silently degraded"
+        _say "### $dir: BRINGUP TIMED OUT - cell skipped, not silently degraded"
         navlearn_teardown
         return 1
     fi
 
     # Overrides a plugin never declares are silently ignored by ROS 2; a probe would then
     # read as "no effect" when it was never applied.
-    echo "### $dir: stack active; undeclared-param warnings: $(grep -c 'not declared' "$dir/bringup.log" || true)"
+    _say "### $dir: stack active; undeclared-param warnings: $(grep -c 'not declared' "$dir/bringup.log" || true)"
 
     python3 -u src/navlearn_benchmarks/scripts/multi_run_harness.py \
         "${harness_args[@]}" --output-dir "$dir" > "$dir/harness.log" 2>&1
-    echo "### $dir: harness exit=$?  ($(date +%H:%M:%S))"
+    rc=$?
+
+    # The harness's exit code is the campaign's only machine-readable statement about
+    # whether this cell is analysable. It used to be echoed and thrown away, so a cell that
+    # died halfway looked from here exactly like one that finished.
+    case $rc in
+        0) _say "### $dir: harness OK  ($(date +%H:%M:%S))" ;;
+        2) _say "### $dir: INCOMPLETE - no metrics CSV (rc=2)" ;;
+        3) _say "### $dir: INCOMPLETE - short CSV, episode did not finish (rc=3)" ;;
+        4) _say "### $dir: ABORTED - watchdog: run stalled, no goal progress (rc=4)" ;;
+        5) _say "### $dir: ABORTED - watchdog: navigation stack died (rc=5)" ;;
+        *) _say "### $dir: INCOMPLETE - harness exit=$rc" ;;
+    esac
+    if [ $rc -ne 0 ]; then
+        _say "### $dir: reason in $dir/harness.log; cell must be re-run"
+    fi
+
     navlearn_teardown
-    return 0
+    return $rc
 }

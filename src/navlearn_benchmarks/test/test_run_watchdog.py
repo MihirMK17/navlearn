@@ -223,27 +223,42 @@ def test_completed_goals_is_zero_before_the_run_writes_anything(wd, tmp_path):
     assert wd.completed_goals(tmp_path / "not_written_yet.csv") == 0
 
 
-def test_dead_processes_is_empty_while_the_process_runs(wd):
+def _stand_in(tmp_path, name):
+    """A real executable with a chosen process name.
+
+    Named uniquely rather than reusing ``sleep``: any other process on the machine called
+    ``sleep`` -- a background wait, another campaign -- would satisfy the probe and the test
+    would pass or fail on what else happens to be running.
+    """
+    binary = tmp_path / name
+    binary.write_bytes(pathlib.Path("/bin/sleep").read_bytes())
+    binary.chmod(0o755)
+    return binary
+
+
+def test_dead_processes_is_empty_while_the_process_runs(wd, tmp_path):
     """The liveness probe must not cry wolf on a healthy stack."""
-    child = subprocess.Popen(["sleep", "30"])
+    binary = _stand_in(tmp_path, "navlearn_alive")
+    child = subprocess.Popen([str(binary), "30"])
     try:
         time.sleep(0.5)
-        assert wd.dead_processes(["sleep"], launch_pid=os.getpid()) == []
+        assert wd.dead_processes(["navlearn_alive"], launch_pid=os.getpid()) == []
     finally:
         child.kill()
         child.wait()
 
 
-def test_dead_processes_names_a_process_that_is_gone(wd):
+def test_dead_processes_names_a_process_that_is_gone(wd, tmp_path):
     """The name is the whole point: 'the run hung' is not a diagnosis."""
-    child = subprocess.Popen(["sleep", "30"])
+    binary = _stand_in(tmp_path, "navlearn_doomed")
+    child = subprocess.Popen([str(binary), "30"])
     child.kill()
     child.wait()
     time.sleep(0.5)
 
-    dead = wd.dead_processes(["sleep"], launch_pid=os.getpid())
+    dead = wd.dead_processes(["navlearn_doomed"], launch_pid=os.getpid())
 
-    assert dead == ["sleep"]
+    assert dead == ["navlearn_doomed"]
 
 
 def test_dead_processes_matches_a_name_longer_than_the_kernel_comm_limit(wd, tmp_path):
@@ -332,6 +347,47 @@ def test_supervise_kills_the_whole_process_group(wd):
     else:
         os.kill(grandchild, signal.SIGKILL)
         pytest.fail("grandchild survived the abort; only the launch process was killed")
+
+
+def test_supervise_captures_state_before_it_kills_the_launch(wd):
+    """Teardown is what makes a hang unreproducible.
+
+    Once the process group is signalled, the state that would have explained the failure is
+    gone. A forensic hook that runs after the kill records the aftermath, not the fault.
+    """
+    process = subprocess.Popen(["sleep", "300"], start_new_session=True)
+    observed = {}
+
+    class Stalled:
+        def poll(self):
+            return wd.Abort(wd.EXIT_STALLED, "stalled")
+
+    def on_abort(verdict):
+        observed["alive_when_called"] = process.poll() is None
+        observed["reason"] = verdict.reason
+
+    wd.supervise(process, Stalled(), poll_interval_s=0.05, grace_s=2.0, on_abort=on_abort)
+
+    assert observed["alive_when_called"] is True, "state was captured after the kill"
+    assert observed["reason"] == "stalled"
+
+
+def test_supervise_kills_the_launch_even_if_the_forensic_hook_raises(wd):
+    """A diagnostic that can fail must not become a second outage."""
+    process = subprocess.Popen(["sleep", "300"], start_new_session=True)
+
+    class Stalled:
+        def poll(self):
+            return wd.Abort(wd.EXIT_STALLED, "stalled")
+
+    def explode(_verdict):
+        raise RuntimeError("forensics blew up")
+
+    verdict = wd.supervise(process, Stalled(), poll_interval_s=0.05, grace_s=2.0,
+                           on_abort=explode)
+
+    assert verdict.code == wd.EXIT_STALLED
+    assert process.poll() is not None, "the hung launch survived a failing hook"
 
 
 # --- harness wiring ----------------------------------------------------------------
