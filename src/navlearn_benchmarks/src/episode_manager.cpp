@@ -704,19 +704,34 @@ void EpisodeManager::startPoseSequence(const rclcpp::Time & t)
   // 20-goal cells swinging 65% / 10% / 10% / 0% true success, with the collapsed cells'
   // localization error persisting 2.6-4.9 m across entire runs. Independence of episodes
   // must be constructed at every goal start, not inherited from the previous exit path.
+  // An unreadable estimate is corrected, not trusted. The old `have_est && ...` treated
+  // "cannot read the estimate TF" as "estimate is fine", which is exactly backwards --
+  // goal 0 of a fresh run, before AMCL has published, is both the moment the TF is most
+  // likely missing and the moment the filter is carrying another run's state. Measured
+  // in the 2026-08-02 pilot: run 2 goal 0 skipped correction this way and terminated
+  // 13.4 m from its goal as a false success after a 0.13 m kidnap.
   const bool need_correct =
-    have_est && needCorrection(gt_pose, est_pose);
+    !have_est || needCorrection(gt_pose, est_pose);
 
   correct_pose_msg_ = buildPoseWithCovariance(gt_pose, correct_cov_xy_, correct_cov_yaw_);
-  bad_pose_msg_ = buildPerturbedPose(gt_pose);
+  if (bad_init_test_) {
+    bad_pose_msg_ = buildPerturbedPose(gt_pose);
+  }
 
   pose_sequence_pending_ = true;
   pose_seq_started_at_ = this->get_clock()->now();
 
   if (need_correct) {
     pose_seq_stage_ = PoseSeqStage::SEND_CORRECT;
-  } else {
+  } else if (bad_init_test_) {
     pose_seq_stage_ = PoseSeqStage::SEND_BAD;
+  } else {
+    // Kidnap cell with an already-correct estimate: nothing to inject. The sequence's
+    // whole job here was the check that just passed.
+    pose_sequence_pending_ = false;
+    pose_seq_stage_ = PoseSeqStage::IDLE;
+    sendGoal();
+    return;
   }
 
   pose_stage_started_at_ = this->get_clock()->now();
@@ -756,15 +771,32 @@ void EpisodeManager::advancePoseSequence(const rclcpp::Time & t)
     case PoseSeqStage::WAIT_CORRECT_APPLIED:
     {
       if ((now - pose_stage_started_at_).seconds() > pose_apply_timeout_sec_) {
-        RCLCPP_WARN(get_logger(), "Correct pose apply timed out (%.2fs). Proceeding to BAD injection.", pose_apply_timeout_sec_);
-        pose_seq_stage_ = PoseSeqStage::SEND_BAD;
-        pose_stage_started_at_ = now;
+        if (bad_init_test_) {
+          RCLCPP_WARN(get_logger(), "Correct pose apply timed out (%.2fs). Proceeding to BAD injection.", pose_apply_timeout_sec_);
+          pose_seq_stage_ = PoseSeqStage::SEND_BAD;
+          pose_stage_started_at_ = now;
+        } else {
+          // Kidnap cell: there is no next stage to absorb the failure, and holding the
+          // goal hostage to a publish that is not landing would stall the run. The goal
+          // proceeds on a possibly-wrong estimate and the WARN is the record of it.
+          RCLCPP_WARN(get_logger(), "Goal-start correction apply timed out (%.2fs). Sending goal on the uncorrected estimate.", pose_apply_timeout_sec_);
+          pose_sequence_pending_ = false;
+          pose_seq_stage_ = PoseSeqStage::IDLE;
+          sendGoal();
+        }
         return;
       }
 
       if (isInitialPoseApplied(pose_wait_target_)) {
-        pose_seq_stage_ = PoseSeqStage::SEND_BAD;
-        pose_stage_started_at_ = now;
+        if (bad_init_test_) {
+          pose_seq_stage_ = PoseSeqStage::SEND_BAD;
+          pose_stage_started_at_ = now;
+        } else {
+          RCLCPP_INFO(get_logger(), "Goal-start correction applied (kidnap cell). Sending goal.");
+          pose_sequence_pending_ = false;
+          pose_seq_stage_ = PoseSeqStage::IDLE;
+          sendGoal();
+        }
       }
       return;
     }
@@ -1154,7 +1186,14 @@ void EpisodeManager::timerCallback() {
     return;
   }
 
-  if (!bad_init_test_) {
+  // Kidnap cells run the pose sequence too -- correction only, no bad injection. The
+  // old `!bad_init_test_` gate silently exempted TTR from the every-goal correction that
+  // 27514a9 introduced, so every kidnap landed on whatever estimate the previous goal's
+  // recovery left behind, and goal 0 inherited it across runs through the shared bringup.
+  // Measured on leg 2 (2026-08-02): median terminal ground-truth error 4.6 m at kidnaps
+  // under 5 cm, which is inherited drift, not kidnap response. A kidnap is attributable
+  // to itself only if the filter is correct when it fires.
+  if (!bad_init_test_ && !kidnap_enabled_) {
     sendGoal();
     return;
   }
