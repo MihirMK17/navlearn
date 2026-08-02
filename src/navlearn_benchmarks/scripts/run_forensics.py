@@ -131,6 +131,34 @@ def _command(argv, timeout=10) -> str:
     return (result.stdout or "") + (result.stderr or "")
 
 
+#: Packages this workspace may shadow with a vendored, patched copy. A dpkg version is a
+#: lie the moment an overlay is in front of it, and a result taken against a patched stack
+#: that does not say so cannot be reproduced by anyone reading the record.
+OVERLAY_CANDIDATES = ("nav2_smac_planner",)
+
+
+def _overlay_locations() -> dict:
+    """Report where each overridable package actually resolves from.
+
+    AMENT_PREFIX_PATH is ordered most-specific-first, so the first prefix containing the
+    package is the one ROS will load. Anything outside /opt/ros is an overlay.
+    """
+    prefixes = [p for p in os.environ.get("AMENT_PREFIX_PATH", "").split(":") if p]
+    located = {}
+    for package in OVERLAY_CANDIDATES:
+        located[package] = None
+        for prefix in prefixes:
+            marker = pathlib.Path(prefix) / "share" / "ament_index" / \
+                "resource_index" / "packages" / package
+            if marker.exists():
+                located[package] = {
+                    "prefix": prefix,
+                    "overlay": not prefix.startswith("/opt/ros"),
+                }
+                break
+    return located
+
+
 def environment_snapshot() -> dict:
     """Record what the stack under test was built from.
 
@@ -146,6 +174,7 @@ def environment_snapshot() -> dict:
 
     soft, hard = resource.getrlimit(resource.RLIMIT_CORE)
     return {
+        "overlays": _overlay_locations(),
         "captured_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "kernel": platform.release(),
         "platform": platform.platform(),

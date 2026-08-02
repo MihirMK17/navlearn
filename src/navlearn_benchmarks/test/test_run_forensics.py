@@ -143,6 +143,22 @@ def test_environment_snapshot_records_what_the_stack_was_built_from(fx):
     assert snapshot["nav2_versions"], "no nav2 package versions captured"
 
 
+def test_environment_snapshot_records_overridden_packages(fx):
+    """A dpkg version is a lie when a workspace overlay shadows the installed package.
+
+    nav2_smac_planner is vendored and patched in this workspace. environment.json reporting
+    only 'ros-humble-nav2-smac-planner 1.1.18-1jammy' would describe a stack that is not the
+    one running, and every result taken against it would be unreproducible by anyone
+    reading the record.
+    """
+    snapshot = fx.environment_snapshot()
+
+    assert "overlays" in snapshot
+    assert "nav2_smac_planner" in snapshot["overlays"]
+    location = snapshot["overlays"]["nav2_smac_planner"]
+    assert location, "the resolved location of an overridden package was not recorded"
+
+
 def test_environment_snapshot_is_json_serialisable(fx, tmp_path):
     """It is written to disk beside the metrics; a non-serialisable value loses all of it."""
     import json
