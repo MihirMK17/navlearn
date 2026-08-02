@@ -21,6 +21,13 @@ set -uo pipefail
 
 CAMPAIGN_DIR="${1:?usage: campaign_watchdog.sh <campaign_dir> <process_pattern>}"
 PATTERN="${2:?usage: campaign_watchdog.sh <campaign_dir> <process_pattern>}"
+
+# The pattern appears verbatim in this script's own command line, so a plain `pgrep -f`
+# matches the watchdog itself and the campaign reads as running forever -- observed on
+# 2026-08-02, when the leg 2 watchdog outlived the campaign it was watching and never said
+# FINISHED. Bracketing the last character makes the regex match the campaign's command
+# line but not the literal pattern carried in our own.
+PATTERN="${PATTERN%?}[${PATTERN: -1}]"
 STALL_S="${STALL_S:-900}"      # node output silent this long = something is wrong
 POLL_S="${POLL_S:-120}"
 
