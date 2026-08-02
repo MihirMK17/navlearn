@@ -55,6 +55,7 @@ Usage:
 """
 
 import argparse
+import importlib.util
 import json
 import logging
 import os
@@ -66,6 +67,24 @@ import time
 DEFAULT_STACK_SPEC = os.path.join(
     os.path.expanduser("~"), ".navlearn", "current_stack_spec.json"
 )
+
+
+def _load_sibling(name: str):
+    """Import a module from this scripts directory by path.
+
+    The scripts directory is not an installed Python package -- the harness is executed as
+    a file, not imported -- so a plain ``import`` would resolve against whatever happens to
+    be on sys.path.
+    """
+    spec = importlib.util.spec_from_file_location(
+        name, str(pathlib.Path(__file__).parent / f"{name}.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+run_watchdog = _load_sibling("run_watchdog")
 
 
 def read_stack_spec(path: str, require_live: bool = True) -> dict:
@@ -394,6 +413,31 @@ def parse_args() -> argparse.Namespace:
         default=5.0,
         help="Seconds to sleep between runs (allows ROS cleanup)",
     )
+    # Watchdog. The slowest goal in the leg 1 campaign (n=360) took 205.8 s, median 30.5 s,
+    # p99 176.3 s. Both budgets clear that by a wide margin on purpose: the slowest goals
+    # are the hardest ones, and a watchdog that culls them would bias every rate in the
+    # paper toward the conditions that happen to run fast. The budget exists to bound a
+    # hang, not to police a slow cell.
+    parser.add_argument(
+        "--goal-timeout",
+        type=float,
+        default=600.0,
+        help="Seconds without a completed goal before the run is declared hung. Measured "
+             "from the previous goal's completion, not from the start of the run",
+    )
+    parser.add_argument(
+        "--startup-timeout",
+        type=float,
+        default=900.0,
+        help="Seconds allowed for node startup plus the first goal, which is not a goal "
+             "cycle and must not be timed as one",
+    )
+    parser.add_argument(
+        "--watchdog-interval",
+        type=float,
+        default=5.0,
+        help="Seconds between watchdog polls",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -421,7 +465,45 @@ def parse_args() -> argparse.Namespace:
             "Then run this harness with no stack argument at all."
         )
 
+    # A non-positive budget would read as "watchdog off", which is exactly the
+    # configuration that cost 8 h 14 m on 2026-08-01. There is no supported way to
+    # disable it; a cell that needs longer says so with a larger number.
+    for flag, value in (("--goal-timeout", args.goal_timeout),
+                        ("--startup-timeout", args.startup_timeout),
+                        ("--watchdog-interval", args.watchdog_interval)):
+        if value <= 0:
+            parser.error(
+                f"{flag} must be positive, got {value}. The watchdog cannot be disabled: "
+                "an unsupervised run that hangs produces no event for anything to notice, "
+                "which is how a 24-episode cell became an 8-hour wait."
+            )
+
     return args
+
+
+def launch_supervised(cmd, log_handle, watchdog, poll_interval_s=5.0, grace_s=20.0):
+    """Run one launch under the watchdog.
+
+    Returns ``(returncode, abort)``. ``abort`` is ``None`` when the launch ended on its own,
+    in which case the return code is the launch's and the behaviour is identical to the
+    ``subprocess.run`` call this replaced.
+
+    ``start_new_session`` puts the launch in its own process group. That is what makes the
+    abort safe to escalate: the watchdog signals the group, so it reaches the nodes
+    ``ros2 launch`` spawned, and stops short of the harness that owns the campaign.
+    """
+    process = subprocess.Popen(
+        cmd, stdout=log_handle, stderr=subprocess.STDOUT, start_new_session=True,
+    )
+    abort = run_watchdog.supervise(
+        process, watchdog, poll_interval_s=poll_interval_s, grace_s=grace_s,
+    )
+    if abort is not None and process.returncode == 0:
+        # A launch killed by signal can still report 0 if it exited between the abort
+        # decision and the signal. Reporting success for a cell we chose to kill would put
+        # a truncated run into the campaign as a complete one.
+        return abort.code, abort
+    return process.returncode, abort
 
 
 def run_benchmark(
@@ -555,11 +637,28 @@ def run_benchmark(
     log_path = pathlib.Path(str(prefix).format("nodes")).with_suffix(".log")
     logging.info("LOG  --> %s", log_path)
 
+    # The supervisor. Progress is read from the metrics CSV this run is writing; liveness
+    # from the nav2 server processes plus the bringup that owns them. Both are external to
+    # the launch on purpose -- a launch that has stopped working is exactly the thing that
+    # cannot be asked whether it is still working.
+    watchdog = run_watchdog.RunWatchdog(
+        progress=lambda: run_watchdog.completed_goals(csv_path),
+        liveness=lambda: run_watchdog.dead_processes(
+            run_watchdog.REQUIRED_STACK_PROCESSES,
+            launch_pid=stack_spec.get("launch_pid"),
+        ),
+        goal_timeout_s=args.goal_timeout,
+        startup_timeout_s=args.startup_timeout,
+        goals_total=args.goals,
+    )
+
     try:
         with open(log_path, "w") as log_handle:
             log_handle.write(f"# {' '.join(cmd)}\n")
             log_handle.flush()
-            result = subprocess.run(cmd, stdout=log_handle, stderr=subprocess.STDOUT)
+            returncode, abort = launch_supervised(
+                cmd, log_handle, watchdog, poll_interval_s=args.watchdog_interval,
+            )
     finally:
         # Stop instrumentation on every path, including a failed or interrupted run.
         # SIGTERM is each monitor's cue to write its record, so they must be given the
@@ -574,12 +673,25 @@ def run_benchmark(
                     monitor.kill()
                     monitor.wait(timeout=5)
 
-    if result.returncode != 0:
+    if abort is not None:
+        # Named, non-zero, and immediate. The failure this replaces was silent: the launch
+        # stayed up with a dead stack behind it and the harness waited on it for hours.
+        logging.error(
+            "Run %d/%d ABORTED BY WATCHDOG after %d/%d goals: %s",
+            episode_id, args.episodes, watchdog.completed, args.goals, abort.reason,
+        )
+        logging.error("Node output: %s", log_path)
+        logging.error(
+            "The cell is incomplete and its runs must not be analysed as a finished cell."
+        )
+        sys.exit(abort.code)
+
+    if returncode != 0:
         logging.error(
             "Run %d/%d failed with exit code %d. Node output: %s",
-            episode_id, args.episodes, result.returncode, log_path,
+            episode_id, args.episodes, returncode, log_path,
         )
-        sys.exit(result.returncode)
+        sys.exit(returncode)
 
     _log_compute_verdict(pathlib.Path(str(prefix).format("compute")))
     _log_rate_verdict(pathlib.Path(str(prefix).format("rates")))

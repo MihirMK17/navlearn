@@ -162,6 +162,18 @@ if(BUILD_TESTING)
     TIMEOUT 300
   )
 
+  # Unattended-run watchdog. The harness previously waited on the per-episode launch with
+  # subprocess.run, which is correct for every ending except the one that happened: a
+  # segfaulted planner_server, a stack reset by the lifecycle manager, and a launch that
+  # stayed up forever with nothing left to drive it -- 8 h 14 m for 5 of 72 runs. Pins the
+  # two detectors, the exit codes a campaign script reads them by, and the property that
+  # makes the abort safe: the kill reaches the launch's children and stops at the harness.
+  # Also pins that the budgets clear the slowest goal leg 1 actually measured, because a
+  # watchdog that culls slow goals silently biases every rate in the paper.
+  ament_add_pytest_test(test_run_watchdog test/test_run_watchdog.py
+    TIMEOUT 300
+  )
+
   # Terminal pose report reaching the metrics CSV. Publishes the three messages
   # MetricsCompiler needs and inspects the resulting row, so the whole contract-to-column
   # path is covered without a simulator. Guards against a header/row column mismatch,
