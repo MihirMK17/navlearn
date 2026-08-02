@@ -89,6 +89,23 @@ if [ "${patch_hits:-0}" -eq 0 ]; then
 fi
 echo "OK - $SMAC_2D_LIB carries the patch"
 
+# Gate 2: the goal-start correction must be in the binary that will actually run.
+#
+# Without it, TTR goals inherit the previous goal's filter error and each kidnap lands on
+# an already-lost robot -- the defect that invalidated the 2026-08-01 leg 2 (median 4.6 m
+# terminal error at sub-5 cm kidnaps). It is invisible in every log until the analysis
+# runs, so it is checked here instead of discovered afterwards. The node is a registered
+# component, so the string lives in libepisode_manager.so, not in the executable.
+EM_LIB="$HOME/robot_ws/install/navlearn_benchmarks/lib/libepisode_manager.so"
+corr_hits=$(strings -a "$EM_LIB" 2>/dev/null | grep -c "Goal-start correction applied" || true)
+if [ "${corr_hits:-0}" -eq 0 ]; then
+    echo "FATAL: $EM_LIB has no goal-start correction. Kidnap cells would inherit the"
+    echo "previous goal's filter error and the whole leg would be unusable. Rebuild:"
+    echo "  colcon build --packages-select navlearn_benchmarks --symlink-install"
+    exit 1
+fi
+echo "OK - episode_manager carries the goal-start correction"
+
 # --- The three arms ---------------------------------------------------------------
 #
 # Same seed for every arm, so all three face identical goals, identical kidnap magnitudes
