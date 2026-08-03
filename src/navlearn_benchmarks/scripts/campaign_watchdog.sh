@@ -22,12 +22,65 @@ set -uo pipefail
 CAMPAIGN_DIR="${1:?usage: campaign_watchdog.sh <campaign_dir> <process_pattern>}"
 PATTERN="${2:?usage: campaign_watchdog.sh <campaign_dir> <process_pattern>}"
 
-# The pattern appears verbatim in this script's own command line, so a plain `pgrep -f`
-# matches the watchdog itself and the campaign reads as running forever -- observed on
-# 2026-08-02, when the leg 2 watchdog outlived the campaign it was watching and never said
-# FINISHED. Bracketing the last character makes the regex match the campaign's command
-# line but not the literal pattern carried in our own.
-PATTERN="${PATTERN%?}[${PATTERN: -1}]"
+# The pattern is passed as an argument, so it sits verbatim in this script's own argv and
+# `pgrep -f` matches the watchdog itself -- the campaign then reads as running forever.
+#
+# Bracketing the pattern does NOT fix this, which is the trap: the bracketed regex
+# "leg2_ttr_campaig[n]" still matches the raw "leg2_ttr_campaign" carried in our own
+# command line. Observed 2026-08-02: the leg 2 watchdog outlived a campaign that had
+# finished 15 minutes earlier and reported STALLED instead of FINISHED.
+#
+# The only reliable fix is identity, not pattern shape: ignore our own PID and our own
+# children (the transient subshells pgrep itself spawns).
+#
+# Ancestors are excluded for the same reason as self: the shell that launched this
+# watchdog necessarily typed the pattern on its own command line, so it matches too.
+# Descendants are excluded because the command substitution below forks a copy of this
+# shell, inheriting our argv.
+_ancestors() {
+    local p=$$ ppid
+    while [ -n "$p" ] && [ "$p" != "1" ] && [ "$p" != "0" ]; do
+        printf '%s ' "$p"
+        ppid=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+        [ "$ppid" = "$p" ] && break
+        p=$ppid
+    done
+}
+
+# Skip ourselves and our ancestors BY PID, and skip our own direct forks (the command
+# substitution below clones this shell, argv included).
+#
+# Only ppid == $$ is skipped, never "ppid is an ancestor": the campaign is normally a
+# SIBLING of this watchdog, launched by the same shell, so excluding everything parented
+# by an ancestor would skip the one process we exist to watch. That mistake made the
+# watchdog report a running campaign as gone within four seconds of arming.
+_campaign_alive() {
+    local p ppid skip cmd
+    skip=" $(_ancestors) "
+    for p in $(pgrep -f "$PATTERN" 2>/dev/null); do
+        # Ourselves and the shell that launched us: both necessarily carry the pattern.
+        case "$skip" in *" $p "*) continue ;; esac
+
+        # Re-read the candidate from /proc and require it to still be a live process whose
+        # command line still contains the pattern.
+        #
+        # pgrep forks to run, and that fork inherits our argv; by the time the loop body
+        # executes it has already exited, leaving a PID whose ppid reads empty. Comparing
+        # that empty value against $$ never matched, so the watchdog saw a phantom campaign
+        # and reported a finished run as still running -- indefinitely. Validating against
+        # /proc closes the race and also rejects a PID recycled onto something unrelated.
+        cmd=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null) || continue
+        [ -z "$cmd" ] && continue
+        case "$cmd" in *"$PATTERN"*) ;; *) continue ;; esac
+
+        # Our own direct forks, for the same argv-inheritance reason.
+        ppid=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+        [ "$ppid" = "$$" ] && continue
+
+        return 0
+    done
+    return 1
+}
 STALL_S="${STALL_S:-900}"      # node output silent this long = something is wrong
 POLL_S="${POLL_S:-120}"
 
@@ -47,7 +100,7 @@ last_crash_count=0
 while true; do
     sleep "$POLL_S"
 
-    if ! pgrep -f "$PATTERN" >/dev/null 2>&1; then
+    if ! _campaign_alive; then
         if grep -q "campaign complete" "$CAMPAIGN_DIR/campaign.log" 2>/dev/null; then
             alert "FINISHED: campaign completed and exited cleanly"
         else
