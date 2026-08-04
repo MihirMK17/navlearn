@@ -188,6 +188,13 @@ private:
     /// realised displacement because the curve is fitted against the commanded value
     /// while the predictor comparison uses what the robot actually experienced.
     double kidnap_commanded_magnitude_m_ = -1.0;
+
+    // The yaw-curve leg (PROTOCOL amendment 2026-08-03): teleport in place, rotation is
+    // the swept variable. Null sampler in "preserve" mode, where heading carries through.
+    std::string kidnap_yaw_mode_;
+    double kidnap_yaw_min_rad_;
+    double kidnap_yaw_max_rad_;
+    std::unique_ptr<navlearn::MagnitudeSampler> yaw_sampler_;
     double kidnap_z_;
     int kidnap_max_sample_tries_;
 

@@ -58,6 +58,7 @@ import argparse
 import importlib.util
 import json
 import logging
+import math
 import os
 import pathlib
 import resource
@@ -312,6 +313,28 @@ def _parse_magnitude_curve(spec: str) -> tuple:
     return lo, hi
 
 
+def _parse_yaw_curve(spec: str) -> tuple:
+    """Parse a MIN:MAX yaw range in degrees for the yaw-curve leg.
+
+    Zero is a legitimate lower bound here (unlike displacement on a log scale): the
+    sweep is linear and an unrotated teleport anchors the curve's ceiling the same way
+    a below-map-resolution displacement anchors the distance sweep's.
+    """
+    try:
+        lo_text, hi_text = spec.split(":", 1)
+        lo, hi = float(lo_text), float(hi_text)
+    except ValueError:
+        raise SystemExit(
+            f"--yaw-curve expects MIN:MAX in degrees, e.g. 0:180; got {spec!r}")
+    if lo < 0.0 or hi > 180.0:
+        raise SystemExit(
+            f"--yaw-curve range [{lo}, {hi}] must lie inside [0, 180] degrees; "
+            "|yaw change| beyond 180 is the same rotation from the other side")
+    if hi < lo:
+        raise SystemExit(f"--yaw-curve maximum {hi} is below its minimum {lo}")
+    return lo, hi
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="NavLearn multi-run benchmark harness",
@@ -375,6 +398,15 @@ def parse_args() -> argparse.Namespace:
         help="Spacing of the curve draws. Log by default: a displacement sweep spans an "
              "order of magnitude, and uniform-in-metres leaves the onset of degradation "
              "-- the part the curve exists to locate -- sparsely covered",
+    )
+    parser.add_argument(
+        "--yaw-curve",
+        metavar="MIN:MAX",
+        help="The yaw-curve leg (PROTOCOL amendment 2026-08-03): draw each goal's kidnap "
+             "ROTATION from a continuous range in DEGREES, e.g. 0:180, with displacement "
+             "pinned to zero (teleport in place). ttr only. Linear-uniform, sign drawn "
+             "per goal from its own seed stream. Mutually exclusive with "
+             "--magnitude-curve: exactly one variable moves per leg",
     )
     parser.add_argument(
         "--expected-scan-hz",
@@ -610,6 +642,14 @@ def run_benchmark(
             f"{prefix}_magnitude_scale:={args.magnitude_scale}",
         ]
 
+    if args.yaw_curve:
+        lo_deg, hi_deg = _parse_yaw_curve(args.yaw_curve)
+        cmd += [
+            "kidnap_yaw_mode:=curve",
+            f"kidnap_yaw_min_rad:={math.radians(lo_deg)}",
+            f"kidnap_yaw_max_rad:={math.radians(hi_deg)}",
+        ]
+
     cmd.extend(args.extra_arg)
 
     if args.dry_run:
@@ -628,6 +668,7 @@ def run_benchmark(
         "perturbation_level": args.perturbation_level,
         "magnitude_curve": args.magnitude_curve,
         "magnitude_scale": args.magnitude_scale if args.magnitude_curve else None,
+        "yaw_curve_deg": args.yaw_curve,
         "goals": args.goals,
         "goal_source": args.goal_source,
         "extra_args": list(args.extra_arg),
@@ -801,6 +842,14 @@ def main() -> None:
     )
 
     args = parse_args()
+
+    # One variable moves per leg. Refused before any machine time is spent: a cell that
+    # swept displacement and rotation at once could attribute its outcome to neither.
+    if args.yaw_curve and args.magnitude_curve:
+        raise SystemExit("--yaw-curve and --magnitude-curve are mutually exclusive")
+    if args.yaw_curve and args.perturbation != "ttr":
+        raise SystemExit("--yaw-curve is a kidnap sweep; it requires --perturbation ttr")
+
     report_dir = pathlib.Path(args.output_dir)
 
     # Establish what is actually running before spending machine time on it. A stale or

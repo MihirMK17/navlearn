@@ -98,7 +98,7 @@ def _read_localization(paths) -> dict:
     return metrics
 
 
-def load_arm(arm_dir, expect_goals=None) -> list:
+def load_arm(arm_dir, expect_goals=None, magnitude_field="displacement") -> list:
     """Load one arm directory into per-goal records, refusing partial data.
 
     A short arm silently analysed is how a crashed campaign becomes a result, which is
@@ -137,9 +137,16 @@ def load_arm(arm_dir, expect_goals=None) -> list:
                 # under this reading, and PROTOCOL.md defines it this way).
                 truly_there = distance <= tolerance
                 ttr = loc.get(row["Goal_ID"], {})
+                # The yaw-curve leg's independent variable is the rotation, not the
+                # displacement (which is pinned to zero by design). |value|: the sign is
+                # a direction, the severity is the angle.
+                if magnitude_field == "yaw_change":
+                    magnitude = abs(float(row["Kidnap Yaw Change (deg)"]))
+                else:
+                    magnitude = float(row["Kidnap Displacement (m)"])
                 goals.append(Goal(
                     goal_id=row["Goal_ID"],
-                    magnitude=float(row["Kidnap Displacement (m)"]),
+                    magnitude=magnitude,
                     reported=reported,
                     true_success=truly_there,
                     false_success=reported and not truly_there,
@@ -182,6 +189,13 @@ def log_bin_edges(lo: float, hi: float, bins: int) -> list:
     return [lo * ratio ** k for k in range(bins + 1)]
 
 
+def linear_bin_edges(lo: float, hi: float, bins: int) -> list:
+    """Bin edges uniform in the value. The yaw-curve leg samples linearly and its
+    range starts at zero, which has no logarithm."""
+    step = (hi - lo) / bins
+    return [lo + step * k for k in range(bins + 1)]
+
+
 def binned(goals, edges) -> list:
     """Per-bin summaries. Half-open [lo, hi) bins; the last bin closed so hi is kept."""
     out = []
@@ -211,9 +225,10 @@ def _fmt(value, width=6, digits=1):
     return f"{value:.{digits}f}".rjust(width)
 
 
-def build_report(arms: dict, lo: float, hi: float, bins: int = 4) -> str:
+def build_report(arms: dict, lo: float, hi: float, bins: int = 4,
+                 bin_scale: str = "log") -> str:
     """One self-describing markdown report for every arm."""
-    edges = log_bin_edges(lo, hi, bins)
+    edges = (linear_bin_edges if bin_scale == "linear" else log_bin_edges)(lo, hi, bins)
     lines = [
         "# Curve campaign analysis",
         "",
@@ -288,22 +303,34 @@ def main() -> None:
         help="Commanded magnitude range of the sweep, e.g. 0.01:3.0")
     parser.add_argument("--bins", type=int, default=4)
     parser.add_argument(
+        "--magnitude-field", choices=("displacement", "yaw_change"),
+        default="displacement",
+        help="Which column is the sweep's independent variable: the kidnap displacement "
+             "(legs 1/2) or |Kidnap Yaw Change (deg)| (the yaw-curve leg, PROTOCOL A3)")
+    parser.add_argument(
+        "--bin-scale", choices=("log", "linear"), default="log",
+        help="Bin spacing. The yaw leg samples linearly from zero, which has no log")
+    parser.add_argument(
         "--expect-goals", type=int, default=None,
         help="Total goals per arm incl. attrition; refuses a partial arm when set")
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
     lo, hi = (float(x) for x in args.range.split(":", 1))
+    if args.bin_scale == "log" and lo <= 0.0:
+        sys.exit("FATAL: log bins need a positive range minimum; use --bin-scale linear")
     arms = {}
     for spec in args.arm:
         name, _, directory = spec.partition("=")
         if not directory:
             sys.exit(f"--arm expects NAME=DIR, got {spec!r}")
-        arms[name] = load_arm(directory, expect_goals=args.expect_goals)
+        arms[name] = load_arm(directory, expect_goals=args.expect_goals,
+                              magnitude_field=args.magnitude_field)
 
     out = pathlib.Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    report = build_report(arms, lo=lo, hi=hi, bins=args.bins)
+    report = build_report(arms, lo=lo, hi=hi, bins=args.bins,
+                          bin_scale=args.bin_scale)
     (out / "summary.md").write_text(report + "\n")
     write_per_goal_csv(arms, out / "per_goal.csv")
     print(report)

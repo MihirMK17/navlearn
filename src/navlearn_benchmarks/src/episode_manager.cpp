@@ -183,6 +183,49 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
     throw std::invalid_argument("invalid kidnap_magnitude_mode");
   }
 
+  // The yaw-curve leg: displacement pinned to zero, the rotation is the swept variable.
+  // Exactly one variable moves per leg — the rule whose violation invalidated the second
+  // leg 2 collection — so a cell asking for both curves at once is refused outright.
+  kidnap_yaw_mode_ =
+    this->declare_parameter<std::string>("kidnap_yaw_mode", "preserve");
+  kidnap_yaw_min_rad_ =
+    this->declare_parameter<double>("kidnap_yaw_min_rad", 0.0);
+  kidnap_yaw_max_rad_ =
+    this->declare_parameter<double>("kidnap_yaw_max_rad", M_PI);
+
+  if (kidnap_yaw_mode_ != "preserve" && kidnap_yaw_mode_ != "curve") {
+    RCLCPP_FATAL(get_logger(),
+      "kidnap_yaw_mode must be 'preserve' or 'curve', got '%s'. Refusing to run: a "
+      "misspelled mode silently running the wrong experiment is how campaigns die.",
+      kidnap_yaw_mode_.c_str());
+    throw std::invalid_argument("invalid kidnap_yaw_mode");
+  }
+
+  if (kidnap_yaw_mode_ == "curve") {
+    if (kidnap_magnitude_mode_ == "curve") {
+      RCLCPP_FATAL(get_logger(),
+        "kidnap_yaw_mode=curve and kidnap_magnitude_mode=curve together sweep two "
+        "variables at once; neither could be attributed. Pick one.");
+      throw std::invalid_argument("yaw curve and magnitude curve are mutually exclusive");
+    }
+    if (kidnap_yaw_min_rad_ < 0.0 || kidnap_yaw_max_rad_ > M_PI ||
+      kidnap_yaw_max_rad_ < kidnap_yaw_min_rad_)
+    {
+      RCLCPP_FATAL(get_logger(),
+        "kidnap yaw curve range [%.3f, %.3f] rad is not inside [0, pi] or is inverted",
+        kidnap_yaw_min_rad_, kidnap_yaw_max_rad_);
+      throw std::invalid_argument("invalid kidnap yaw curve range");
+    }
+    // Linear, not log: the range does not span an order of magnitude in any meaningful
+    // sense (zero is a legitimate and important lower bound), and 0 has no logarithm.
+    yaw_sampler_ = std::make_unique<navlearn::MagnitudeSampler>(
+      kidnap_yaw_min_rad_, kidnap_yaw_max_rad_, navlearn::MagnitudeScale::LINEAR);
+    RCLCPP_INFO(get_logger(),
+      "Kidnap severity: YAW CURVE, linear-uniform over [%.1f, %.1f] deg, displacement "
+      "pinned to ZERO (teleport in place), sign drawn per goal from its own stream.",
+      kidnap_yaw_min_rad_ * 180.0 / M_PI, kidnap_yaw_max_rad_ * 180.0 / M_PI);
+  }
+
   if (kidnap_magnitude_mode_ == "curve") {
     const auto scale = (kidnap_magnitude_scale_ == "linear")
                          ? navlearn::MagnitudeScale::LINEAR
@@ -1121,6 +1164,42 @@ void EpisodeManager::maybeKidnap(const rclcpp::Time & now)
     const double band = std::max(0.0, kidnap_magnitude_band_);
     ring_min = kidnap_commanded_magnitude_m_ * (1.0 - band);
     ring_max = kidnap_commanded_magnitude_m_ * (1.0 + band);
+  }
+
+  // The yaw-curve leg teleports IN PLACE: position is the reference position, verbatim,
+  // and only the heading changes. No map sampling — the robot's own footprint is free
+  // space by construction, so the kidnap cannot fail for want of a valid pose and every
+  // goal in the sweep carries its perturbation. Displacement is commanded zero, and the
+  // realised displacement recoverable from the event's reference/kidnap pose pair is
+  // zero up to the simulator's set-pose fidelity.
+  if (yaw_sampler_) {
+    const double yaw_mag = yaw_sampler_->sample(
+      seedFor(navlearn::seed::Stream::KIDNAP_YAW_MAGNITUDE, idx_));
+    std::mt19937_64 sign_gen(seedFor(navlearn::seed::Stream::KIDNAP_YAW_SIGN, idx_));
+    const bool positive = (sign_gen() & 1ULL) != 0ULL;
+
+    geometry_msgs::msg::Pose in_place = ref_pose.pose;
+    in_place.position.z = kidnap_z_;
+    tf2::Quaternion q;
+    q.setRPY(0.0, 0.0, navlearn::kidnapYawCurve(
+        tf2::getYaw(ref_pose.pose.orientation), yaw_mag, positive));
+    in_place.orientation = tf2::toMsg(q);
+
+    kidnap_commanded_magnitude_m_ = 0.0;
+    kidnap_attempt_id_ = makeUUID_(static_cast<uint32_t>(
+      seedFor(navlearn::seed::Stream::ATTEMPT_ID, idx_)));
+    kidnap_event_time_ = now;
+    kidnap_target_pose_ = in_place;
+
+    if (!setEntityPose_(in_place.position.x, in_place.position.y, in_place.position.z,
+      tf2::getYaw(in_place.orientation)))
+    {
+      publishKidnapEvent_(false);
+      kidnap_stage_ = KidnapStage::DONE;
+      return;
+    }
+    kidnap_stage_ = KidnapStage::WAIT_SERVICE_RESPONSE;
+    return;
   }
 
   geometry_msgs::msg::Pose target;

@@ -63,6 +63,63 @@ TEST(KidnapYaw, is_independent_of_displacement_magnitude)
   }
 }
 
+// --- The yaw-curve leg (PROTOCOL amendment 2026-08-03) -------------------------------
+//
+// The dual design: displacement pinned to zero, rotation swept. Same one-variable rule,
+// other direction. kidnapYawCurve applies a COMMANDED angle; these pin that the command
+// is applied exactly, wraps correctly, and respects direction.
+
+using navlearn::kidnapYawCurve;
+
+static double wrapToPi(double a)
+{
+  while (a > M_PI) { a -= 2.0 * M_PI; }
+  while (a <= -M_PI) { a += 2.0 * M_PI; }
+  return a;
+}
+
+TEST(KidnapYawCurve, applies_the_commanded_magnitude_exactly)
+{
+  for (double ref : {-3.0, -1.5, 0.0, 0.7, 3.1}) {
+    for (double mag : {0.0, 0.1, 1.0, M_PI / 2.0, M_PI}) {
+      const double got_pos = kidnapYawCurve(ref, mag, true);
+      const double got_neg = kidnapYawCurve(ref, mag, false);
+      EXPECT_NEAR(std::fabs(wrapToPi(got_pos - ref)), mag, 1e-12);
+      EXPECT_NEAR(std::fabs(wrapToPi(got_neg - ref)), mag, 1e-12);
+    }
+  }
+}
+
+TEST(KidnapYawCurve, zero_magnitude_is_the_preserve_policy)
+{
+  // The curve's lower bound must coincide with the unperturbed case, the anchor the
+  // sweep's ceiling is read against.
+  for (double ref : {-3.0, -0.2, 0.0, 1.4, 3.1}) {
+    EXPECT_DOUBLE_EQ(kidnapYawCurve(ref, 0.0, true), kidnapYaw(ref));
+    EXPECT_DOUBLE_EQ(kidnapYawCurve(ref, 0.0, false), kidnapYaw(ref));
+  }
+}
+
+TEST(KidnapYawCurve, result_is_always_wrapped)
+{
+  std::mt19937 gen(20260803);
+  std::uniform_real_distribution<double> ref(-M_PI, M_PI);
+  std::uniform_real_distribution<double> mag(0.0, M_PI);
+  std::bernoulli_distribution sign(0.5);
+  for (int i = 0; i < 5000; ++i) {
+    const double yaw = kidnapYawCurve(ref(gen), mag(gen), sign(gen));
+    EXPECT_GT(yaw, -M_PI - 1e-12);
+    EXPECT_LE(yaw, M_PI + 1e-12);
+  }
+}
+
+TEST(KidnapYawCurve, direction_flips_the_rotation)
+{
+  const double ref = 0.4;
+  EXPECT_NEAR(wrapToPi(kidnapYawCurve(ref, 1.0, true) - ref), 1.0, 1e-12);
+  EXPECT_NEAR(wrapToPi(kidnapYawCurve(ref, 1.0, false) - ref), -1.0, 1e-12);
+}
+
 TEST(KidnapYaw, yields_zero_yaw_change_across_a_simulated_sweep)
 {
   // The acceptance check restated as the measurement that exposed the bug: draw a sweep

@@ -260,10 +260,22 @@ def read_bag(db3_path):
                         msg.kidnap_pose.position.x - msg.reference_pose.position.x,
                         msg.kidnap_pose.position.y - msg.reference_pose.position.y,
                     )
+                yaw_change = float("nan")
+                if msg.reference_available:
+                    yaw_change = wrap_to_pi(
+                        yaw_from_quat(
+                            msg.kidnap_pose.orientation.x, msg.kidnap_pose.orientation.y,
+                            msg.kidnap_pose.orientation.z, msg.kidnap_pose.orientation.w)
+                        - yaw_from_quat(
+                            msg.reference_pose.orientation.x,
+                            msg.reference_pose.orientation.y,
+                            msg.reference_pose.orientation.z,
+                            msg.reference_pose.orientation.w))
                 kidnaps[uuid_hex(msg.goal_id)] = {
                     "t": stamp_s(msg.header.stamp),
                     "success": bool(msg.success),
                     "realised_m": realised,
+                    "yaw_change_rad": yaw_change,
                     "commanded_m": msg.commanded_magnitude_m,
                     "land_x": msg.kidnap_pose.position.x,
                     "land_y": msg.kidnap_pose.position.y,
@@ -303,6 +315,7 @@ def process_arm(arm: str, arm_dir: pathlib.Path, progress=lambda s: None):
             r.update(
                 arm=arm, run=run, goal_id=goal_hex,
                 magnitude_m=k["realised_m"], commanded_m=k["commanded_m"],
+                yaw_change_rad=k["yaw_change_rad"],
                 land_x=k["land_x"], land_y=k["land_y"], land_yaw=k["land_yaw"],
             )
             rows.append(r)
@@ -384,7 +397,7 @@ def build_report(all_rows, old_by_goal, lo, hi, bins=4):
 
 
 FIELDNAMES = [
-    "arm", "run", "goal_id", "magnitude_m", "commanded_m",
+    "arm", "run", "goal_id", "magnitude_m", "commanded_m", "yaw_change_rad",
     "land_x", "land_y", "land_yaw",
     "recovered_sustained", "ttr_sustained_s", "first_touch_s", "ttr_hold_s",
     "window_s", "n_samples", "n_skipped_no_gt", "last_sample_gap_s",

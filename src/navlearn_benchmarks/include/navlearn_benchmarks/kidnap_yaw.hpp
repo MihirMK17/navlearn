@@ -15,6 +15,8 @@
 #ifndef NAVLEARN_BENCHMARKS__KIDNAP_YAW_HPP_
 #define NAVLEARN_BENCHMARKS__KIDNAP_YAW_HPP_
 
+#include <cmath>
+
 namespace navlearn
 {
 
@@ -46,6 +48,26 @@ namespace navlearn
 inline double kidnapYaw(double reference_yaw)
 {
   return reference_yaw;
+}
+
+/// Heading for the yaw-curve leg: reference rotated by a COMMANDED angle.
+///
+/// The dual of kidnapYaw. In the yaw-curve leg (PROTOCOL amendment dated 2026-08-03) the
+/// displacement is pinned to zero and the rotation is the swept variable, so exactly one
+/// variable moves — the same design rule that killed the uniform-yaw sampler, applied in
+/// the other direction. The angle comes from the campaign seed via its own stream; this
+/// function only applies it, so the policy stays a pure, testable line.
+///
+/// \param reference_yaw the robot's heading immediately before the teleport, radians.
+/// \param magnitude_rad the commanded |yaw change|, radians, non-negative.
+/// \param positive rotation direction: true for +magnitude, false for -magnitude.
+/// \return the heading to teleport to, wrapped to (-pi, pi].
+inline double kidnapYawCurve(double reference_yaw, double magnitude_rad, bool positive)
+{
+  double yaw = reference_yaw + (positive ? magnitude_rad : -magnitude_rad);
+  while (yaw > M_PI) { yaw -= 2.0 * M_PI; }
+  while (yaw <= -M_PI) { yaw += 2.0 * M_PI; }
+  return yaw;
 }
 
 }  // namespace navlearn

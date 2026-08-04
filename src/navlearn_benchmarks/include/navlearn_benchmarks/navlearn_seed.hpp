@@ -79,6 +79,14 @@ enum class Stream : uint64_t
   /// drives the kidnap sweep: a cell that enabled both would otherwise draw the same
   /// value for each, correlating the two perturbations by construction.
   BAD_INIT_MAGNITUDE = 0x9216D5D98979FB1BULL,
+  /// Continuous kidnap yaw severity (the yaw-curve leg: displacement pinned to zero, the
+  /// rotation is the swept variable). Its own stream for the same reason as
+  /// PERTURBATION_MAGNITUDE: the drawn angle must not correlate with goal placement,
+  /// delay, or any other draw.
+  KIDNAP_YAW_MAGNITUDE = 0x3F84D5B5B5470917ULL,
+  /// Direction of the yaw-curve rotation. Separate from KIDNAP_YAW_MAGNITUDE so the sign
+  /// is independent of the angle; deriving both from one draw would tie the two.
+  KIDNAP_YAW_SIGN = 0xB8E1AFED6A267E96ULL,
 };
 
 /// splitmix64 mixing function.

@@ -245,6 +245,36 @@ def test_each_arm_keeps_its_own_attrition_counts(mod, tmp_path):
 # --- binning -----------------------------------------------------------------------
 
 
+def test_yaw_leg_magnitude_is_the_absolute_yaw_change(mod, tmp_path):
+    """PROTOCOL A3: the yaw leg's independent variable is |Kidnap Yaw Change (deg)|.
+
+    Absolute value because the sign is a direction, not a severity; and the displacement
+    column, pinned to ~zero by the in-place teleport, must not leak in as the magnitude.
+    """
+    arm = _arm(
+        tmp_path, "rpp",
+        ["g1,SUCCEEDED,0.03,1,1,1,0.001,0.0,30.0"],
+        _ttr_rows("g1", 1, 2.0),
+    )
+    wide = arm / "navlearn_metrics_run_1_20260802_000000.csv"
+    wide.write_text(
+        WIDE_HEADER.replace(
+            "Kidnap Displacement (m),",
+            "Kidnap Displacement (m),Kidnap Yaw Change (deg),")
+        + "\n" + "g1,SUCCEEDED,0.03,1,1,1,0.001,-135.0,0.0,30.0\n")
+
+    goals = mod.load_arm(arm, magnitude_field="yaw_change")
+
+    assert goals[0].magnitude == pytest.approx(135.0)
+
+
+def test_linear_bins_span_the_range_uniformly(mod):
+    """The yaw sweep starts at zero, which has no logarithm; bins are linear."""
+    edges = mod.linear_bin_edges(0.0, 180.0, 4)
+
+    assert edges == pytest.approx([0.0, 45.0, 90.0, 135.0, 180.0])
+
+
 def test_bins_are_log_quartiles_of_the_commanded_range(mod):
     """Same construction as the leg 1 tables: log-quartiles of the sweep range."""
     edges = mod.log_bin_edges(0.01, 3.0, 4)
