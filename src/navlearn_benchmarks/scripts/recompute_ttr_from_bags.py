@@ -314,7 +314,8 @@ def process_arm(arm: str, arm_dir: pathlib.Path, progress=lambda s: None):
             r = evaluate_window(amcl, gt, k["t"], ends[goal_hex])
             r.update(
                 arm=arm, run=run, goal_id=goal_hex,
-                magnitude_m=k["realised_m"], commanded_m=k["commanded_m"],
+                magnitude_m=k["realised_m"], displacement_m=k["realised_m"],
+                commanded_m=k["commanded_m"],
                 yaw_change_rad=k["yaw_change_rad"],
                 land_x=k["land_x"], land_y=k["land_y"], land_yaw=k["land_yaw"],
             )
@@ -327,6 +328,12 @@ def process_arm(arm: str, arm_dir: pathlib.Path, progress=lambda s: None):
 def log_bin_edges(lo: float, hi: float, bins: int):
     ratio = (hi / lo) ** (1.0 / bins)
     return [lo * ratio ** k for k in range(bins + 1)]
+
+
+def linear_bin_edges(lo: float, hi: float, bins: int):
+    """The yaw leg samples linearly from zero, which has no logarithm."""
+    step = (hi - lo) / bins
+    return [lo + step * k for k in range(bins + 1)]
 
 
 def binned_recovery(rows, edges, key):
@@ -351,8 +358,8 @@ def median(values):
     return values[n // 2] if n % 2 else 0.5 * (values[n // 2 - 1] + values[n // 2])
 
 
-def build_report(all_rows, old_by_goal, lo, hi, bins=4):
-    edges = log_bin_edges(lo, hi, bins)
+def build_report(all_rows, old_by_goal, lo, hi, bins=4, bin_scale="log"):
+    edges = (linear_bin_edges if bin_scale == "linear" else log_bin_edges)(lo, hi, bins)
     lines = [
         "# Leg 2 TTR recomputed from rosbags (episode-length window)",
         "",
@@ -397,7 +404,8 @@ def build_report(all_rows, old_by_goal, lo, hi, bins=4):
 
 
 FIELDNAMES = [
-    "arm", "run", "goal_id", "magnitude_m", "commanded_m", "yaw_change_rad",
+    "arm", "run", "goal_id", "magnitude_m", "displacement_m", "commanded_m",
+    "yaw_change_rad",
     "land_x", "land_y", "land_yaw",
     "recovered_sustained", "ttr_sustained_s", "first_touch_s", "ttr_hold_s",
     "window_s", "n_samples", "n_skipped_no_gt", "last_sample_gap_s",
@@ -413,6 +421,16 @@ def main():
                              "censored numbers and the magnitude cross-check")
     parser.add_argument("--range", default="0.01:3.0")
     parser.add_argument("--bins", type=int, default=4)
+    parser.add_argument(
+        "--magnitude-source", choices=("displacement", "yaw_change_deg"),
+        default="displacement",
+        help="Which bag quantity is the sweep's independent variable. The yaw-curve leg "
+             "(PROTOCOL A3) bins and cross-checks on |yaw change| in degrees; its "
+             "realised displacement is zero by design and checking it against a degrees "
+             "column would fail every goal.")
+    parser.add_argument(
+        "--bin-scale", choices=("log", "linear"), default="log",
+        help="Bin spacing; the yaw range starts at zero, which has no log")
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
@@ -440,6 +458,12 @@ def main():
                        "unmatched": unmatched}
         all_rows.extend(rows)
 
+    # The yaw leg's independent variable is the rotation: bin and cross-check on
+    # |yaw change| in degrees. displacement_m keeps the realised displacement either way.
+    if args.magnitude_source == "yaw_change_deg":
+        for r in all_rows:
+            r["magnitude_m"] = abs(math.degrees(r["yaw_change_rad"]))
+
     # Cross-check: realised magnitude from the bag must match the campaign CSV.
     mismatches = [
         (r["arm"], r["goal_id"], r["magnitude_m"],
@@ -458,7 +482,7 @@ def main():
         for r in sorted(all_rows, key=lambda r: (r["arm"], r["run"], r["goal_id"])):
             writer.writerow(r)
 
-    report = build_report(all_rows, old_by_goal, lo, hi, args.bins)
+    report = build_report(all_rows, old_by_goal, lo, hi, args.bins, args.bin_scale)
     report += "\n## Bookkeeping\n\n"
     for arm, c in sorted(counts.items()):
         report += (f"- {arm}: {c['goals']} kidnapped goals, "

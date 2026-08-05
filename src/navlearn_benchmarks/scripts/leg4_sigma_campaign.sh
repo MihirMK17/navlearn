@@ -83,7 +83,7 @@ for sig in 005 01 02 04; do
     [ $rc -ne 0 ] && overall=$rc
 done
 
-say "leg 4 complete"
+say "leg 4 campaign complete"
 for sig in 005 01 02 04; do
     d="$CAMPAIGN_DIR"_"$sig"
     rows=$(cat "$d"/navlearn_metrics_run_*[0-9].csv 2>/dev/null | grep -cv "^Goal_ID" || echo 0)

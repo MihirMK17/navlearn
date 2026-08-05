@@ -125,7 +125,7 @@ for arm in rpp dwb mppi; do
     [ $rc -ne 0 ] && overall=$rc
 done
 
-say "yaw-curve leg complete"
+say "yaw-curve leg campaign complete"
 for arm in rpp dwb mppi; do
     d="$CAMPAIGN_DIR"_"$arm"
     rows=$(cat "$d"/navlearn_metrics_run_*[0-9].csv 2>/dev/null | grep -cv "^Goal_ID" || echo 0)

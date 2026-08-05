@@ -113,7 +113,7 @@ for ctrl in dwb mppi; do
     done
 done
 
-say "leg 6 complete"
+say "leg 6 campaign complete"
 total_rows=0
 for d in "$CAMPAIGN_DIR"/*/; do
     rows=$(cat "$d"/navlearn_metrics_run_*[0-9].csv 2>/dev/null | grep -cv "^Goal_ID" || echo 0)
