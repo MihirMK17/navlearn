@@ -269,6 +269,26 @@ def generate_launch_description():
     )
     kidnap_magnitude_band = LaunchConfiguration("kidnap_magnitude_band")
 
+    # The yaw-curve leg (PROTOCOL A3): displacement pinned to zero, rotation swept.
+    # These MUST be declared here and forwarded below — a launch argument this file does
+    # not declare is silently discarded by ros2 launch, the node falls back to its
+    # "preserve" default, and the campaign collects unrotated goals under a yaw-curve
+    # label. The 2026-08-04 yaw pilot caught exactly that.
+    kidnap_yaw_mode_arg = DeclareLaunchArgument(
+        "kidnap_yaw_mode", default_value="preserve", choices=["preserve", "curve"],
+    )
+    kidnap_yaw_mode = LaunchConfiguration("kidnap_yaw_mode")
+
+    kidnap_yaw_min_rad_arg = DeclareLaunchArgument(
+        "kidnap_yaw_min_rad", default_value="0.0"
+    )
+    kidnap_yaw_min_rad = LaunchConfiguration("kidnap_yaw_min_rad")
+
+    kidnap_yaw_max_rad_arg = DeclareLaunchArgument(
+        "kidnap_yaw_max_rad", default_value="3.141592653589793"
+    )
+    kidnap_yaw_max_rad = LaunchConfiguration("kidnap_yaw_max_rad")
+
     # The TTC leg sweeps the same way, over bad-initialization displacement. Separate
     # range and seed stream from the kidnap sweep, so a cell can sweep one perturbation
     # without inheriting the other's bounds and enabling both cannot correlate them.
@@ -489,6 +509,11 @@ def generate_launch_description():
                 "kidnap_magnitude_scale": kidnap_magnitude_scale,
                 "kidnap_magnitude_band": ParameterValue(
                     kidnap_magnitude_band, value_type=float),
+                "kidnap_yaw_mode": kidnap_yaw_mode,
+                "kidnap_yaw_min_rad": ParameterValue(
+                    kidnap_yaw_min_rad, value_type=float),
+                "kidnap_yaw_max_rad": ParameterValue(
+                    kidnap_yaw_max_rad, value_type=float),
                 "bad_init_magnitude_mode": bad_init_magnitude_mode,
                 "bad_init_magnitude_min_m": ParameterValue(
                     bad_init_magnitude_min_m, value_type=float),
@@ -625,6 +650,9 @@ def generate_launch_description():
             kidnap_magnitude_max_m_arg,
             kidnap_magnitude_scale_arg,
             kidnap_magnitude_band_arg,
+            kidnap_yaw_mode_arg,
+            kidnap_yaw_min_rad_arg,
+            kidnap_yaw_max_rad_arg,
             bad_init_magnitude_mode_arg,
             bad_init_magnitude_min_m_arg,
             bad_init_magnitude_max_m_arg,

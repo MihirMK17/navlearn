@@ -93,6 +93,24 @@ if [ "${yaw_hits:-0}" -eq 0 ]; then
 fi
 echo "OK - episode_manager carries the yaw-curve mode"
 
+# --- Gate 4: the LAUNCH FILE must declare the yaw arguments ------------------------
+#
+# The binary carrying the mode is necessary but not sufficient: ros2 launch silently
+# discards a key:=value whose argument the launch file never declared, the node falls
+# back to "preserve", and the campaign collects unrotated goals under a yaw-curve label.
+# The 2026-08-04 pilot collected exactly that — displacement 0.8-1.2 m, yaw change
+# identically zero — with every prior gate green.
+LAUNCH_FILE="$HOME/robot_ws/install/navlearn_benchmarks/share/navlearn_benchmarks/launch/benchmarks.launch.py"
+for arg_name in kidnap_yaw_mode kidnap_yaw_min_rad kidnap_yaw_max_rad; do
+    decl_hits=$(grep -c "\"$arg_name\"" "$LAUNCH_FILE" 2>/dev/null || true)
+    if [ "${decl_hits:-0}" -lt 2 ]; then
+        echo "FATAL: $LAUNCH_FILE does not declare AND forward '$arg_name'."
+        echo "The yaw parameters would be silently discarded. Rebuild navlearn_benchmarks."
+        exit 1
+    fi
+done
+echo "OK - benchmarks.launch.py declares and forwards the yaw arguments"
+
 # --- The three arms ---------------------------------------------------------------
 overall=0
 for arm in rpp dwb mppi; do
