@@ -110,6 +110,22 @@ def generate_launch_description():
     stack_spec_out = LaunchConfiguration("stack_spec_out")
 
     world_name_arg = DeclareLaunchArgument("world_name", default_value="small_house")
+
+    # The map the localization stack loads. Defaults to the small_house map this launch
+    # file has always used, so nothing that omits the argument changes behaviour; a
+    # campaign running another world passes the map for that world.
+    #
+    # world_name selects what Gazebo simulates and this selects what AMCL localizes
+    # against. They are deliberately separate: coupling them would silently invent a
+    # naming convention for map directories, and a mismatch between the two is exactly
+    # the failure this argument exists to make explicit.
+    map_yaml_arg = DeclareLaunchArgument(
+        "map_yaml",
+        default_value=os.path.join(
+            get_package_share_directory("bumperbot_mapping"),
+            "maps", "small_house", "map.yaml"),
+        description="Full path to the map_server YAML for the world being run.",
+    )
     world_name = LaunchConfiguration("world_name")
 
     # Forwarded to gazebo.launch.py. Default false preserves the existing GUI behaviour;
@@ -206,7 +222,14 @@ def generate_launch_description():
             "launch",
             "global_localization.launch.py"
         ),
-        launch_arguments={"amcl_config": amcl_config}.items(),
+        launch_arguments={
+            "amcl_config": amcl_config,
+            # Forwarded so a campaign can select the map for the world it is running.
+            # Without this the localization stack silently keeps the small_house map
+            # while Gazebo loads a different world, and every localization number would
+            # be measured against a floor plan the robot is not standing in.
+            "map_yaml": LaunchConfiguration("map_yaml"),
+        }.items(),
         condition=UnlessCondition(use_slam)
     )
 
@@ -275,6 +298,7 @@ def generate_launch_description():
         localizer_arg,
         stack_spec_out_arg,
         world_name_arg,
+        map_yaml_arg,
         headless_arg,
         scan_rate_hz_arg,
         use_rviz_arg,

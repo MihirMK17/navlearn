@@ -189,17 +189,30 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   // leg 2 collection — so a cell asking for both curves at once is refused outright.
   // Default reproduces the rectangle this used to be hardcoded to, so small_house
   // campaigns are bit-identical; any other world should pass its own or an empty list.
-  exclusion_zones_ = this->declare_parameter<std::vector<double>>(
-    "exclusion_zones", std::vector<double>{-2.4, 0.7, 3.3, 5.4});
-  if (exclusion_zones_.size() % 4 != 0) {
+  //
+  // Declared with dynamic typing because "no zones at all" is a legitimate and expected
+  // setting, and ROS 2 cannot infer the element type of an empty array: `[]` on the
+  // command line arrives as PARAMETER_NOT_SET, and a statically typed declaration
+  // aborts the node with "No parameter value set". That killed the first warehouse
+  // pilot outright -- which is the good failure, since the alternative would have been
+  // a campaign silently carrying another world's exclusion rectangle.
+  // A STRING, not a double array: "no zones" is a legitimate setting for any world that
+  // is not small_house, and ROS 2 cannot carry an empty typed array -- `[]` arrives as
+  // PARAMETER_NOT_SET and aborts the node, under both static and dynamic typing. Both
+  // were tried against the first warehouse pilot, which is where this was found.
+  const std::string zones_spec = this->declare_parameter<std::string>(
+    "exclusion_zones", "-2.4, 0.7, 3.3, 5.4");
+  try {
+    exclusion_zones_ = navlearn::parseExclusionZones(zones_spec);
+  } catch (const std::invalid_argument & e) {
     RCLCPP_FATAL(
-      get_logger(),
-      "exclusion_zones needs groups of four [xmin, xmax, ymin, ymax]; got %zu values. "
-      "A truncated group would silently drop a zone.", exclusion_zones_.size());
-    throw std::invalid_argument("exclusion_zones is not a multiple of four");
+      get_logger(), "%s (got '%s'). A half-read zone list would bar a region nobody "
+      "asked for while looking like it worked.", e.what(), zones_spec.c_str());
+    throw;
   }
   RCLCPP_INFO(
-    get_logger(), "Exclusion zones: %zu rectangle(s)", exclusion_zones_.size() / 4);
+    get_logger(), "Exclusion zones: %zu rectangle(s) from '%s'",
+    exclusion_zones_.size() / 4, zones_spec.c_str());
 
   kidnap_yaw_mode_ =
     this->declare_parameter<std::string>("kidnap_yaw_mode", "preserve");

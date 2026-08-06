@@ -84,6 +84,57 @@ TEST(ExclusionZone, a_trailing_partial_group_is_ignored_not_half_applied)
   EXPECT_FALSE(inAnyExclusionZone(ragged, 11.0, 0.0));
 }
 
+// --- parsing the parameter -----------------------------------------------------------
+//
+// The parameter is a string rather than a double array because ROS 2 cannot represent an
+// empty typed array: `[]` arrives as PARAMETER_NOT_SET and aborts the node under both
+// static and dynamic typing. That killed the first warehouse pilot, and "no zones" is the
+// normal setting for every world that is not small_house.
+
+TEST(ExclusionZoneParse, empty_string_means_no_zones)
+{
+  EXPECT_TRUE(navlearn::parseExclusionZones("").empty());
+  EXPECT_TRUE(navlearn::parseExclusionZones("   ").empty());
+  EXPECT_TRUE(navlearn::parseExclusionZones("[]").empty());
+}
+
+TEST(ExclusionZoneParse, brackets_and_separators_are_both_optional)
+{
+  const std::vector<double> want{-2.4, 0.7, 3.3, 5.4};
+  EXPECT_EQ(navlearn::parseExclusionZones("-2.4,0.7,3.3,5.4"), want);
+  EXPECT_EQ(navlearn::parseExclusionZones("[-2.4, 0.7, 3.3, 5.4]"), want);
+  EXPECT_EQ(navlearn::parseExclusionZones("-2.4 0.7 3.3 5.4"), want);
+}
+
+TEST(ExclusionZoneParse, the_default_string_round_trips_to_the_small_house_rectangle)
+{
+  // The node's default is this literal. If parsing it ever stopped yielding these four
+  // numbers, every small_house campaign would silently change which goals are legal.
+  const auto got = navlearn::parseExclusionZones("-2.4, 0.7, 3.3, 5.4");
+  ASSERT_EQ(got.size(), 4u);
+  EXPECT_TRUE(inAnyExclusionZone(got, -1.0, 4.0));
+  EXPECT_FALSE(inAnyExclusionZone(got, 5.0, 5.0));
+}
+
+TEST(ExclusionZoneParse, multiple_zones_parse)
+{
+  EXPECT_EQ(navlearn::parseExclusionZones("0,1,0,1, 5,6,5,6").size(), 8u);
+}
+
+TEST(ExclusionZoneParse, a_count_that_is_not_a_multiple_of_four_is_refused)
+{
+  EXPECT_THROW(navlearn::parseExclusionZones("1,2,3"), std::invalid_argument);
+  EXPECT_THROW(navlearn::parseExclusionZones("1,2,3,4,5"), std::invalid_argument);
+}
+
+TEST(ExclusionZoneParse, a_non_numeric_token_is_refused_rather_than_skipped)
+{
+  // Skipping it would shift every later value into the wrong slot and bar a region
+  // nobody asked for, while looking like it had worked.
+  EXPECT_THROW(navlearn::parseExclusionZones("1,two,3,4"), std::invalid_argument);
+  EXPECT_THROW(navlearn::parseExclusionZones("1,2,3,4nonsense"), std::invalid_argument);
+}
+
 TEST(ExclusionZone, an_inverted_rectangle_excludes_nothing_rather_than_everything)
 {
   // xmin > xmax cannot be satisfied, so it bars nothing. Worth pinning: the opposite

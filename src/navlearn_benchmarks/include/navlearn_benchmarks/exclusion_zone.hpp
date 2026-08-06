@@ -16,6 +16,9 @@
 #define NAVLEARN_BENCHMARKS__EXCLUSION_ZONE_HPP_
 
 #include <cstddef>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace navlearn
@@ -49,6 +52,53 @@ inline bool inAnyExclusionZone(const std::vector<double> & zones, double x, doub
     }
   }
   return false;
+}
+
+/// Parse the `exclusion_zones` parameter: "xmin,xmax,ymin,ymax, ..." or empty for none.
+///
+/// Why a string and not a double array
+///     "no zones at all" is a legitimate and expected setting for any world that is not
+///     small_house, and ROS 2 cannot represent it as a typed array: an empty list has no
+///     inferable element type, arrives as PARAMETER_NOT_SET, and aborts the node with
+///     "No parameter value set" whether the declaration is statically or dynamically
+///     typed. Both were tried. A string has no such hole — "" is unambiguously empty —
+///     and it round-trips through YAML, the command line and the run record unchanged.
+///
+/// Surrounding brackets are optional so both `[]` and `` and `[1,2,3,4]` are accepted;
+/// commas and whitespace both separate.
+///
+/// Throws std::invalid_argument on a value that is not a multiple of four, or on a
+/// token that is not a number. Both are configuration errors, and a half-read zone list
+/// would bar a region nobody asked for while looking like it had worked.
+inline std::vector<double> parseExclusionZones(const std::string & spec)
+{
+  std::string cleaned;
+  cleaned.reserve(spec.size());
+  for (const char c : spec) {
+    cleaned.push_back((c == '[' || c == ']' || c == ',') ? ' ' : c);
+  }
+
+  std::vector<double> out;
+  std::istringstream stream(cleaned);
+  std::string token;
+  while (stream >> token) {
+    try {
+      size_t consumed = 0;
+      const double value = std::stod(token, &consumed);
+      if (consumed != token.size()) {
+        throw std::invalid_argument("trailing characters");
+      }
+      out.push_back(value);
+    } catch (const std::exception &) {
+      throw std::invalid_argument("exclusion_zones: '" + token + "' is not a number");
+    }
+  }
+
+  if (out.size() % 4 != 0) {
+    throw std::invalid_argument(
+            "exclusion_zones needs groups of four [xmin, xmax, ymin, ymax]");
+  }
+  return out;
 }
 
 }  // namespace navlearn

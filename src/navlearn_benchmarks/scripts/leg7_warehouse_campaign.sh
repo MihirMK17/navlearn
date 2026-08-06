@@ -35,6 +35,8 @@ MAP_YAML="$HOME/robot_ws/install/navlearn_benchmarks/share/navlearn_benchmarks/m
 
 say() { printf '\n===== %s  (%s) =====\n' "$*" "$(date '+%F %T')"; }
 
+export NAVLEARN_WORLD="$WORLD"
+
 say "leg 7 warehouse replication starting"
 echo "workspace: $(git rev-parse --short HEAD)  seed: $SEED  $EPISODES ep x $GOALS goals"
 echo "world: $WORLD   map: $MAP_YAML"
@@ -109,6 +111,18 @@ if not (14 < span_x < 20 and 20 < span_y < 27):
 print(f"OK - map spans {span_x:.1f} x {span_y:.1f} m at {res} m/cell, consistent with the world")
 PY
 
+# Gate 5: disk. Every episode records a rosbag, and the bags are not optional -- the
+# episode-window recovery outcome is computed from them, so a campaign that runs out of
+# space mid-flight loses the outcome, not merely a log. The comparable RPP yaw cell used
+# 5 GB for 24 runs; 40 GB leaves room for both cells and a wide margin.
+FREE_GB=$(df -BG --output=avail "$HOME/robot_ws" | tail -1 | tr -dc '0-9')
+if [ "${FREE_GB:-0}" -lt 40 ]; then
+    echo "FATAL: only ${FREE_GB} GB free. Two cells of bags need roughly 15 GB and a"
+    echo "campaign that fills the disk loses the outcome it was run to measure."
+    exit 1
+fi
+echo "OK - ${FREE_GB} GB free for bags"
+
 overall=0
 run_and_track() {
     local label="$1"; shift
@@ -124,17 +138,19 @@ run_and_track "warehouse_ttc_curve" \
     run_cell "$CAMPAIGN_DIR"_ttc \
         --episodes "$EPISODES" --goals "$GOALS" --seed "$SEED" \
         --perturbation ttc --magnitude-curve 0.01:5.0 --magnitude-scale log \
+        --extra-arg exclusion_zones:="[]" \
         -- \
         controller:=rpp planner:=smac2d localizer:=amcl_tuned \
-        world_name:="$WORLD" map_yaml:="$MAP_YAML"
+        map_yaml:="$MAP_YAML"
 
 run_and_track "warehouse_yaw_curve" \
     run_cell "$CAMPAIGN_DIR"_yaw \
         --episodes "$EPISODES" --goals "$GOALS" --seed "$SEED" \
         --perturbation ttr --yaw-curve 0:180 \
+        --extra-arg exclusion_zones:="[]" \
         -- \
         controller:=rpp planner:=smac2d localizer:=amcl_tuned \
-        world_name:="$WORLD" map_yaml:="$MAP_YAML"
+        map_yaml:="$MAP_YAML"
 
 say "leg 7 campaign complete"
 for cell in ttc yaw; do

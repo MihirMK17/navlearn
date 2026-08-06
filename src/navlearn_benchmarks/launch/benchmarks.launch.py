@@ -279,6 +279,18 @@ def generate_launch_description():
     )
     kidnap_yaw_mode = LaunchConfiguration("kidnap_yaw_mode")
 
+    # Rectangles barred from goal placement and kidnap sampling, as flat groups of four
+    # [xmin, xmax, ymin, ymax]. World-specific by nature: the default is the small_house
+    # rectangle this was hardcoded to before 2026-08-05, which every world inherited.
+    # A campaign in another world passes its own list, or '[]' for none.
+    exclusion_zones_arg = DeclareLaunchArgument(
+        "exclusion_zones", default_value="-2.4, 0.7, 3.3, 5.4",
+        description="Barred rectangles as 'xmin,xmax,ymin,ymax,...'; empty for none. "
+                    "A string rather than a list because ROS 2 cannot carry an empty "
+                    "typed array, and 'no zones' is a normal setting.",
+    )
+    exclusion_zones = LaunchConfiguration("exclusion_zones")
+
     kidnap_yaw_min_rad_arg = DeclareLaunchArgument(
         "kidnap_yaw_min_rad", default_value="0.0"
     )
@@ -510,6 +522,7 @@ def generate_launch_description():
                 "kidnap_magnitude_band": ParameterValue(
                     kidnap_magnitude_band, value_type=float),
                 "kidnap_yaw_mode": kidnap_yaw_mode,
+                "exclusion_zones": ParameterValue(exclusion_zones, value_type=str),
                 "kidnap_yaw_min_rad": ParameterValue(
                     kidnap_yaw_min_rad, value_type=float),
                 "kidnap_yaw_max_rad": ParameterValue(
@@ -651,6 +664,7 @@ def generate_launch_description():
             kidnap_magnitude_scale_arg,
             kidnap_magnitude_band_arg,
             kidnap_yaw_mode_arg,
+            exclusion_zones_arg,
             kidnap_yaw_min_rad_arg,
             kidnap_yaw_max_rad_arg,
             bad_init_magnitude_mode_arg,

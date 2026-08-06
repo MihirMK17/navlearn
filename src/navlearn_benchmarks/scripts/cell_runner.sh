@@ -132,8 +132,13 @@ run_cell() {
     # ~/.ros/log, so they are attributable to this cell by location.
     mkdir -p "$dir/ros_logs/bringup"
     ROS_LOG_DIR="$dir/ros_logs/bringup" \
+    # The world comes from NAVLEARN_WORLD rather than being fixed here. It used to be
+    # hardcoded to small_house, so a cell in another world would have had to pass
+    # world_name a second time and depend on ros2 launch's duplicate-argument
+    # precedence to win -- an unstated assumption that, if it were ever wrong, would
+    # simulate one building while localizing in another and still complete every run.
     ros2 launch bumperbot_bringup simulated_robot.launch.py \
-        world_name:=small_house headless:=true use_rviz:=false \
+        world_name:="${NAVLEARN_WORLD:-small_house}" headless:=true use_rviz:=false \
         "${launch_args[@]}" > "$dir/bringup.log" 2>&1 &
 
     local deadline=$((SECONDS+300)) n=0
