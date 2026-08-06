@@ -400,6 +400,16 @@ def parse_args() -> argparse.Namespace:
              "-- the part the curve exists to locate -- sparsely covered",
     )
     parser.add_argument(
+        "--run-offset",
+        type=int,
+        default=0,
+        help="Shift run_index by this much, so an extension cell draws goals the "
+             "original cell never ran. Re-running a cell with its own seed reproduces "
+             "its goals exactly -- by design -- which is a repeated measurement, not a "
+             "larger sample, and pooling the two would silently double-count. Offsetting "
+             "keeps one campaign seed while continuing the stream.",
+    )
+    parser.add_argument(
         "--yaw-curve",
         metavar="MIN:MAX",
         help="The yaw-curve leg (PROTOCOL amendment 2026-08-03): draw each goal's kidnap "
@@ -589,7 +599,7 @@ def run_benchmark(
     # the seed itself, which varied goal placement but never reached the perturbation
     # seeds — those were fixed constants in a YAML default, so all 25 episodes of a cell
     # drew the same five displacements.
-    run_index = episode_id - 1
+    run_index = episode_id - 1 + args.run_offset
 
     csv_path = report_dir / f"navlearn_metrics_run_{episode_id}_{stamp}.csv"
     json_path = report_dir / f"navlearn_run_report_run_{episode_id}_{stamp}.json"
@@ -669,6 +679,7 @@ def run_benchmark(
         "magnitude_curve": args.magnitude_curve,
         "magnitude_scale": args.magnitude_scale if args.magnitude_curve else None,
         "yaw_curve_deg": args.yaw_curve,
+        "run_offset": args.run_offset,
         "goals": args.goals,
         "goal_source": args.goal_source,
         "extra_args": list(args.extra_arg),

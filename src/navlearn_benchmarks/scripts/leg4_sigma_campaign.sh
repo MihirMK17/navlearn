@@ -16,19 +16,26 @@ set -uo pipefail
 cd "$HOME/robot_ws"
 source src/navlearn_benchmarks/scripts/cell_runner.sh
 
-CAMPAIGN_DIR=results/leg4_sigma
+# The extension pass (PROTOCOL A4) reuses this script and its gates rather than forking
+# a near-copy: RUN_OFFSET shifts run_index so the added episodes draw goals the first
+# pass never ran. Re-running with the same seed and no offset would reproduce the
+# original 25 goals exactly -- a repeated measurement, not a larger sample.
+SEED=20260730
+EPISODES=${EPISODES:-5}
+GOALS=5
+RUN_OFFSET=${RUN_OFFSET:-0}
+DIR_SUFFIX=${DIR_SUFFIX:-}
+
+CAMPAIGN_DIR=results/leg4_sigma$DIR_SUFFIX
 mkdir -p "$CAMPAIGN_DIR"
 exec > >(tee -a "$CAMPAIGN_DIR/campaign.log") 2>&1
 ulimit -c unlimited 2>/dev/null || true
 
-SEED=20260730
-EPISODES=5
-GOALS=5
-
 say() { printf '\n===== %s  (%s) =====\n' "$*" "$(date '+%F %T')"; }
 
 say "leg 4 sigma_hit ablation starting"
-echo "workspace: $(git rev-parse --short HEAD)  seed: $SEED  5 runs x 5 goals per level"
+echo "workspace: $(git rev-parse --short HEAD)  seed: $SEED  $EPISODES runs x $GOALS goals per level"
+echo "run_offset: $RUN_OFFSET  (run indices $RUN_OFFSET..$((RUN_OFFSET + EPISODES - 1)))"
 
 # Gate 1: patched planner in front (same as legs 2/yaw).
 SMAC_PREFIX=$(python3 - <<'PY'
@@ -75,6 +82,7 @@ for sig in 005 01 02 04; do
     say "sigma_hit level: $sig"
     run_cell "$CAMPAIGN_DIR"_"$sig" \
         --episodes "$EPISODES" --goals "$GOALS" --seed "$SEED" \
+        --run-offset "$RUN_OFFSET" \
         --perturbation ttr --perturbation-level medium \
         -- \
         controller:=rpp planner:=smac2d localizer:=amcl_sigma_hit_"$sig"
