@@ -68,3 +68,28 @@ The Gazebo **worlds** are not vendored. `bumperbot_description/worlds` is read-o
 the scope rules, and the bringup resolves `world_name` against it, so placing them needs
 either approval for that package or a world-path launch argument. `small_warehouse.world`
 is already present there; `bookstore.world` is not.
+
+## small_warehouse_geom — added 2026-08-05, and why the shipped map is not used
+
+`small_warehouse/` is the map shipped with the AWS RoboMaker world. It is retained for
+provenance and **is not used by any campaign cell.** Measured against the world's own
+collision geometry sliced at this robot's LiDAR height (0.1538 m) by
+`scripts/world_to_map.py`, it is not merely offset from the world frame — its occupied
+extent spans 21.2 x 14.6 m where the world's geometry spans 14.0 x 20.9 m, a rotation of
+roughly 90 degrees. Only 3.1% of its occupied cells lie within one cell of real geometry.
+Ground-truth error measured against it would have been measured in the wrong frame.
+
+`small_warehouse_geom/` replaces it: generated from the world's collision geometry — the
+same geometry the simulator uses for ray intersection — sliced at 0.1538 m at 0.05 m/cell.
+See its `PROVENANCE.md` for the exact invocation and counts.
+
+The same tool was turned on `small_house`, whose map underpins legs 1-6 and the yaw leg:
+median disagreement 0.000 m, 86.5% of occupied cells within one cell, 95.8% within
+0.10 m. That map is geometrically faithful and needed no replacement, which is what makes
+the two environments comparable despite being mapped by different means. Both validation
+reports are in `results/maps/`.
+
+Limitation, stated rather than buried: a geometric slice includes geometry no robot could
+observe from inside the world, so it is a map of the world rather than of what is
+observable. For isolating filter behaviour against a known world that is the stronger
+choice, but it is not the object SLAM produces.

@@ -327,6 +327,12 @@ private:
 
     bool inExclusionZone(double x, double y) const;
 
+    /// Rectangles barred from goal placement and kidnap sampling, as flat groups of
+    /// four: [xmin, xmax, ymin, ymax, ...]. World-specific by nature, so it is a
+    /// parameter rather than a constant; the default is the small_house rectangle the
+    /// value used to be hardcoded to.
+    std::vector<double> exclusion_zones_;
+
     void loadGoals();
 
     // TF helpers

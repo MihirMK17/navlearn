@@ -22,6 +22,7 @@
 #include <limits>
 
 #include "navlearn_benchmarks/episode_manager.hpp"
+#include "navlearn_benchmarks/exclusion_zone.hpp"
 #include "navlearn_benchmarks/kidnap_yaw.hpp"
 #include "navlearn_benchmarks/navlearn_utils.hpp"
 
@@ -186,6 +187,20 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   // The yaw-curve leg: displacement pinned to zero, the rotation is the swept variable.
   // Exactly one variable moves per leg — the rule whose violation invalidated the second
   // leg 2 collection — so a cell asking for both curves at once is refused outright.
+  // Default reproduces the rectangle this used to be hardcoded to, so small_house
+  // campaigns are bit-identical; any other world should pass its own or an empty list.
+  exclusion_zones_ = this->declare_parameter<std::vector<double>>(
+    "exclusion_zones", std::vector<double>{-2.4, 0.7, 3.3, 5.4});
+  if (exclusion_zones_.size() % 4 != 0) {
+    RCLCPP_FATAL(
+      get_logger(),
+      "exclusion_zones needs groups of four [xmin, xmax, ymin, ymax]; got %zu values. "
+      "A truncated group would silently drop a zone.", exclusion_zones_.size());
+    throw std::invalid_argument("exclusion_zones is not a multiple of four");
+  }
+  RCLCPP_INFO(
+    get_logger(), "Exclusion zones: %zu rectangle(s)", exclusion_zones_.size() / 4);
+
   kidnap_yaw_mode_ =
     this->declare_parameter<std::string>("kidnap_yaw_mode", "preserve");
   kidnap_yaw_min_rad_ =
@@ -418,10 +433,7 @@ bool EpisodeManager::hasClearanceCell(int col, int row, int width, int height, d
 
 bool EpisodeManager::inExclusionZone(double x, double y) const
 {
-  const bool in_x = (x > -2.4) && (x < 0.7);
-  const bool in_y = (y> 3.3) && (y < 5.4);
-
-  return in_x && in_y;
+  return navlearn::inAnyExclusionZone(exclusion_zones_, x, y);
 }
 
 void EpisodeManager::loadGoals() {

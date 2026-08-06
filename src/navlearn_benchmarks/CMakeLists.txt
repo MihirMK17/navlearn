@@ -287,6 +287,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_kidnap_yaw test/test_kidnap_yaw.cpp)
   target_include_directories(test_kidnap_yaw PRIVATE include)
 
+  ament_add_gtest(test_exclusion_zone test/test_exclusion_zone.cpp)
+  target_include_directories(test_exclusion_zone PRIVATE include)
+
   # The Python reference used by analysis, pinned to the same golden vectors so the two
   # implementations cannot silently diverge.
   ament_add_pytest_test(test_seed_reference test/test_seed_reference.py
