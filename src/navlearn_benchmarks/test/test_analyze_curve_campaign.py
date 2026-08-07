@@ -77,14 +77,21 @@ def _arm(tmp_path, name, wide_rows, loc_rows, tolerance=0.05):
     arm = tmp_path / f"leg_final_{name}"
     arm.mkdir()
     (arm / "navlearn_metrics_run_1_20260802_000000.csv").write_text(
-        WIDE_HEADER + "\n" + "\n".join(wide_rows) + "\n")
+        WIDE_HEADER + "\n" + "\n".join(wide_rows) + "\n"
+    )
     (arm / "navlearn_metrics_run_1_20260802_000000_localization.csv").write_text(
         "GoalID,Metric Class,Metric Source,Metric Name,Metric Value,Timestamp\n"
-        + "\n".join(loc_rows) + "\n")
-    (arm / "navlearn_stack_spec_run_1_20260802_000000.json").write_text(json.dumps({
-        "identity": {"xy_goal_tolerance": tolerance},
-        "selection": {"controller": name},
-    }))
+        + "\n".join(loc_rows)
+        + "\n"
+    )
+    (arm / "navlearn_stack_spec_run_1_20260802_000000.json").write_text(
+        json.dumps(
+            {
+                "identity": {"xy_goal_tolerance": tolerance},
+                "selection": {"controller": name},
+            }
+        )
+    )
     return arm
 
 
@@ -101,7 +108,8 @@ def _ttr_rows(goal, outcome, ttr):
 def test_the_four_outcome_classes_are_classified_exactly(mod, tmp_path):
     """One goal per class, each answer known by construction."""
     arm = _arm(
-        tmp_path, "rpp",
+        tmp_path,
+        "rpp",
         [
             # true success: SUCCEEDED and truly at the goal
             "g1,SUCCEEDED,0.03,1,1,1,0.50,0.50,30.0",
@@ -117,8 +125,11 @@ def test_the_four_outcome_classes_are_classified_exactly(mod, tmp_path):
             # reported 38.3% is only possible under this reading.
             "g5,FAILED,0.03,1,1,1,0.40,0.40,120.0",
         ],
-        _ttr_rows("g1", 1, 2.0) + _ttr_rows("g2", 0, -1.0)
-        + _ttr_rows("g3", 2, -1.0) + _ttr_rows("g4", 1, 3.0) + _ttr_rows("g5", 1, 2.5),
+        _ttr_rows("g1", 1, 2.0)
+        + _ttr_rows("g2", 0, -1.0)
+        + _ttr_rows("g3", 2, -1.0)
+        + _ttr_rows("g4", 1, 3.0)
+        + _ttr_rows("g5", 1, 2.5),
     )
 
     goals = mod.load_arm(arm)
@@ -136,7 +147,8 @@ def test_the_four_outcome_classes_are_classified_exactly(mod, tmp_path):
 def test_tolerance_comes_from_the_stack_spec_not_a_constant(mod, tmp_path):
     """A stack probed at a different tolerance must be judged at that tolerance."""
     arm = _arm(
-        tmp_path, "rpp",
+        tmp_path,
+        "rpp",
         ["g1,SUCCEEDED,0.20,1,1,1,0.5,0.5,30.0"],
         _ttr_rows("g1", 1, 2.0),
         tolerance=0.25,
@@ -147,10 +159,13 @@ def test_tolerance_comes_from_the_stack_spec_not_a_constant(mod, tmp_path):
     assert goals[0].true_success, "0.20 m is within a 0.25 m tolerance"
 
 
-def test_recovery_comes_from_ttr_outcome_and_ttr_median_ignores_sentinels(mod, tmp_path):
+def test_recovery_comes_from_ttr_outcome_and_ttr_median_ignores_sentinels(
+    mod, tmp_path
+):
     """Outcome 1 is the sustained-recovery flag; -1 is 'no time', not a fast recovery."""
     arm = _arm(
-        tmp_path, "rpp",
+        tmp_path,
+        "rpp",
         [
             "g1,SUCCEEDED,0.03,1,1,1,0.5,0.5,30.0",
             "g2,FAILED,3.00,1,1,1,2.5,2.5,90.0",
@@ -163,17 +178,19 @@ def test_recovery_comes_from_ttr_outcome_and_ttr_median_ignores_sentinels(mod, t
     summary = mod.summarise(goals)
 
     assert summary["recovered_pct"] == pytest.approx(100 * 2 / 3)
-    assert summary["ttr_median_s"] == pytest.approx(6.0), \
-        "the -1 sentinel entered the median"
+    assert summary["ttr_median_s"] == pytest.approx(
+        6.0
+    ), "the -1 sentinel entered the median"
 
 
 def test_unapplied_kidnaps_are_attrition_not_data(mod, tmp_path):
     """A goal whose kidnap failed ran unperturbed; pooling it dilutes every rate."""
     arm = _arm(
-        tmp_path, "rpp",
+        tmp_path,
+        "rpp",
         [
             "g1,SUCCEEDED,0.03,1,1,1,0.5,0.5,30.0",
-            "g2,SUCCEEDED,0.03,1,1,0,-1,1.5,30.0",   # attempted, never applied
+            "g2,SUCCEEDED,0.03,1,1,0,-1,1.5,30.0",  # attempted, never applied
         ],
         _ttr_rows("g1", 1, 2.0),
     )
@@ -188,7 +205,8 @@ def test_unapplied_kidnaps_are_attrition_not_data(mod, tmp_path):
 def test_magnitude_is_the_realised_displacement(mod, tmp_path):
     """The commanded band is a label; the robot moved by the realised distance."""
     arm = _arm(
-        tmp_path, "rpp",
+        tmp_path,
+        "rpp",
         ["g1,SUCCEEDED,0.03,1,1,1,0.83,0.80,30.0"],
         _ttr_rows("g1", 1, 2.0),
     )
@@ -201,10 +219,11 @@ def test_magnitude_is_the_realised_displacement(mod, tmp_path):
 def test_missing_ground_truth_is_excluded_and_counted(mod, tmp_path):
     """Without ground truth, true/false success is unknowable, not zero."""
     arm = _arm(
-        tmp_path, "rpp",
+        tmp_path,
+        "rpp",
         [
             "g1,SUCCEEDED,0.03,1,1,1,0.5,0.5,30.0",
-            "g2,SUCCEEDED,0.00,0,1,1,0.5,0.5,30.0",   # GT Available = 0
+            "g2,SUCCEEDED,0.00,0,1,1,0.5,0.5,30.0",  # GT Available = 0
         ],
         _ttr_rows("g1", 1, 2.0) + _ttr_rows("g2", 1, 2.0),
     )
@@ -222,16 +241,18 @@ def test_each_arm_keeps_its_own_attrition_counts(mod, tmp_path):
     module or function state would make all three arms report whichever loaded last.
     """
     arm_a = _arm(
-        tmp_path, "rpp",
+        tmp_path,
+        "rpp",
         [
             "g1,SUCCEEDED,0.03,1,1,1,0.5,0.5,30.0",
-            "g2,SUCCEEDED,0.03,1,1,0,-1,1.5,30.0",   # attrition in A
+            "g2,SUCCEEDED,0.03,1,1,0,-1,1.5,30.0",  # attrition in A
         ],
         _ttr_rows("g1", 1, 2.0),
     )
     arm_b = _arm(
-        tmp_path, "dwb",
-        ["g1,SUCCEEDED,0.03,1,1,1,0.5,0.5,30.0"],    # none in B
+        tmp_path,
+        "dwb",
+        ["g1,SUCCEEDED,0.03,1,1,1,0.5,0.5,30.0"],  # none in B
         _ttr_rows("g1", 1, 2.0),
     )
 
@@ -252,7 +273,8 @@ def test_yaw_leg_magnitude_is_the_absolute_yaw_change(mod, tmp_path):
     column, pinned to ~zero by the in-place teleport, must not leak in as the magnitude.
     """
     arm = _arm(
-        tmp_path, "rpp",
+        tmp_path,
+        "rpp",
         ["g1,SUCCEEDED,0.03,1,1,1,0.001,0.0,30.0"],
         _ttr_rows("g1", 1, 2.0),
     )
@@ -260,12 +282,43 @@ def test_yaw_leg_magnitude_is_the_absolute_yaw_change(mod, tmp_path):
     wide.write_text(
         WIDE_HEADER.replace(
             "Kidnap Displacement (m),",
-            "Kidnap Displacement (m),Kidnap Yaw Change (deg),")
-        + "\n" + "g1,SUCCEEDED,0.03,1,1,1,0.001,-135.0,0.0,30.0\n")
+            "Kidnap Displacement (m),Kidnap Yaw Change (deg),",
+        )
+        + "\n"
+        + "g1,SUCCEEDED,0.03,1,1,1,0.001,-135.0,0.0,30.0\n"
+    )
 
     goals = mod.load_arm(arm, magnitude_field="yaw_change")
 
     assert goals[0].magnitude == pytest.approx(135.0)
+
+
+def test_bad_init_leg_magnitude_is_the_commanded_offset(mod, tmp_path):
+    """A bad-init (TTC) cell's variable is the commanded initialpose offset.
+
+    Its Kidnap columns hold -1 sentinels — no kidnap ever fires — and reading the
+    displacement column would bin every goal at the sentinel. The 2026-08-07 bookstore
+    TTC analysis did exactly that on its first pass; this pins the committed reader.
+    """
+    arm = _arm(
+        tmp_path,
+        "rpp",
+        ["g1,SUCCEEDED,0.03,1,1,1,0.001,0.0,30.0"],
+        _ttr_rows("g1", 1, 2.0),
+    )
+    wide = arm / "navlearn_metrics_run_1_20260802_000000.csv"
+    wide.write_text(
+        WIDE_HEADER.replace(
+            "Kidnap Displacement (m),",
+            "Kidnap Displacement (m),Bad Init Commanded Magnitude (m),",
+        )
+        + "\n"
+        + "g1,SUCCEEDED,0.03,1,0,0,-1,2.71828,-1,30.0\n"
+    )
+
+    goals = mod.load_arm(arm, magnitude_field="bad_init")
+
+    assert goals[0].magnitude == pytest.approx(2.71828)
 
 
 def test_linear_bins_span_the_range_uniformly(mod):
@@ -282,14 +335,16 @@ def test_bins_are_log_quartiles_of_the_commanded_range(mod):
     assert edges[0] == pytest.approx(0.01)
     assert edges[-1] == pytest.approx(3.0)
     ratios = [edges[i + 1] / edges[i] for i in range(4)]
-    assert all(r == pytest.approx(ratios[0], rel=1e-9) for r in ratios), \
-        "bins must be uniform in log space"
+    assert all(
+        r == pytest.approx(ratios[0], rel=1e-9) for r in ratios
+    ), "bins must be uniform in log space"
 
 
 def test_binned_rates_place_each_goal_in_exactly_one_bin(mod, tmp_path):
     """A goal on a bin edge must not be double-counted or dropped."""
     arm = _arm(
-        tmp_path, "rpp",
+        tmp_path,
+        "rpp",
         [
             "g1,SUCCEEDED,0.03,1,1,1,0.02,0.02,30.0",
             "g2,SUCCEEDED,1.00,1,1,1,2.90,2.90,30.0",
@@ -310,25 +365,41 @@ def test_binned_rates_place_each_goal_in_exactly_one_bin(mod, tmp_path):
 def test_report_covers_every_arm_and_states_the_definitions(mod, tmp_path):
     """The output must be self-describing: numbers without definitions rot."""
     for name in ("rpp", "dwb"):
-        _arm(tmp_path, name,
-             ["g1,SUCCEEDED,0.03,1,1,1,0.5,0.5,30.0"], _ttr_rows("g1", 1, 2.0))
+        _arm(
+            tmp_path,
+            name,
+            ["g1,SUCCEEDED,0.03,1,1,1,0.5,0.5,30.0"],
+            _ttr_rows("g1", 1, 2.0),
+        )
 
     report = mod.build_report(
-        {"rpp": mod.load_arm(tmp_path / "leg_final_rpp"),
-         "dwb": mod.load_arm(tmp_path / "leg_final_dwb")},
-        lo=0.01, hi=3.0,
+        {
+            "rpp": mod.load_arm(tmp_path / "leg_final_rpp"),
+            "dwb": mod.load_arm(tmp_path / "leg_final_dwb"),
+        },
+        lo=0.01,
+        hi=3.0,
     )
 
-    for needle in ("rpp", "dwb", "xy_goal_tolerance", "TTR Outcome", "PROTOCOL.md",
-                   "realised"):
+    for needle in (
+        "rpp",
+        "dwb",
+        "xy_goal_tolerance",
+        "TTR Outcome",
+        "PROTOCOL.md",
+        "realised",
+    ):
         assert needle in report, f"report does not mention {needle}"
 
 
 def test_arm_with_wrong_row_count_is_refused(mod, tmp_path):
     """Analysing a partial arm silently is how a crashed campaign becomes a result."""
     arm = _arm(
-        tmp_path, "rpp",
-        ["g1,SUCCEEDED,0.03,1,1,1,0.5,0.5,30.0"], _ttr_rows("g1", 1, 2.0))
+        tmp_path,
+        "rpp",
+        ["g1,SUCCEEDED,0.03,1,1,1,0.5,0.5,30.0"],
+        _ttr_rows("g1", 1, 2.0),
+    )
 
     with pytest.raises(SystemExit):
         mod.load_arm(arm, expect_goals=120)

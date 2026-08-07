@@ -33,6 +33,11 @@ navlearn_localization_eval source)
     TTR             seconds to first sustained convergence; only defined when recovered.
     magnitude       the REALISED displacement ("Kidnap Displacement (m)"), not the
                     commanded band: the band is a label, the robot moved by the distance.
+                    For a bad-init cell (--magnitude-field bad_init) the magnitude is
+                    "Bad Init Commanded Magnitude (m)": the perturbation is a published
+                    initialpose offset, so commanded IS realised by construction and no
+                    separate realised column exists. The leg 1 tables were computed ad
+                    hoc precisely because this field had no committed reader.
 
     Goals whose kidnap was attempted but never applied ran unperturbed and are excluded
     as attrition (counted, reported). Goals without ground truth are excluded and counted:
@@ -151,6 +156,8 @@ def load_arm(arm_dir, expect_goals=None, magnitude_field="displacement") -> list
                 # a direction, the severity is the angle.
                 if magnitude_field == "yaw_change":
                     magnitude = abs(float(row["Kidnap Yaw Change (deg)"]))
+                elif magnitude_field == "bad_init":
+                    magnitude = float(row["Bad Init Commanded Magnitude (m)"])
                 else:
                     magnitude = float(row["Kidnap Displacement (m)"])
                 goals.append(
@@ -361,7 +368,7 @@ def main() -> None:
     parser.add_argument("--bins", type=int, default=4)
     parser.add_argument(
         "--magnitude-field",
-        choices=("displacement", "yaw_change"),
+        choices=("displacement", "yaw_change", "bad_init"),
         default="displacement",
         help="Which column is the sweep's independent variable: the kidnap displacement "
         "(legs 1/2) or |Kidnap Yaw Change (deg)| (the yaw-curve leg, PROTOCOL A3)",
