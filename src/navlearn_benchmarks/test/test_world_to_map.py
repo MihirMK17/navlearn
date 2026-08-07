@@ -35,6 +35,13 @@ import sys
 import numpy as np
 import pytest
 
+# world_to_map imports defusedxml at module scope, so without it this file fails at
+# COLLECTION -- an error, not a skip -- and takes the whole pytest session's exit code
+# with it. Both it and pycollada are declared in package.xml (python3-defusedxml,
+# python3-collada), so a rosdep-provisioned environment never skips; this guard is for
+# a bare one.
+pytest.importorskip("defusedxml")
+
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
@@ -225,6 +232,12 @@ class TestPgm:
 
 @pytest.mark.skipif(not AWS_MESH.exists(), reason="AWS collision mesh not vendored")
 class TestRealMeshUnits:
+    @pytest.fixture(autouse=True)
+    def _needs_pycollada(self):
+        # load_mesh_triangles imports collada lazily; skip rather than error where the
+        # rosdep dependency (python3-collada) was never installed.
+        pytest.importorskip("collada")
+
     def test_centimetre_authored_mesh_comes_back_in_metres(self):
         # The bucket is a metre-scale object. Without unitmeter it would measure ~100 m
         # and the resulting map would be a hundred times too large -- still a valid

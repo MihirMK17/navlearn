@@ -88,10 +88,21 @@ def valid_pose_mask(occupied, resolution, clearance_m=DEFAULT_CLEARANCE_M, free=
     return (edt[1:-1, 1:-1] >= clearance_m) & free
 
 
-def feasible_fraction(occupied, resolution, origin, *, radius_m, band,
-                      clearance_m=DEFAULT_CLEARANCE_M, free=None,
-                      n_refs=200, n_bearings=72, n_radii=5, seed=0,
-                      max_sample_tries=1500):
+def feasible_fraction(
+    occupied,
+    resolution,
+    origin,
+    *,
+    radius_m,
+    band,
+    clearance_m=DEFAULT_CLEARANCE_M,
+    free=None,
+    n_refs=200,
+    n_bearings=72,
+    n_radii=5,
+    seed=0,
+    max_sample_tries=1500,
+):
     """Fraction of reference poses for which a kidnap at `radius_m` can be applied.
 
     Reference poses are drawn from the valid set, because that is where the robot is when
@@ -154,9 +165,12 @@ def feasible_fraction(occupied, resolution, origin, *, radius_m, band,
         "median_valid_share": float(np.median(valid_share)),
         # Poses whose ring is so sparse the sampler will usually fail even though a pose
         # exists -- the gap between "possible" and "practical".
-        "fraction_marginal": float(np.mean((valid_share > 0.0) & (hit_probability < 0.9))),
+        "fraction_marginal": float(
+            np.mean((valid_share > 0.0) & (hit_probability < 0.9))
+        ),
         "attempts_per_applied": (
-            (1.0 / expected_yield) if expected_yield > 0.0 else float("inf")),
+            (1.0 / expected_yield) if expected_yield > 0.0 else float("inf")
+        ),
     }
 
 
@@ -188,22 +202,34 @@ def main(argv=None):
             row = f"  {r:6.2f} "
             for b in bands:
                 res = feasible_fraction(
-                    occ.occupied, occ.resolution, occ.origin, radius_m=r, band=b,
-                    clearance_m=args.clearance, free=occ.free, n_refs=args.refs,
-                    seed=args.seed)
+                    occ.occupied,
+                    occ.resolution,
+                    occ.origin,
+                    radius_m=r,
+                    band=b,
+                    clearance_m=args.clearance,
+                    free=occ.free,
+                    n_refs=args.refs,
+                    seed=args.seed,
+                )
                 res["map"] = name
                 report.append(res)
                 row += f"   {res['feasible_fraction']:6.3f}    "
             print(row)
 
-    print("\n(values are the fraction of robot poses at which a kidnap of that "
-          "displacement can be applied)")
+    print(
+        "\n(values are the fraction of robot poses at which a kidnap of that "
+        "displacement can be applied)"
+    )
 
     if args.out:
         os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
         with open(args.out, "w") as handle:
-            json.dump({"clearance_m": args.clearance, "seed": args.seed,
-                       "results": report}, handle, indent=2)
+            json.dump(
+                {"clearance_m": args.clearance, "seed": args.seed, "results": report},
+                handle,
+                indent=2,
+            )
         print(f"wrote {args.out}")
     return 0
 

@@ -152,8 +152,16 @@ def dead_processes(names, launch_pid=None) -> list:
 class RunWatchdog:
     """Decides, on each poll, whether the current episode is still worth waiting for."""
 
-    def __init__(self, *, progress, liveness, goal_timeout_s, startup_timeout_s,
-                 clock=time.monotonic, goals_total=None):
+    def __init__(
+        self,
+        *,
+        progress,
+        liveness,
+        goal_timeout_s,
+        startup_timeout_s,
+        clock=time.monotonic,
+        goals_total=None,
+    ):
         """
         Args:
             progress: callable returning the number of goals completed so far.
@@ -187,8 +195,9 @@ class RunWatchdog:
             return Abort(
                 EXIT_STACK_DOWN,
                 "navigation stack is down: {} no longer running. The launch cannot "
-                "complete and every remaining goal in this cell would be rejected."
-                .format(", ".join(missing)),
+                "complete and every remaining goal in this cell would be rejected.".format(
+                    ", ".join(missing)
+                ),
             )
 
         now = self._clock()
@@ -206,8 +215,9 @@ class RunWatchdog:
                     EXIT_STALLED,
                     "the first goal did not complete within the {:.1f} s startup budget. "
                     "Bringup, map load and the first plan all fit inside it, so this is a "
-                    "stack that came up and never navigated."
-                    .format(self._startup_timeout_s),
+                    "stack that came up and never navigated.".format(
+                        self._startup_timeout_s
+                    ),
                 )
             return None
 
@@ -216,16 +226,25 @@ class RunWatchdog:
             return Abort(
                 EXIT_STALLED,
                 "no goal completed in {:.1f} s ({} goal{} done{}). The stack is alive but "
-                "is not making progress."
-                .format(self._goal_timeout_s, self._completed,
-                        "" if self._completed == 1 else "s", of_total),
+                "is not making progress.".format(
+                    self._goal_timeout_s,
+                    self._completed,
+                    "" if self._completed == 1 else "s",
+                    of_total,
+                ),
             )
 
         return None
 
 
-def supervise(process, watchdog, poll_interval_s=2.0, grace_s=20.0, sleep=time.sleep,
-              on_abort=None):
+def supervise(
+    process,
+    watchdog,
+    poll_interval_s=2.0,
+    grace_s=20.0,
+    sleep=time.sleep,
+    on_abort=None,
+):
     """Wait for ``process``, aborting it if ``watchdog`` says the run is finished.
 
     Returns ``None`` when the run exits on its own -- the healthy path, and the one that
@@ -250,7 +269,9 @@ def supervise(process, watchdog, poll_interval_s=2.0, grace_s=20.0, sleep=time.s
                 try:
                     on_abort(verdict)
                 except Exception:  # noqa: BLE001 - forensics must never mask the abort
-                    logging.exception("Forensic capture failed; aborting the run anyway.")
+                    logging.exception(
+                        "Forensic capture failed; aborting the run anyway."
+                    )
             _kill_group(process, grace_s)
             return verdict
 
@@ -279,5 +300,7 @@ def _kill_group(process, grace_s):
         except subprocess.TimeoutExpired:
             logging.warning(
                 "Launch pid %d ignored %s after %.0f s; escalating.",
-                process.pid, sig.name, wait_s,
+                process.pid,
+                sig.name,
+                wait_s,
             )

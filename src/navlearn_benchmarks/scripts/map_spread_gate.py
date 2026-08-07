@@ -79,8 +79,9 @@ RING_MIN_M = 0.8
 RING_MAX_M = 1.2
 
 
-def survivability(field, poses, ring_min=RING_MIN_M, ring_max=RING_MAX_M,
-                  n_offsets=12, n_yaws=8):
+def survivability(
+    field, poses, ring_min=RING_MIN_M, ring_max=RING_MAX_M, n_offsets=12, n_yaws=8
+):
     """Mean per-beam AMCL likelihood of each pose's scan, seen from ring-offset poses.
 
     Models what the filter experiences at the instant of a kidnap: the belief is still at
@@ -114,37 +115,73 @@ def survivability(field, poses, ring_min=RING_MIN_M, ring_max=RING_MAX_M,
                 angles = (2.0 * math.pi * j / n_yaws) + beam_angles
                 ex = qx + ranges * np.cos(angles)
                 ey = qy + ranges * np.sin(angles)
-                col = np.floor((ex - field.origin[0]) / field.resolution).astype(np.int64)
-                row = np.floor((ey - field.origin[1]) / field.resolution).astype(np.int64)
+                col = np.floor((ex - field.origin[0]) / field.resolution).astype(
+                    np.int64
+                )
+                row = np.floor((ey - field.origin[1]) / field.resolution).astype(
+                    np.int64
+                )
                 inside = (row >= 0) & (row < rows) & (col >= 0) & (col < cols)
                 np.clip(row, 0, rows - 1, out=row)
                 np.clip(col, 0, cols - 1, out=col)
-                d = np.where(inside, field._clamped_edt[row, col],
-                             field.likelihood_max_dist_m)
-                vals.append(float(np.mean(
-                    peak * np.exp(-0.5 * (d * d) / (AMCL_SIGMA_HIT ** 2)) + floor)))
+                d = np.where(
+                    inside, field._clamped_edt[row, col], field.likelihood_max_dist_m
+                )
+                vals.append(
+                    float(
+                        np.mean(
+                            peak * np.exp(-0.5 * (d * d) / (AMCL_SIGMA_HIT**2)) + floor
+                        )
+                    )
+                )
         out[i] = float(np.mean(vals)) if vals else float(floor)
     return out
 
 
-def score_map(name, yaml_path, *, resolution, pose_spacing, yaw_bins, beams,
-              sample, local_radius, rng_seed):
+def score_map(
+    name,
+    yaml_path,
+    *,
+    resolution,
+    pose_spacing,
+    yaw_bins,
+    beams,
+    sample,
+    local_radius,
+    rng_seed,
+):
     """Score one map on the common grid and return its gate report."""
     occ = load_occupancy(yaml_path)
     occupied = resample_occupancy(occ.occupied, occ.resolution, resolution)
     free = ~resample_occupancy(~occ.free, occ.resolution, resolution)
 
     ideal = AmbiguityField(
-        occupied, resolution, occ.origin, free=free,
-        pose_spacing_m=pose_spacing, yaw_bins=yaw_bins, n_beams=beams,
-        max_range_m=LASER_MAX_RANGE, sigma_m=AMCL_SIGMA_HIT,
-        z_hit=AMCL_Z_HIT, z_rand=AMCL_Z_RAND)
+        occupied,
+        resolution,
+        occ.origin,
+        free=free,
+        pose_spacing_m=pose_spacing,
+        yaw_bins=yaw_bins,
+        n_beams=beams,
+        max_range_m=LASER_MAX_RANGE,
+        sigma_m=AMCL_SIGMA_HIT,
+        z_hit=AMCL_Z_HIT,
+        z_rand=AMCL_Z_RAND,
+    )
     amcl = LikelihoodFieldAmbiguity(
-        occupied, resolution, occ.origin, free=free,
-        pose_spacing_m=pose_spacing, yaw_bins=yaw_bins, n_beams=beams,
-        max_range_m=LASER_MAX_RANGE, sigma_m=AMCL_SIGMA_HIT,
-        z_hit=AMCL_Z_HIT, z_rand=AMCL_Z_RAND,
-        likelihood_max_dist_m=AMCL_LIKELIHOOD_MAX_DIST)
+        occupied,
+        resolution,
+        occ.origin,
+        free=free,
+        pose_spacing_m=pose_spacing,
+        yaw_bins=yaw_bins,
+        n_beams=beams,
+        max_range_m=LASER_MAX_RANGE,
+        sigma_m=AMCL_SIGMA_HIT,
+        z_hit=AMCL_Z_HIT,
+        z_rand=AMCL_Z_RAND,
+        likelihood_max_dist_m=AMCL_LIKELIHOOD_MAX_DIST,
+    )
 
     n_poses = len(ideal.poses)
     if n_poses == 0:
@@ -156,10 +193,15 @@ def score_map(name, yaml_path, *, resolution, pose_spacing, yaw_bins, beams,
     probe = ideal.poses[idx]
 
     ideal_h = ideal.ambiguity_many(probe)
-    amcl_h = np.array([amcl.ambiguity(x, y, yaw)["entropy_bits"] for x, y, yaw in probe])
-    amcl_local = np.array([
-        amcl.ambiguity(x, y, yaw, radius_m=local_radius)["entropy_bits"]
-        for x, y, yaw in probe])
+    amcl_h = np.array(
+        [amcl.ambiguity(x, y, yaw)["entropy_bits"] for x, y, yaw in probe]
+    )
+    amcl_local = np.array(
+        [
+            amcl.ambiguity(x, y, yaw, radius_m=local_radius)["entropy_bits"]
+            for x, y, yaw in probe
+        ]
+    )
     surv = survivability(amcl, probe)
 
     predictors = {
@@ -195,7 +237,8 @@ def score_map(name, yaml_path, *, resolution, pose_spacing, yaw_bins, beams,
         report["predictors"][key] = stats
 
     report["usable_predictors"] = sorted(
-        k for k, v in report["predictors"].items() if not v["degenerate"])
+        k for k, v in report["predictors"].items() if not v["degenerate"]
+    )
     report["passes_gate"] = bool(report["usable_predictors"])
     return report
 
@@ -203,19 +246,28 @@ def score_map(name, yaml_path, *, resolution, pose_spacing, yaw_bins, beams,
 def main(argv=None):
     """Score every candidate map and write the gate decision."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--map", action="append", required=True, metavar="NAME=PATH",
-                        help="candidate map, repeatable")
+    parser.add_argument(
+        "--map",
+        action="append",
+        required=True,
+        metavar="NAME=PATH",
+        help="candidate map, repeatable",
+    )
     parser.add_argument("--out", required=True, help="output directory")
-    parser.add_argument("--resolution", type=float, default=0.05,
-                        help="common grid all maps are scored on, metres")
+    parser.add_argument(
+        "--resolution",
+        type=float,
+        default=0.05,
+        help="common grid all maps are scored on, metres",
+    )
     parser.add_argument("--pose-spacing", type=float, default=0.5)
     parser.add_argument("--yaw-bins", type=int, default=8)
     parser.add_argument("--beams", type=int, default=36)
-    parser.add_argument("--sample", type=int, default=200,
-                        help="poses probed per map")
+    parser.add_argument("--sample", type=int, default=200, help="poses probed per map")
     parser.add_argument("--local-radius", type=float, default=2.0)
-    parser.add_argument("--seed", type=int, default=20260730,
-                        help="fixed so the gate is reproducible")
+    parser.add_argument(
+        "--seed", type=int, default=20260730, help="fixed so the gate is reproducible"
+    )
     args = parser.parse_args(argv)
 
     os.makedirs(args.out, exist_ok=True)
@@ -228,36 +280,55 @@ def main(argv=None):
         if not os.path.isfile(path):
             parser.error(f"{name}: no such map yaml: {path}")
         print(f"scoring {name} ...", file=sys.stderr)
-        reports.append(score_map(
-            name, path, resolution=args.resolution, pose_spacing=args.pose_spacing,
-            yaw_bins=args.yaw_bins, beams=args.beams, sample=args.sample,
-            local_radius=args.local_radius, rng_seed=args.seed))
+        reports.append(
+            score_map(
+                name,
+                path,
+                resolution=args.resolution,
+                pose_spacing=args.pose_spacing,
+                yaw_bins=args.yaw_bins,
+                beams=args.beams,
+                sample=args.sample,
+                local_radius=args.local_radius,
+                rng_seed=args.seed,
+            )
+        )
 
     out_path = os.path.join(args.out, "map_spread_gate.json")
     with open(out_path, "w") as handle:
-        json.dump({"resolution_m": args.resolution, "seed": args.seed,
-                   "maps": reports}, handle, indent=2)
+        json.dump(
+            {"resolution_m": args.resolution, "seed": args.seed, "maps": reports},
+            handle,
+            indent=2,
+        )
 
-    header = (f"{'map':<14}{'free pos':>9}{'ceil':>7}"
-              f"{'ideal':>9}{'amcl':>9}{'amcl_loc':>10}{'surv IQR/med':>14}  gate")
+    header = (
+        f"{'map':<14}{'free pos':>9}{'ceil':>7}"
+        f"{'ideal':>9}{'amcl':>9}{'amcl_loc':>10}{'surv IQR/med':>14}  gate"
+    )
     print("\n" + header)
     print("-" * len(header))
     for r in reports:
         p = r["predictors"]
-        print(f"{r['map']:<14}{r['free_positions']:>9}"
-              f"{r['entropy_ceiling_bits']:>7.2f}"
-              f"{p['ideal_entropy']['iqr']:>9.3f}"
-              f"{p['amcl_entropy']['iqr']:>9.3f}"
-              f"{p['amcl_local_entropy']['iqr']:>10.3f}"
-              f"{p['survivability'].get('relative_iqr', 0.0):>14.3f}"
-              f"  {'PASS' if r['passes_gate'] else 'FAIL'}"
-              f" [{', '.join(r['usable_predictors']) or 'none'}]")
+        print(
+            f"{r['map']:<14}{r['free_positions']:>9}"
+            f"{r['entropy_ceiling_bits']:>7.2f}"
+            f"{p['ideal_entropy']['iqr']:>9.3f}"
+            f"{p['amcl_entropy']['iqr']:>9.3f}"
+            f"{p['amcl_local_entropy']['iqr']:>10.3f}"
+            f"{p['survivability'].get('relative_iqr', 0.0):>14.3f}"
+            f"  {'PASS' if r['passes_gate'] else 'FAIL'}"
+            f" [{', '.join(r['usable_predictors']) or 'none'}]"
+        )
     print("\n(entropy columns are IQR in bits; survivability is IQR/median, unitless)")
     print(f"wrote {out_path}")
 
     if not any(r["passes_gate"] for r in reports):
-        print("\nNO CANDIDATE MAP CARRIES A USABLE PREDICTOR — the secondary claim is not "
-              "testable on this map set. Do not collect data against it.", file=sys.stderr)
+        print(
+            "\nNO CANDIDATE MAP CARRIES A USABLE PREDICTOR — the secondary claim is not "
+            "testable on this map set. Do not collect data against it.",
+            file=sys.stderr,
+        )
         return 2
     return 0
 

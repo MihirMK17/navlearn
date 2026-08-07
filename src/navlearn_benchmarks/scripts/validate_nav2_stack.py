@@ -106,7 +106,9 @@ def _load_stack_spec():
 
         candidates.append(
             os.path.join(
-                get_package_share_directory("bumperbot_navigation"), "launch", "stack_spec.py"
+                get_package_share_directory("bumperbot_navigation"),
+                "launch",
+                "stack_spec.py",
             )
         )
     except Exception:  # noqa: BLE001 - ament is absent in a bare CI checkout
@@ -242,8 +244,10 @@ def check_mppi_inflation_parity(stack, failures):
     if not (os.path.isfile(common_path) and os.path.isfile(mppi_path)):
         return
 
-    critic = _controller_params(_load(mppi_path)).get("FollowPath", {}).get(
-        "ObstaclesCritic", {}
+    critic = (
+        _controller_params(_load(mppi_path))
+        .get("FollowPath", {})
+        .get("ObstaclesCritic", {})
     )
     inflation = (
         _load(common_path)
@@ -293,11 +297,15 @@ def check_velocity_parity(stack, failures):
 
         follow_path = _controller_params(_load(path)).get("FollowPath", {})
         if key not in follow_path:
-            failures.append(("velocity-parity", f"controllers/{name}.yaml has no '{key}'"))
+            failures.append(
+                ("velocity-parity", f"controllers/{name}.yaml has no '{key}'")
+            )
             continue
         speeds[name] = follow_path[key]
 
-    for (name_a, speed_a), (name_b, speed_b) in itertools.combinations(speeds.items(), 2):
+    for (name_a, speed_a), (name_b, speed_b) in itertools.combinations(
+        speeds.items(), 2
+    ):
         if speed_a != speed_b:
             failures.append(
                 (
@@ -327,7 +335,8 @@ def check_ablations_single_variable(stack, failures):
         overrides = _flatten(_controller_params(_load(path)))
 
         changed = [
-            key for key, value in overrides.items()
+            key
+            for key, value in overrides.items()
             if key in baseline and baseline[key] != value
         ]
         unknown = [key for key in overrides if key not in baseline]

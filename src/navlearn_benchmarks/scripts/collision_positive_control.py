@@ -55,7 +55,12 @@ import rclpy
 from geometry_msgs.msg import TwistStamped
 from navlearn_msgs.msg import EpisodeEvent, TrajectoryMetric
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
+from rclpy.qos import (
+    QoSDurabilityPolicy,
+    QoSHistoryPolicy,
+    QoSProfile,
+    QoSReliabilityPolicy,
+)
 from sensor_msgs.msg import LaserScan
 from unique_identifier_msgs.msg import UUID
 
@@ -81,7 +86,9 @@ class CollisionPositiveControl(Node):
         self.metric = None
         self.goal_id = UUID(uuid=list(uuid.uuid4().bytes))
 
-        self.create_subscription(LaserScan, args.scan_topic, self._on_scan, sensor_qos())
+        self.create_subscription(
+            LaserScan, args.scan_topic, self._on_scan, sensor_qos()
+        )
         self.create_subscription(
             TrajectoryMetric, args.trajectory_metric_topic, self._on_metric, 10
         )
@@ -90,8 +97,11 @@ class CollisionPositiveControl(Node):
 
     def _on_scan(self, msg):
         valid = [
-            r for r in msg.ranges
-            if not math.isnan(r) and not math.isinf(r) and msg.range_min <= r <= msg.range_max
+            r
+            for r in msg.ranges
+            if not math.isnan(r)
+            and not math.isinf(r)
+            and msg.range_min <= r <= msg.range_max
         ]
         if valid:
             self.min_range = min(valid)
@@ -143,8 +153,10 @@ class CollisionPositiveControl(Node):
         self._publish_episode(EpisodeEvent.START)
         self._spin(1.0)
 
-        print(f"Driving forward at {self.args.speed} m/s until range <= "
-              f"{self.args.threshold} m...")
+        print(
+            f"Driving forward at {self.args.speed} m/s until range <= "
+            f"{self.args.threshold} m..."
+        )
         tripped = False
         deadline = time.monotonic() + self.args.timeout
         try:
@@ -195,8 +207,10 @@ class CollisionPositiveControl(Node):
             )
             return False
 
-        print("PASS: collision detector fires on a deliberate contact. Zeros elsewhere in "
-              "the campaign now carry information.")
+        print(
+            "PASS: collision detector fires on a deliberate contact. Zeros elsewhere in "
+            "the campaign now carry information."
+        )
         return True
 
 
@@ -206,9 +220,15 @@ def main():
     parser.add_argument("--scan-topic", default="/scan")
     parser.add_argument("--cmd-vel-topic", default="/bumperbot_controller/cmd_vel")
     parser.add_argument("--episode-topic", default="/navlearn/episode_event")
-    parser.add_argument("--trajectory-metric-topic", default="/navlearn/trajectory_metric")
-    parser.add_argument("--threshold", type=float, default=0.15,
-                        help="Must match trajectory_metric's collision_scan_threshold_m")
+    parser.add_argument(
+        "--trajectory-metric-topic", default="/navlearn/trajectory_metric"
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.15,
+        help="Must match trajectory_metric's collision_scan_threshold_m",
+    )
     parser.add_argument("--speed", type=float, default=0.10, help="Forward speed [m/s]")
     parser.add_argument("--timeout", type=float, default=60.0)
     args, ros_args = parser.parse_known_args()

@@ -115,8 +115,9 @@ def load_occupancy(map_yaml_path):
 
     image_path = meta["image"]
     if not os.path.isabs(image_path):
-        image_path = os.path.join(os.path.dirname(os.path.abspath(map_yaml_path)),
-                                  image_path)
+        image_path = os.path.join(
+            os.path.dirname(os.path.abspath(map_yaml_path)), image_path
+        )
 
     pixels = np.asarray(Image.open(image_path).convert("L"), dtype=np.float64)
     pixels = np.flipud(pixels)
@@ -155,7 +156,8 @@ def resample_occupancy(occupied, from_resolution, to_resolution):
     if to_resolution < from_resolution * (1.0 - 1e-9):
         raise ValueError(
             f"cannot resample {from_resolution} m to a finer {to_resolution} m; "
-            "upsampling would invent detail the map does not contain")
+            "upsampling would invent detail the map does not contain"
+        )
 
     factor = to_resolution / from_resolution
     if abs(factor - 1.0) < 1e-9:
@@ -179,8 +181,9 @@ def resample_occupancy(occupied, from_resolution, to_resolution):
 
     r0, r1 = row_edges[:-1, None], row_edges[1:, None]
     c0, c1 = col_edges[None, :-1], col_edges[None, 1:]
-    block_sum = (integral[r1, c1] - integral[r0, c1]
-                 - integral[r1, c0] + integral[r0, c0])
+    block_sum = (
+        integral[r1, c1] - integral[r0, c1] - integral[r1, c0] + integral[r0, c0]
+    )
     return block_sum > 0
 
 
@@ -206,9 +209,21 @@ class AmbiguityField:
             unambiguous by construction.
     """
 
-    def __init__(self, occupied, resolution, origin=(0.0, 0.0), *, free=None,
-                 pose_spacing_m=0.5, yaw_bins=8, n_beams=36,
-                 max_range_m=12.0, sigma_m=0.20, z_hit=0.85, z_rand=0.05):
+    def __init__(
+        self,
+        occupied,
+        resolution,
+        origin=(0.0, 0.0),
+        *,
+        free=None,
+        pose_spacing_m=0.5,
+        yaw_bins=8,
+        n_beams=36,
+        max_range_m=12.0,
+        sigma_m=0.20,
+        z_hit=0.85,
+        z_rand=0.05,
+    ):
         """Build the candidate pose set; expected scans are computed on first use."""
         self.occupied = np.asarray(occupied, dtype=bool)
         self.free = (~self.occupied) if free is None else np.asarray(free, dtype=bool)
@@ -229,7 +244,9 @@ class AmbiguityField:
         if self.yaw_bins < 1 or self.n_beams < 1:
             raise ValueError("yaw_bins and n_beams must be positive")
 
-        self._beam_angles = np.linspace(0.0, 2.0 * math.pi, self.n_beams, endpoint=False)
+        self._beam_angles = np.linspace(
+            0.0, 2.0 * math.pi, self.n_beams, endpoint=False
+        )
         self.poses = self._build_poses()
         self._scans = None
 
@@ -243,10 +260,16 @@ class AmbiguityField:
 
         # Half-spacing inset so a lattice point never sits exactly on a cell boundary,
         # where floor() would make the sampled cell depend on floating-point noise.
-        xs = np.arange(self.origin[0] + self.pose_spacing_m / 2.0,
-                       self.origin[0] + span_x, self.pose_spacing_m)
-        ys = np.arange(self.origin[1] + self.pose_spacing_m / 2.0,
-                       self.origin[1] + span_y, self.pose_spacing_m)
+        xs = np.arange(
+            self.origin[0] + self.pose_spacing_m / 2.0,
+            self.origin[0] + span_x,
+            self.pose_spacing_m,
+        )
+        ys = np.arange(
+            self.origin[1] + self.pose_spacing_m / 2.0,
+            self.origin[1] + span_y,
+            self.pose_spacing_m,
+        )
 
         grid_x, grid_y = np.meshgrid(xs, ys, indexing="xy")
         flat_x = grid_x.ravel()
@@ -265,8 +288,12 @@ class AmbiguityField:
 
     def _cell_indices(self, x, y):
         """Vectorised world-to-cell, with an in-bounds mask."""
-        col = np.floor((np.asarray(x) - self.origin[0]) / self.resolution).astype(np.int64)
-        row = np.floor((np.asarray(y) - self.origin[1]) / self.resolution).astype(np.int64)
+        col = np.floor((np.asarray(x) - self.origin[0]) / self.resolution).astype(
+            np.int64
+        )
+        row = np.floor((np.asarray(y) - self.origin[1]) / self.resolution).astype(
+            np.int64
+        )
         rows, cols = self.free.shape
         inside = (row >= 0) & (row < rows) & (col >= 0) & (col < cols)
         return row, col, inside
@@ -301,7 +328,7 @@ class AmbiguityField:
         poses = np.atleast_2d(np.asarray(poses, dtype=np.float64))
         step = self.resolution * _STEP_CELLS
         n_steps = max(1, int(math.ceil(self.max_range_m / step)))
-        distances = (np.arange(1, n_steps + 1, dtype=np.float64) * step)
+        distances = np.arange(1, n_steps + 1, dtype=np.float64) * step
         distances = np.minimum(distances, self.max_range_m)
 
         rows, cols = self.occupied.shape
@@ -311,8 +338,8 @@ class AmbiguityField:
         chunk = max(1, _CHUNK_ELEMENTS // max(1, per_pose))
 
         for start in range(0, poses.shape[0], chunk):
-            block = poses[start:start + chunk]
-            angles = block[:, 2, None] + self._beam_angles[None, :]      # (m, B)
+            block = poses[start : start + chunk]
+            angles = block[:, 2, None] + self._beam_angles[None, :]  # (m, B)
             px = block[:, 0, None, None] + np.cos(angles)[:, :, None] * distances
             py = block[:, 1, None, None] + np.sin(angles)[:, :, None] * distances
 
@@ -322,12 +349,13 @@ class AmbiguityField:
 
             np.clip(row, 0, rows - 1, out=row)
             np.clip(col, 0, cols - 1, out=col)
-            hit = self.occupied[row, col] & inside                       # (m, B, S)
+            hit = self.occupied[row, col] & inside  # (m, B, S)
 
             any_hit = hit.any(axis=2)
             first = np.argmax(hit, axis=2)
-            out[start:start + chunk] = np.where(any_hit, distances[first],
-                                                self.max_range_m)
+            out[start : start + chunk] = np.where(
+                any_hit, distances[first], self.max_range_m
+            )
         return out
 
     @property
@@ -352,7 +380,7 @@ class AmbiguityField:
         floor = self.z_rand / self.max_range_m
 
         diff = query_scans[:, None, :] - self.scans[None, :, :]
-        beam = peak * np.exp(-0.5 * (diff * diff) / (self.sigma_m ** 2)) + floor
+        beam = peak * np.exp(-0.5 * (diff * diff) / (self.sigma_m**2)) + floor
         loglik = np.sum(np.log(beam), axis=2)
 
         loglik -= loglik.max(axis=1, keepdims=True)
@@ -377,8 +405,11 @@ class AmbiguityField:
         if self.is_occupied(x, y):
             raise ValueError(
                 f"pose ({x:.3f}, {y:.3f}) is not in free space; "
-                "check the map frame and the kidnap target transform")
-        return float(self._entropy_from_scans(self.expected_scan(x, y, yaw)[None, :])[0])
+                "check the map frame and the kidnap target transform"
+            )
+        return float(
+            self._entropy_from_scans(self.expected_scan(x, y, yaw)[None, :])[0]
+        )
 
     def ambiguity_many(self, poses):
         """Ambiguity for many poses at once, shape (M,). Same result as looping."""
@@ -387,7 +418,8 @@ class AmbiguityField:
         if bad.any():
             raise ValueError(
                 f"{int(bad.sum())} of {poses.shape[0]} poses are not in free space; "
-                f"first offender: {poses[bad][0][:2]}")
+                f"first offender: {poses[bad][0][:2]}"
+            )
         return self._entropy_from_scans(self._raycast(poses))
 
 
@@ -414,15 +446,36 @@ class LikelihoodFieldAmbiguity(AmbiguityField):
             3.0 default).
     """
 
-    def __init__(self, occupied, resolution, origin=(0.0, 0.0), *, free=None,
-                 pose_spacing_m=0.5, yaw_bins=8, n_beams=36,
-                 max_range_m=12.0, sigma_m=0.20, z_hit=0.85, z_rand=0.05,
-                 likelihood_max_dist_m=2.0):
+    def __init__(
+        self,
+        occupied,
+        resolution,
+        origin=(0.0, 0.0),
+        *,
+        free=None,
+        pose_spacing_m=0.5,
+        yaw_bins=8,
+        n_beams=36,
+        max_range_m=12.0,
+        sigma_m=0.20,
+        z_hit=0.85,
+        z_rand=0.05,
+        likelihood_max_dist_m=2.0,
+    ):
         """Build the pose set and the distance-to-obstacle field AMCL scores against."""
-        super().__init__(occupied, resolution, origin, free=free,
-                         pose_spacing_m=pose_spacing_m, yaw_bins=yaw_bins,
-                         n_beams=n_beams, max_range_m=max_range_m, sigma_m=sigma_m,
-                         z_hit=z_hit, z_rand=z_rand)
+        super().__init__(
+            occupied,
+            resolution,
+            origin,
+            free=free,
+            pose_spacing_m=pose_spacing_m,
+            yaw_bins=yaw_bins,
+            n_beams=n_beams,
+            max_range_m=max_range_m,
+            sigma_m=sigma_m,
+            z_hit=z_hit,
+            z_rand=z_rand,
+        )
         from scipy.ndimage import distance_transform_edt
 
         self.likelihood_max_dist_m = float(likelihood_max_dist_m)
@@ -453,14 +506,19 @@ class LikelihoodFieldAmbiguity(AmbiguityField):
         if self.is_occupied(x, y):
             raise ValueError(
                 f"pose ({x:.3f}, {y:.3f}) is not in free space; "
-                "check the map frame and the kidnap target transform")
+                "check the map frame and the kidnap target transform"
+            )
 
         candidates = self.poses
         if radius_m is not None:
-            keep = np.hypot(candidates[:, 0] - x, candidates[:, 1] - y) <= float(radius_m)
+            keep = np.hypot(candidates[:, 0] - x, candidates[:, 1] - y) <= float(
+                radius_m
+            )
             candidates = candidates[keep]
             if candidates.shape[0] == 0:
-                raise ValueError(f"no candidate poses within {radius_m} m of ({x}, {y})")
+                raise ValueError(
+                    f"no candidate poses within {radius_m} m of ({x}, {y})"
+                )
 
         scan = self.expected_scan(x, y, yaw)
         valid = scan < (self.max_range_m - 1e-9)
@@ -469,9 +527,11 @@ class LikelihoodFieldAmbiguity(AmbiguityField):
         n = candidates.shape[0]
         if not valid.any():
             # Every beam discarded: the posterior is the prior, exactly.
-            return {"entropy_bits": float(math.log2(n)),
-                    "max_range_fraction": max_range_fraction,
-                    "n_hypotheses": n}
+            return {
+                "entropy_bits": float(math.log2(n)),
+                "max_range_fraction": max_range_fraction,
+                "n_hypotheses": n,
+            }
 
         ranges = scan[valid]
         angles = candidates[:, 2, None] + self._beam_angles[valid][None, :]
@@ -489,7 +549,7 @@ class LikelihoodFieldAmbiguity(AmbiguityField):
 
         peak = self.z_hit
         floor = self.z_rand / self.max_range_m
-        beam = peak * np.exp(-0.5 * (d * d) / (self.sigma_m ** 2)) + floor
+        beam = peak * np.exp(-0.5 * (d * d) / (self.sigma_m**2)) + floor
         loglik = np.sum(np.log(beam), axis=1)
 
         loglik -= loglik.max()
@@ -499,9 +559,11 @@ class LikelihoodFieldAmbiguity(AmbiguityField):
         safe = np.where(weights > 0.0, weights, 1.0)
         entropy = float(max(0.0, -np.sum(weights * np.log2(safe))))
 
-        return {"entropy_bits": entropy,
-                "max_range_fraction": max_range_fraction,
-                "n_hypotheses": n}
+        return {
+            "entropy_bits": entropy,
+            "max_range_fraction": max_range_fraction,
+            "n_hypotheses": n,
+        }
 
 
 # --------------------------------------------------------------------- degeneracy guard
@@ -573,14 +635,21 @@ def main(argv=None):
     """Score every kidnap destination in a metrics CSV against a map."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("map_yaml", help="ROS map_server YAML for the campaign map")
-    parser.add_argument("--targets", required=True,
-                        help="metrics CSV (uses the Kidnap Target columns), or x,y,yaw CSV")
+    parser.add_argument(
+        "--targets",
+        required=True,
+        help="metrics CSV (uses the Kidnap Target columns), or x,y,yaw CSV",
+    )
     parser.add_argument("--out", required=True, help="output CSV path")
     parser.add_argument("--pose-spacing", type=float, default=0.5)
     parser.add_argument("--yaw-bins", type=int, default=8)
     parser.add_argument("--beams", type=int, default=36)
-    parser.add_argument("--max-range", type=float, default=12.0,
-                        help="metres; match the sensor the campaign ran (RPLidar A1)")
+    parser.add_argument(
+        "--max-range",
+        type=float,
+        default=12.0,
+        help="metres; match the sensor the campaign ran (RPLidar A1)",
+    )
     parser.add_argument("--sigma", type=float, default=0.20, help="range sigma, metres")
     parser.add_argument("--z-hit", type=float, default=0.85)
     parser.add_argument("--z-rand", type=float, default=0.05)
@@ -588,30 +657,51 @@ def main(argv=None):
 
     occ = load_occupancy(args.map_yaml)
     field = AmbiguityField(
-        occ.occupied, occ.resolution, occ.origin, free=occ.free,
-        pose_spacing_m=args.pose_spacing, yaw_bins=args.yaw_bins,
-        n_beams=args.beams, max_range_m=args.max_range, sigma_m=args.sigma,
-        z_hit=args.z_hit, z_rand=args.z_rand)
+        occ.occupied,
+        occ.resolution,
+        occ.origin,
+        free=occ.free,
+        pose_spacing_m=args.pose_spacing,
+        yaw_bins=args.yaw_bins,
+        n_beams=args.beams,
+        max_range_m=args.max_range,
+        sigma_m=args.sigma,
+        z_hit=args.z_hit,
+        z_rand=args.z_rand,
+    )
 
     targets = _read_targets(args.targets)
     if not targets:
         print("no applied kidnap targets found", file=sys.stderr)
         return 1
 
-    print(f"pose set: {len(field.poses)} poses "
-          f"({len(field.poses) // args.yaw_bins} positions x {args.yaw_bins} headings)",
-          file=sys.stderr)
+    print(
+        f"pose set: {len(field.poses)} poses "
+        f"({len(field.poses) // args.yaw_bins} positions x {args.yaw_bins} headings)",
+        file=sys.stderr,
+    )
 
     scored = field.ambiguity_many(np.array([[x, y, yaw] for _, x, y, yaw in targets]))
 
     report = spread_report(scored)
-    print("ambiguity (bits): min {min:.3f}  p25 {p25:.3f}  median {median:.3f}  "
-          "p75 {p75:.3f}  max {max:.3f}  IQR {iqr:.3f}".format(**report), file=sys.stderr)
+    print(
+        "ambiguity (bits): min {min:.3f}  p25 {p25:.3f}  median {median:.3f}  "
+        "p75 {p75:.3f}  max {max:.3f}  IQR {iqr:.3f}".format(**report),
+        file=sys.stderr,
+    )
 
     with open(args.out, "w", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["row_index", "target_x", "target_y", "target_yaw_rad",
-                         "ambiguity_bits", "max_entropy_bits"])
+        writer.writerow(
+            [
+                "row_index",
+                "target_x",
+                "target_y",
+                "target_yaw_rad",
+                "ambiguity_bits",
+                "max_entropy_bits",
+            ]
+        )
         ceiling = math.log2(len(field.poses))
         for (index, x, y, yaw), value in zip(targets, scored):
             writer.writerow([index, x, y, yaw, value, ceiling])
@@ -628,7 +718,8 @@ def main(argv=None):
             "map does not vary in the quantity being tested. Do not report it as a "
             "finding. Either score destinations on a map with genuine perceptual "
             "aliasing, or drop the claim.",
-            file=sys.stderr)
+            file=sys.stderr,
+        )
         return 2
 
     return 0

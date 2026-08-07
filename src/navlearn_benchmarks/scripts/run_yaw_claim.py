@@ -73,9 +73,12 @@ def main():
     args = parser.parse_args()
 
     rows = list(csv.DictReader(open(args.per_goal)))
-    lines = ["# A3 -- recovery vs |yaw change| at zero displacement", "",
-             "Outcome: recovered_sustained (episode window). Predictor: |yaw change| deg.",
-             ""]
+    lines = [
+        "# A3 -- recovery vs |yaw change| at zero displacement",
+        "",
+        "Outcome: recovered_sustained (episode window). Predictor: |yaw change| deg.",
+        "",
+    ]
     judge(rows, "Pooled (primary)", lines)
     for arm in sorted({r["arm"] for r in rows}):
         judge([r for r in rows if r["arm"] == arm], f"{arm} (robustness)", lines)

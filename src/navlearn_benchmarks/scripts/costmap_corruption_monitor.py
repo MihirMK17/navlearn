@@ -58,11 +58,16 @@ import time
 import rclpy
 from nav_msgs.msg import OccupancyGrid
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
+from rclpy.qos import (
+    QoSDurabilityPolicy,
+    QoSHistoryPolicy,
+    QoSProfile,
+    QoSReliabilityPolicy,
+)
 
 # nav2_costmap_2d publishes costs translated into OccupancyGrid values:
 # 0 free, 99 inscribed, 100 lethal, -1 unknown, 1..98 scaled intermediate.
-BLOCKED = 99      # inscribed or lethal
+BLOCKED = 99  # inscribed or lethal
 STATIC_FREE = 0
 STATIC_OCCUPIED = 100
 STATIC_UNKNOWN = -1
@@ -81,8 +86,9 @@ def latched_qos():
 class CostmapCorruptionMonitor(Node):
     """Compares the live global costmap against the static map it was built from."""
 
-    def __init__(self, output_prefix, map_topic, costmap_topic, interval,
-                 inflation_radius_m):
+    def __init__(
+        self, output_prefix, map_topic, costmap_topic, interval, inflation_radius_m
+    ):
         super().__init__("costmap_corruption_monitor")
         self.output_prefix = output_prefix
         self.interval = interval
@@ -162,11 +168,17 @@ class CostmapCorruptionMonitor(Node):
         # Only a like-for-like grid comparison is meaningful. Nav2 sizes the global costmap
         # from the map, so a mismatch means something is misconfigured and a cell-by-cell
         # diff would be nonsense rather than merely imprecise.
-        if (s.info.width != c.info.width or s.info.height != c.info.height
-                or abs(s.info.resolution - c.info.resolution) > 1e-9):
-            return {"error": (
-                f"grid mismatch: map {s.info.width}x{s.info.height}@{s.info.resolution} "
-                f"vs costmap {c.info.width}x{c.info.height}@{c.info.resolution}")}
+        if (
+            s.info.width != c.info.width
+            or s.info.height != c.info.height
+            or abs(s.info.resolution - c.info.resolution) > 1e-9
+        ):
+            return {
+                "error": (
+                    f"grid mismatch: map {s.info.width}x{s.info.height}@{s.info.resolution} "
+                    f"vs costmap {c.info.width}x{c.info.height}@{c.info.resolution}"
+                )
+            }
 
         phantom_clearable = phantom_permanent = erased_wall = 0
         mask = self.inflation_mask
@@ -182,7 +194,7 @@ class CostmapCorruptionMonitor(Node):
             elif 0 <= cv < BLOCKED and sv == STATIC_OCCUPIED:
                 erased_wall += 1
 
-        area = s.info.resolution ** 2
+        area = s.info.resolution**2
         return {
             "phantom_clearable": phantom_clearable,
             "phantom_permanent": phantom_permanent,
@@ -240,8 +252,8 @@ class CostmapCorruptionMonitor(Node):
             f = valid[-1]
             summary["verdict"] = (
                 "CLEAN — costmap matches the static map"
-                if f["phantom_total"] == 0 and f["erased_wall"] == 0 else
-                f"CORRUPTED — {f['phantom_total']} phantom cells "
+                if f["phantom_total"] == 0 and f["erased_wall"] == 0
+                else f"CORRUPTED — {f['phantom_total']} phantom cells "
                 f"({f['phantom_permanent']} permanent), {f['erased_wall']} erased wall cells"
             )
         else:
@@ -262,7 +274,9 @@ def main():
     parser.add_argument("--costmap-topic", default="/global_costmap/costmap")
     parser.add_argument("--interval", type=float, default=2.0)
     parser.add_argument(
-        "--inflation-radius-m", type=float, default=0.55,
+        "--inflation-radius-m",
+        type=float,
+        default=0.55,
         help="Must match the global costmap inflation_layer.inflation_radius",
     )
     args, ros_args = parser.parse_known_args()
@@ -270,7 +284,10 @@ def main():
     sys.stdout.reconfigure(line_buffering=True)
     rclpy.init(args=ros_args)
     node = CostmapCorruptionMonitor(
-        args.output_prefix, args.map_topic, args.costmap_topic, args.interval,
+        args.output_prefix,
+        args.map_topic,
+        args.costmap_topic,
+        args.interval,
         args.inflation_radius_m,
     )
 

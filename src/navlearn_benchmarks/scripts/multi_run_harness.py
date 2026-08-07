@@ -227,7 +227,8 @@ def _log_costmap_verdict(prefix: pathlib.Path) -> None:
     peak = rec.get("peak", {})
     logging.info(
         "Costmap : peak phantom %s cells (%s permanent), erased wall %s cells",
-        peak.get("phantom_clearable"), peak.get("phantom_permanent"),
+        peak.get("phantom_clearable"),
+        peak.get("phantom_permanent"),
         peak.get("erased_wall"),
     )
     verdict = rec.get("verdict", "")
@@ -236,7 +237,9 @@ def _log_costmap_verdict(prefix: pathlib.Path) -> None:
 
 
 def validate_run_output(
-    episode_id: int, args: argparse.Namespace, csv_path: pathlib.Path,
+    episode_id: int,
+    args: argparse.Namespace,
+    csv_path: pathlib.Path,
     log_path: pathlib.Path,
 ) -> None:
     """Halt the campaign if a run produced fewer goal rows than it was asked for.
@@ -255,7 +258,10 @@ def validate_run_output(
     if not csv_path.is_file():
         logging.error(
             "Run %d produced no CSV at %s. The metrics pipeline did not complete. "
-            "Node output: %s", episode_id, csv_path, log_path,
+            "Node output: %s",
+            episode_id,
+            csv_path,
+            log_path,
         )
         sys.exit(2)
 
@@ -268,7 +274,10 @@ def validate_run_output(
             "Run %d wrote %d goal rows but %d were requested. The episode did not "
             "complete. Not re-running to top up the count: that would hide a systematic "
             "failure behind a directory that looks full. Node output: %s",
-            episode_id, data_rows, args.goals, log_path,
+            episode_id,
+            data_rows,
+            args.goals,
+            log_path,
         )
         sys.exit(3)
 
@@ -303,11 +312,13 @@ def _parse_magnitude_curve(spec: str) -> tuple:
         lo, hi = float(lo_text), float(hi_text)
     except ValueError:
         raise SystemExit(
-            f"--magnitude-curve expects MIN:MAX in metres, e.g. 0.3:3.0; got {spec!r}")
+            f"--magnitude-curve expects MIN:MAX in metres, e.g. 0.3:3.0; got {spec!r}"
+        )
     if lo <= 0.0:
         raise SystemExit(
             f"--magnitude-curve minimum must be positive, got {lo}; a zero displacement "
-            "is not a perturbation and has no place on a log scale")
+            "is not a perturbation and has no place on a log scale"
+        )
     if hi < lo:
         raise SystemExit(f"--magnitude-curve maximum {hi} is below its minimum {lo}")
     return lo, hi
@@ -325,11 +336,13 @@ def _parse_yaw_curve(spec: str) -> tuple:
         lo, hi = float(lo_text), float(hi_text)
     except ValueError:
         raise SystemExit(
-            f"--yaw-curve expects MIN:MAX in degrees, e.g. 0:180; got {spec!r}")
+            f"--yaw-curve expects MIN:MAX in degrees, e.g. 0:180; got {spec!r}"
+        )
     if lo < 0.0 or hi > 180.0:
         raise SystemExit(
             f"--yaw-curve range [{lo}, {hi}] must lie inside [0, 180] degrees; "
-            "|yaw change| beyond 180 is the same rotation from the other side")
+            "|yaw change| beyond 180 is the same rotation from the other side"
+        )
     if hi < lo:
         raise SystemExit(f"--yaw-curve maximum {hi} is below its minimum {lo}")
     return lo, hi
@@ -373,8 +386,8 @@ def parse_args() -> argparse.Namespace:
         choices=("clean", "ttc", "ttr"),
         required=True,
         help="Experimental condition. Passed explicitly to the launch so it appears in "
-             "every run record; never defaulted, because a defaulted independent variable "
-             "is an unlabelled experiment",
+        "every run record; never defaulted, because a defaulted independent variable "
+        "is an unlabelled experiment",
     )
     parser.add_argument(
         "--perturbation-level",
@@ -386,37 +399,37 @@ def parse_args() -> argparse.Namespace:
         "--magnitude-curve",
         metavar="MIN:MAX",
         help="Draw each goal's perturbation displacement from a continuous range instead "
-             "of a categorical level, e.g. 0.3:3.0. Applies to the kidnap for --perturbation "
-             "ttr and to the bad initialization for ttc. The magnitude comes from the "
-             "campaign seed, so every goal in the sweep gets its own severity and the whole "
-             "sweep still reproduces from one number. Overrides --perturbation-level",
+        "of a categorical level, e.g. 0.3:3.0. Applies to the kidnap for --perturbation "
+        "ttr and to the bad initialization for ttc. The magnitude comes from the "
+        "campaign seed, so every goal in the sweep gets its own severity and the whole "
+        "sweep still reproduces from one number. Overrides --perturbation-level",
     )
     parser.add_argument(
         "--magnitude-scale",
         choices=("log", "linear"),
         default="log",
         help="Spacing of the curve draws. Log by default: a displacement sweep spans an "
-             "order of magnitude, and uniform-in-metres leaves the onset of degradation "
-             "-- the part the curve exists to locate -- sparsely covered",
+        "order of magnitude, and uniform-in-metres leaves the onset of degradation "
+        "-- the part the curve exists to locate -- sparsely covered",
     )
     parser.add_argument(
         "--run-offset",
         type=int,
         default=0,
         help="Shift run_index by this much, so an extension cell draws goals the "
-             "original cell never ran. Re-running a cell with its own seed reproduces "
-             "its goals exactly -- by design -- which is a repeated measurement, not a "
-             "larger sample, and pooling the two would silently double-count. Offsetting "
-             "keeps one campaign seed while continuing the stream.",
+        "original cell never ran. Re-running a cell with its own seed reproduces "
+        "its goals exactly -- by design -- which is a repeated measurement, not a "
+        "larger sample, and pooling the two would silently double-count. Offsetting "
+        "keeps one campaign seed while continuing the stream.",
     )
     parser.add_argument(
         "--yaw-curve",
         metavar="MIN:MAX",
         help="The yaw-curve leg (PROTOCOL amendment 2026-08-03): draw each goal's kidnap "
-             "ROTATION from a continuous range in DEGREES, e.g. 0:180, with displacement "
-             "pinned to zero (teleport in place). ttr only. Linear-uniform, sign drawn "
-             "per goal from its own seed stream. Mutually exclusive with "
-             "--magnitude-curve: exactly one variable moves per leg",
+        "ROTATION from a continuous range in DEGREES, e.g. 0:180, with displacement "
+        "pinned to zero (teleport in place). ttr only. Linear-uniform, sign drawn "
+        "per goal from its own seed stream. Mutually exclusive with "
+        "--magnitude-curve: exactly one variable moves per leg",
     )
     parser.add_argument(
         "--expected-scan-hz",
@@ -468,14 +481,14 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=600.0,
         help="Seconds without a completed goal before the run is declared hung. Measured "
-             "from the previous goal's completion, not from the start of the run",
+        "from the previous goal's completion, not from the start of the run",
     )
     parser.add_argument(
         "--startup-timeout",
         type=float,
         default=900.0,
         help="Seconds allowed for node startup plus the first goal, which is not a goal "
-             "cycle and must not be timed as one",
+        "cycle and must not be timed as one",
     )
     parser.add_argument(
         "--watchdog-interval",
@@ -488,9 +501,9 @@ def parse_args() -> argparse.Namespace:
         dest="forensics",
         action="store_false",
         help="Disable per-run forensic capture: node logs into the run directory, crash "
-             "reports harvested from the apport spool, stack state at the moment of an "
-             "abort, and an environment record. On by default; a campaign that has to be "
-             "re-run because the evidence was discarded costs more than the disk",
+        "reports harvested from the apport spool, stack state at the moment of an "
+        "abort, and an environment record. On by default; a campaign that has to be "
+        "re-run because the evidence was discarded costs more than the disk",
     )
     parser.add_argument(
         "--crash-dir",
@@ -503,8 +516,8 @@ def parse_args() -> argparse.Namespace:
         dest="rosbag",
         action="store_false",
         help="Do not record a rosbag per episode. On by default: the bag is the only "
-             "artefact that lets a finished run be re-examined for a question nobody "
-             "thought to ask while it was running",
+        "artefact that lets a finished run be re-examined for a question nobody "
+        "thought to ask while it was running",
     )
     parser.add_argument(
         "--rosbag-compression",
@@ -512,7 +525,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         choices=("zstd",),
         help="Compress each bag file at close. Off by default; it costs CPU and wall clock "
-             "between episodes, and disk is the resource this machine has most of",
+        "between episodes, and disk is the resource this machine has most of",
     )
     parser.add_argument(
         "--dry-run",
@@ -544,9 +557,11 @@ def parse_args() -> argparse.Namespace:
     # A non-positive budget would read as "watchdog off", which is exactly the
     # configuration that cost 8 h 14 m on 2026-08-01. There is no supported way to
     # disable it; a cell that needs longer says so with a larger number.
-    for flag, value in (("--goal-timeout", args.goal_timeout),
-                        ("--startup-timeout", args.startup_timeout),
-                        ("--watchdog-interval", args.watchdog_interval)):
+    for flag, value in (
+        ("--goal-timeout", args.goal_timeout),
+        ("--startup-timeout", args.startup_timeout),
+        ("--watchdog-interval", args.watchdog_interval),
+    ):
         if value <= 0:
             parser.error(
                 f"{flag} must be positive, got {value}. The watchdog cannot be disabled: "
@@ -557,8 +572,15 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def launch_supervised(cmd, log_handle, watchdog, poll_interval_s=5.0, grace_s=20.0,
-                      env=None, on_abort=None):
+def launch_supervised(
+    cmd,
+    log_handle,
+    watchdog,
+    poll_interval_s=5.0,
+    grace_s=20.0,
+    env=None,
+    on_abort=None,
+):
     """Run one launch under the watchdog.
 
     Returns ``(returncode, abort)``. ``abort`` is ``None`` when the launch ended on its own,
@@ -570,10 +592,17 @@ def launch_supervised(cmd, log_handle, watchdog, poll_interval_s=5.0, grace_s=20
     ``ros2 launch`` spawned, and stops short of the harness that owns the campaign.
     """
     process = subprocess.Popen(
-        cmd, stdout=log_handle, stderr=subprocess.STDOUT, start_new_session=True, env=env,
+        cmd,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+        env=env,
     )
     abort = run_watchdog.supervise(
-        process, watchdog, poll_interval_s=poll_interval_s, grace_s=grace_s,
+        process,
+        watchdog,
+        poll_interval_s=poll_interval_s,
+        grace_s=grace_s,
         on_abort=on_abort,
     )
     if abort is not None and process.returncode == 0:
@@ -701,25 +730,55 @@ def run_benchmark(
     monitors = []
 
     if args.compute_interval > 0:
-        monitors.append((subprocess.Popen([
-            sys.executable, str(here / "compute_sampler.py"),
-            "--output-prefix", str(prefix).format("compute"),
-            "--interval", str(args.compute_interval),
-        ]), signal.SIGTERM))
+        monitors.append(
+            (
+                subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(here / "compute_sampler.py"),
+                        "--output-prefix",
+                        str(prefix).format("compute"),
+                        "--interval",
+                        str(args.compute_interval),
+                    ]
+                ),
+                signal.SIGTERM,
+            )
+        )
 
     if not args.no_costmap_monitor:
-        monitors.append((subprocess.Popen([
-            sys.executable, str(here / "costmap_corruption_monitor.py"),
-            "--output-prefix", str(prefix).format("costmap"),
-            "--interval", str(args.costmap_interval),
-        ]), signal.SIGTERM))
+        monitors.append(
+            (
+                subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(here / "costmap_corruption_monitor.py"),
+                        "--output-prefix",
+                        str(prefix).format("costmap"),
+                        "--interval",
+                        str(args.costmap_interval),
+                    ]
+                ),
+                signal.SIGTERM,
+            )
+        )
 
     if not args.no_rate_monitor:
-        monitors.append((subprocess.Popen([
-            sys.executable, str(here / "rate_monitor.py"),
-            "--output-prefix", str(prefix).format("rates"),
-            "--expected-scan-hz", str(args.expected_scan_hz),
-        ]), signal.SIGTERM))
+        monitors.append(
+            (
+                subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(here / "rate_monitor.py"),
+                        "--output-prefix",
+                        str(prefix).format("rates"),
+                        "--expected-scan-hz",
+                        str(args.expected_scan_hz),
+                    ]
+                ),
+                signal.SIGTERM,
+            )
+        )
 
     # The bag. Started before the launch so the first messages of the episode -- the goal
     # that is about to be sent, the TF tree settling -- are inside it rather than lost to
@@ -736,7 +795,9 @@ def run_benchmark(
             monitors.append((recorder, signal.SIGINT))
             logging.info("BAG  --> %s", bag_path)
         else:
-            logging.error("No rosbag for run %d: the recorder would not start.", episode_id)
+            logging.error(
+                "No rosbag for run %d: the recorder would not start.", episode_id
+            )
 
     # Node stdout and stderr go to the run directory, not to the terminal and not to
     # /tmp. They are the only record of why a cell failed, and /tmp does not survive a
@@ -780,11 +841,15 @@ def run_benchmark(
             come second because they are the ones that can wait out a discovery timeout.
             """
             crashes = run_forensics.harvest_crash_reports(
-                forensic_dir, since=episode_start, crash_dir=args.crash_dir,
+                forensic_dir,
+                since=episode_start,
+                crash_dir=args.crash_dir,
             )
             for crash in crashes:
                 logging.error("Forensics: crash report -> %s", crash)
-            state = run_forensics.capture_stack_state(forensic_dir, reason=verdict.reason)
+            state = run_forensics.capture_stack_state(
+                forensic_dir, reason=verdict.reason
+            )
             logging.error("Forensics: stack state -> %s", state)
 
     try:
@@ -792,8 +857,12 @@ def run_benchmark(
             log_handle.write(f"# {' '.join(cmd)}\n")
             log_handle.flush()
             returncode, abort = launch_supervised(
-                cmd, log_handle, watchdog, poll_interval_s=args.watchdog_interval,
-                env=episode_env, on_abort=on_abort,
+                cmd,
+                log_handle,
+                watchdog,
+                poll_interval_s=args.watchdog_interval,
+                env=episode_env,
+                on_abort=on_abort,
             )
     finally:
         # Stop instrumentation on every path, including a failed or interrupted run. The
@@ -810,12 +879,16 @@ def run_benchmark(
     # and nothing in the run's own directory recorded it.
     if args.forensics:
         crashes = run_forensics.harvest_crash_reports(
-            forensic_dir, since=episode_start, crash_dir=args.crash_dir,
+            forensic_dir,
+            since=episode_start,
+            crash_dir=args.crash_dir,
         )
         for crash in crashes:
             logging.error(
                 "CRASH: a process died during run %d and left %s. This run's data is "
-                "suspect even if its rows are complete.", episode_id, crash,
+                "suspect even if its rows are complete.",
+                episode_id,
+                crash,
             )
 
     if abort is not None:
@@ -823,7 +896,11 @@ def run_benchmark(
         # stayed up with a dead stack behind it and the harness waited on it for hours.
         logging.error(
             "Run %d/%d ABORTED BY WATCHDOG after %d/%d goals: %s",
-            episode_id, args.episodes, watchdog.completed, args.goals, abort.reason,
+            episode_id,
+            args.episodes,
+            watchdog.completed,
+            args.goals,
+            abort.reason,
         )
         logging.error("Node output: %s", log_path)
         logging.error(
@@ -834,7 +911,10 @@ def run_benchmark(
     if returncode != 0:
         logging.error(
             "Run %d/%d failed with exit code %d. Node output: %s",
-            episode_id, args.episodes, returncode, log_path,
+            episode_id,
+            args.episodes,
+            returncode,
+            log_path,
         )
         sys.exit(returncode)
 
@@ -859,7 +939,9 @@ def main() -> None:
     if args.yaw_curve and args.magnitude_curve:
         raise SystemExit("--yaw-curve and --magnitude-curve are mutually exclusive")
     if args.yaw_curve and args.perturbation != "ttr":
-        raise SystemExit("--yaw-curve is a kidnap sweep; it requires --perturbation ttr")
+        raise SystemExit(
+            "--yaw-curve is a kidnap sweep; it requires --perturbation ttr"
+        )
 
     report_dir = pathlib.Path(args.output_dir)
 

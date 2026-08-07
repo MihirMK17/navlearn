@@ -148,7 +148,7 @@ def evaluate_window(amcl, gt, kidnap_t: float, end_t: float) -> dict:
     """
     marks = []  # (t, ok)
     skipped_no_gt = 0
-    for (t, ax, ay, ayaw) in amcl:
+    for t, ax, ay, ayaw in amcl:
         if t < kidnap_t or t > end_t:
             continue
         g = interp_gt(gt, t)
@@ -241,18 +241,31 @@ def read_bag(db3_path):
             msg = deserialize_message(bytes(data), msg_cls)
             if name == TOPIC_AMCL:
                 p = msg.pose.pose
-                amcl.append((
-                    stamp_s(msg.header.stamp), p.position.x, p.position.y,
-                    yaw_from_quat(p.orientation.x, p.orientation.y,
-                                  p.orientation.z, p.orientation.w),
-                ))
+                amcl.append(
+                    (
+                        stamp_s(msg.header.stamp),
+                        p.position.x,
+                        p.position.y,
+                        yaw_from_quat(
+                            p.orientation.x,
+                            p.orientation.y,
+                            p.orientation.z,
+                            p.orientation.w,
+                        ),
+                    )
+                )
             elif name == TOPIC_GT:
                 tr = msg.transform
-                gt.append((
-                    stamp_s(msg.header.stamp), tr.translation.x, tr.translation.y,
-                    yaw_from_quat(tr.rotation.x, tr.rotation.y,
-                                  tr.rotation.z, tr.rotation.w),
-                ))
+                gt.append(
+                    (
+                        stamp_s(msg.header.stamp),
+                        tr.translation.x,
+                        tr.translation.y,
+                        yaw_from_quat(
+                            tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.rotation.w
+                        ),
+                    )
+                )
             elif name == TOPIC_KIDNAP:
                 realised = float("nan")
                 if msg.reference_available:
@@ -264,13 +277,18 @@ def read_bag(db3_path):
                 if msg.reference_available:
                     yaw_change = wrap_to_pi(
                         yaw_from_quat(
-                            msg.kidnap_pose.orientation.x, msg.kidnap_pose.orientation.y,
-                            msg.kidnap_pose.orientation.z, msg.kidnap_pose.orientation.w)
+                            msg.kidnap_pose.orientation.x,
+                            msg.kidnap_pose.orientation.y,
+                            msg.kidnap_pose.orientation.z,
+                            msg.kidnap_pose.orientation.w,
+                        )
                         - yaw_from_quat(
                             msg.reference_pose.orientation.x,
                             msg.reference_pose.orientation.y,
                             msg.reference_pose.orientation.z,
-                            msg.reference_pose.orientation.w))
+                            msg.reference_pose.orientation.w,
+                        )
+                    )
                 kidnaps[uuid_hex(msg.goal_id)] = {
                     "t": stamp_s(msg.header.stamp),
                     "success": bool(msg.success),
@@ -280,8 +298,11 @@ def read_bag(db3_path):
                     "land_x": msg.kidnap_pose.position.x,
                     "land_y": msg.kidnap_pose.position.y,
                     "land_yaw": yaw_from_quat(
-                        msg.kidnap_pose.orientation.x, msg.kidnap_pose.orientation.y,
-                        msg.kidnap_pose.orientation.z, msg.kidnap_pose.orientation.w),
+                        msg.kidnap_pose.orientation.x,
+                        msg.kidnap_pose.orientation.y,
+                        msg.kidnap_pose.orientation.z,
+                        msg.kidnap_pose.orientation.w,
+                    ),
                     "reference_available": bool(msg.reference_available),
                 }
             elif name == TOPIC_EPISODE:
@@ -313,21 +334,28 @@ def process_arm(arm: str, arm_dir: pathlib.Path, progress=lambda s: None):
                 continue
             r = evaluate_window(amcl, gt, k["t"], ends[goal_hex])
             r.update(
-                arm=arm, run=run, goal_id=goal_hex,
-                magnitude_m=k["realised_m"], displacement_m=k["realised_m"],
+                arm=arm,
+                run=run,
+                goal_id=goal_hex,
+                magnitude_m=k["realised_m"],
+                displacement_m=k["realised_m"],
                 commanded_m=k["commanded_m"],
                 yaw_change_rad=k["yaw_change_rad"],
-                land_x=k["land_x"], land_y=k["land_y"], land_yaw=k["land_yaw"],
+                land_x=k["land_x"],
+                land_y=k["land_y"],
+                land_yaw=k["land_yaw"],
             )
             rows.append(r)
-        progress(f"{arm} {run}: {len(rows)} goals so far "
-                 f"(attrition={attrition}, unmatched={unmatched})")
+        progress(
+            f"{arm} {run}: {len(rows)} goals so far "
+            f"(attrition={attrition}, unmatched={unmatched})"
+        )
     return rows, attrition, unmatched
 
 
 def log_bin_edges(lo: float, hi: float, bins: int):
     ratio = (hi / lo) ** (1.0 / bins)
-    return [lo * ratio ** k for k in range(bins + 1)]
+    return [lo * ratio**k for k in range(bins + 1)]
 
 
 def linear_bin_edges(lo: float, hi: float, bins: int):
@@ -342,8 +370,11 @@ def binned_recovery(rows, edges, key):
     for b in range(len(edges) - 1):
         lo, hi = edges[b], edges[b + 1]
         last = b == len(edges) - 2
-        sel = [r for r in rows
-               if lo <= r["magnitude_m"] < hi or (last and r["magnitude_m"] == hi)]
+        sel = [
+            r
+            for r in rows
+            if lo <= r["magnitude_m"] < hi or (last and r["magnitude_m"] == hi)
+        ]
         n = len(sel)
         pct = 100.0 * sum(r[key] for r in sel) / n if n else float("nan")
         out.append((lo, hi, n, pct))
@@ -377,60 +408,97 @@ def build_report(all_rows, old_by_goal, lo, hi, bins=4, bin_scale="log"):
         lines.append("")
         lines.append(
             f"overall recovered: censored-10s {100.0 * old_rec / len(joined):.1f}% "
-            f"-> episode-window {100.0 * new_rec / len(rows):.1f}%")
+            f"-> episode-window {100.0 * new_rec / len(rows):.1f}%"
+        )
         ttrs = [r["ttr_sustained_s"] for r in rows if r["ttr_sustained_s"] is not None]
         touch = [r["first_touch_s"] for r in rows if r["first_touch_s"] is not None]
         lines.append(
             f"median ttr_sustained {median(ttrs):.2f} s over {len(ttrs)} recoveries; "
             f"median first touch {median(touch):.2f} s over {len(touch)} goals; "
-            f"median window {median([r['window_s'] for r in rows]):.1f} s")
+            f"median window {median([r['window_s'] for r in rows]):.1f} s"
+        )
         lines.append("")
         lines.append("| bin (m) | n | recovered old (10 s) | recovered new (episode) |")
         lines.append("|---|---|---|---|")
         new_b = binned_recovery(rows, edges, "recovered_sustained")
         old_rows = [
-            {"magnitude_m": r["magnitude_m"],
-             "rec": old_by_goal[r["goal_id"]]["recovered"]}
-            for r in joined]
+            {
+                "magnitude_m": r["magnitude_m"],
+                "rec": old_by_goal[r["goal_id"]]["recovered"],
+            }
+            for r in joined
+        ]
         old_b = binned_recovery(
-            [{"magnitude_m": r["magnitude_m"], "recovered_sustained": r["rec"]}
-             for r in old_rows], edges, "recovered_sustained")
+            [
+                {"magnitude_m": r["magnitude_m"], "recovered_sustained": r["rec"]}
+                for r in old_rows
+            ],
+            edges,
+            "recovered_sustained",
+        )
         for (blo, bhi, n_new, pct_new), (_, _, n_old, pct_old) in zip(new_b, old_b):
             lines.append(
                 f"| {blo:.3f}-{bhi:.3f} | {n_new} | {pct_old:.1f}% (n={n_old}) "
-                f"| {pct_new:.1f}% |")
+                f"| {pct_new:.1f}% |"
+            )
         lines.append("")
     return "\n".join(lines)
 
 
 FIELDNAMES = [
-    "arm", "run", "goal_id", "magnitude_m", "displacement_m", "commanded_m",
+    "arm",
+    "run",
+    "goal_id",
+    "magnitude_m",
+    "displacement_m",
+    "commanded_m",
     "yaw_change_rad",
-    "land_x", "land_y", "land_yaw",
-    "recovered_sustained", "ttr_sustained_s", "first_touch_s", "ttr_hold_s",
-    "window_s", "n_samples", "n_skipped_no_gt", "last_sample_gap_s",
+    "land_x",
+    "land_y",
+    "land_yaw",
+    "recovered_sustained",
+    "ttr_sustained_s",
+    "first_touch_s",
+    "ttr_hold_s",
+    "window_s",
+    "n_samples",
+    "n_skipped_no_gt",
+    "last_sample_gap_s",
 ]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--arm", action="append", required=True,
-                        metavar="NAME=DIR", help="arm name and its campaign directory")
-    parser.add_argument("--old-per-goal", required=True,
-                        help="per_goal.csv from analyze_curve_campaign.py, for the "
-                             "censored numbers and the magnitude cross-check")
+    parser.add_argument(
+        "--arm",
+        action="append",
+        required=True,
+        metavar="NAME=DIR",
+        help="arm name and its campaign directory",
+    )
+    parser.add_argument(
+        "--old-per-goal",
+        required=True,
+        help="per_goal.csv from analyze_curve_campaign.py, for the "
+        "censored numbers and the magnitude cross-check",
+    )
     parser.add_argument("--range", default="0.01:3.0")
     parser.add_argument("--bins", type=int, default=4)
     parser.add_argument(
-        "--magnitude-source", choices=("displacement", "yaw_change_deg"),
+        "--magnitude-source",
+        choices=("displacement", "yaw_change_deg"),
         default="displacement",
         help="Which bag quantity is the sweep's independent variable. The yaw-curve leg "
-             "(PROTOCOL A3) bins and cross-checks on |yaw change| in degrees; its "
-             "realised displacement is zero by design and checking it against a degrees "
-             "column would fail every goal.")
+        "(PROTOCOL A3) bins and cross-checks on |yaw change| in degrees; its "
+        "realised displacement is zero by design and checking it against a degrees "
+        "column would fail every goal.",
+    )
     parser.add_argument(
-        "--bin-scale", choices=("log", "linear"), default="log",
-        help="Bin spacing; the yaw range starts at zero, which has no log")
+        "--bin-scale",
+        choices=("log", "linear"),
+        default="log",
+        help="Bin spacing; the yaw range starts at zero, which has no log",
+    )
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
@@ -454,8 +522,11 @@ def main():
     for spec in args.arm:
         arm, arm_dir = spec.split("=", 1)
         rows, attrition, unmatched = process_arm(arm, pathlib.Path(arm_dir), progress)
-        counts[arm] = {"goals": len(rows), "attrition": attrition,
-                       "unmatched": unmatched}
+        counts[arm] = {
+            "goals": len(rows),
+            "attrition": attrition,
+            "unmatched": unmatched,
+        }
         all_rows.extend(rows)
 
     # The yaw leg's independent variable is the rotation: bin and cross-check on
@@ -466,8 +537,12 @@ def main():
 
     # Cross-check: realised magnitude from the bag must match the campaign CSV.
     mismatches = [
-        (r["arm"], r["goal_id"], r["magnitude_m"],
-         old_by_goal[r["goal_id"]]["magnitude_m"])
+        (
+            r["arm"],
+            r["goal_id"],
+            r["magnitude_m"],
+            old_by_goal[r["goal_id"]]["magnitude_m"],
+        )
         for r in all_rows
         if r["goal_id"] in old_by_goal
         and not math.isnan(r["magnitude_m"])
@@ -485,11 +560,15 @@ def main():
     report = build_report(all_rows, old_by_goal, lo, hi, args.bins, args.bin_scale)
     report += "\n## Bookkeeping\n\n"
     for arm, c in sorted(counts.items()):
-        report += (f"- {arm}: {c['goals']} kidnapped goals, "
-                   f"{c['attrition']} attrition (kidnap never applied), "
-                   f"{c['unmatched']} without a goal END event\n")
-    report += (f"- joined to old per_goal.csv: {joined}/{len(all_rows)}\n"
-               f"- magnitude cross-check mismatches (>1 mm): {len(mismatches)}\n")
+        report += (
+            f"- {arm}: {c['goals']} kidnapped goals, "
+            f"{c['attrition']} attrition (kidnap never applied), "
+            f"{c['unmatched']} without a goal END event\n"
+        )
+    report += (
+        f"- joined to old per_goal.csv: {joined}/{len(all_rows)}\n"
+        f"- magnitude cross-check mismatches (>1 mm): {len(mismatches)}\n"
+    )
     if mismatches:
         report += "\nMISMATCHES (bag vs campaign CSV) -- do not trust the join:\n"
         for arm, goal, bag_m, csv_m in mismatches[:20]:

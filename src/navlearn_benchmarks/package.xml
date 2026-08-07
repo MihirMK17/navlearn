@@ -35,6 +35,13 @@
   <depend>std_srvs</depend>
 
   <!-- Tests -->
+  <!-- world_to_map.py: DAE mesh loading (python3-collada is the rosdep key for
+       pycollada) and hardened XML parsing of .world/.sdf files. Runtime script deps;
+       test_world_to_map.py carries an importorskip guard for environments that never
+       ran rosdep. -->
+  <exec_depend>python3-collada</exec_depend>
+  <exec_depend>python3-defusedxml</exec_depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
   <test_depend>ament_cmake_pytest</test_depend>

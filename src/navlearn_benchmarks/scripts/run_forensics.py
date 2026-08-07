@@ -105,17 +105,23 @@ def rosbag_command(bag_dir, storage="sqlite3", compression=None) -> list:
     CPU and wall-clock between episodes, and disk is the resource this machine has most of.
     """
     argv = [
-        "ros2", "bag", "record", "--all",
-        "-o", str(bag_dir),
-        "--storage", storage,
+        "ros2",
+        "bag",
+        "record",
+        "--all",
+        "-o",
+        str(bag_dir),
+        "--storage",
+        storage,
     ]
     if compression:
         argv += ["--compression-mode", "file", "--compression-format", compression]
     return argv
 
 
-def start_recorder(bag_dir, storage="sqlite3", compression=None, log_handle=None,
-                   executable=None):
+def start_recorder(
+    bag_dir, storage="sqlite3", compression=None, log_handle=None, executable=None
+):
     """Start the episode recorder, or return None if it cannot be started.
 
     Losing a bag is bad. Losing the run because the bag could not start is worse, so a
@@ -161,9 +167,9 @@ def stop_process(process, sig=signal.SIGTERM, grace_s=15.0) -> bool:
     def deliver(signum):
         try:
             if os.getpgid(process.pid) == process.pid:
-                os.killpg(process.pid, signum)   # its own session: take the children too
+                os.killpg(process.pid, signum)  # its own session: take the children too
             else:
-                os.kill(process.pid, signum)     # shares our group: this process only
+                os.kill(process.pid, signum)  # shares our group: this process only
         except OSError:
             return False
         return True
@@ -175,7 +181,8 @@ def stop_process(process, sig=signal.SIGTERM, grace_s=15.0) -> bool:
         return True
     except subprocess.TimeoutExpired:
         logging.warning(
-            "pid %d ignored %s after %.0f s; killing.", process.pid, sig.name, grace_s)
+            "pid %d ignored %s after %.0f s; killing.", process.pid, sig.name, grace_s
+        )
 
     deliver(signal.SIGKILL)
     try:
@@ -252,8 +259,14 @@ def _overlay_locations() -> dict:
     for package in OVERLAY_CANDIDATES:
         located[package] = None
         for prefix in prefixes:
-            marker = pathlib.Path(prefix) / "share" / "ament_index" / \
-                "resource_index" / "packages" / package
+            marker = (
+                pathlib.Path(prefix)
+                / "share"
+                / "ament_index"
+                / "resource_index"
+                / "packages"
+                / package
+            )
             if marker.exists():
                 located[package] = {
                     "prefix": prefix,
@@ -272,7 +285,9 @@ def environment_snapshot() -> dict:
     """
     versions = {}
     for package in NAV2_PACKAGES:
-        out = _command(["dpkg-query", "-W", "-f=${Version}", package], timeout=10).strip()
+        out = _command(
+            ["dpkg-query", "-W", "-f=${Version}", package], timeout=10
+        ).strip()
         if out and not out.startswith("<") and "no packages found" not in out:
             versions[package] = out
 
@@ -307,8 +322,9 @@ def _read(path) -> str:
 DEFAULT_FORENSIC_BUDGET_S = 25.0
 
 
-def capture_stack_state(dest, reason: str, budget_s=DEFAULT_FORENSIC_BUDGET_S
-                        ) -> pathlib.Path:
+def capture_stack_state(
+    dest, reason: str, budget_s=DEFAULT_FORENSIC_BUDGET_S
+) -> pathlib.Path:
     """Write what every process was doing at the moment the run was declared failed.
 
     Called before the abort kills the launch. Teardown is what makes a hang unreproducible:
@@ -336,18 +352,33 @@ def capture_stack_state(dest, reason: str, budget_s=DEFAULT_FORENSIC_BUDGET_S
         ("captured_at", time.strftime("%Y-%m-%dT%H:%M:%S%z")),
         ("loadavg", _read("/proc/loadavg")),
         ("meminfo", "\n".join(_read("/proc/meminfo").splitlines()[:8])),
-        ("processes", _command(
-            ["ps", "-eo", "pid,ppid,stat,pcpu,pmem,rss,etime,comm,args", "--sort=-pcpu"],
-            timeout=10)),
+        (
+            "processes",
+            _command(
+                [
+                    "ps",
+                    "-eo",
+                    "pid,ppid,stat,pcpu,pmem,rss,etime,comm,args",
+                    "--sort=-pcpu",
+                ],
+                timeout=10,
+            ),
+        ),
     ]
 
     skipped = within_budget("ros2 node list")
     sections.append(
-        ("ros2 node list", skipped or _command(["ros2", "node", "list"], timeout=8)))
+        ("ros2 node list", skipped or _command(["ros2", "node", "list"], timeout=8))
+    )
 
     lifecycle = []
-    for node in ("/planner_server", "/controller_server", "/bt_navigator",
-                 "/amcl", "/map_server"):
+    for node in (
+        "/planner_server",
+        "/controller_server",
+        "/bt_navigator",
+        "/amcl",
+        "/map_server",
+    ):
         skipped = within_budget(node)
         body = skipped or _command(["ros2", "lifecycle", "get", node], timeout=3)
         lifecycle.append(f"--- {node} ---\n{body}")

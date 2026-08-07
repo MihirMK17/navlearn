@@ -56,7 +56,12 @@ import sys
 import rclpy
 from geometry_msgs.msg import TwistStamped
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
+from rclpy.qos import (
+    QoSDurabilityPolicy,
+    QoSHistoryPolicy,
+    QoSProfile,
+    QoSReliabilityPolicy,
+)
 from sensor_msgs.msg import LaserScan
 
 
@@ -129,7 +134,10 @@ class RateMonitor(Node):
 
         deltas = [b - a for a, b in zip(arrivals, arrivals[1:]) if b > a]
         if not deltas:
-            return {"messages": len(arrivals), "note": "no positive inter-arrival deltas"}
+            return {
+                "messages": len(arrivals),
+                "note": "no positive inter-arrival deltas",
+            }
 
         rates = sorted(1.0 / d for d in deltas)
 
@@ -183,7 +191,9 @@ class RateMonitor(Node):
             "scan_rate_met": scan_ok,
             "verdict": (
                 "scan rate BELOW request — this cell did not test the rate it is labelled "
-                "with" if scan_ok is False else "ok"
+                "with"
+                if scan_ok is False
+                else "ok"
             ),
         }
 

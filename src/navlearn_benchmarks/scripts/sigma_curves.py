@@ -72,11 +72,13 @@ def load_wide(dirs):
                 if r.get("GT Available") != "1":
                     no_gt += 1
                     continue
-                rows.append({
-                    "goal_id": r["Goal_ID"],
-                    "reported": r["Goal Result"] == "SUCCEEDED",
-                    "distance": float(r["True Distance To Goal (m)"]),
-                })
+                rows.append(
+                    {
+                        "goal_id": r["Goal_ID"],
+                        "reported": r["Goal Result"] == "SUCCEEDED",
+                        "distance": float(r["True Distance To Goal (m)"]),
+                    }
+                )
     return rows, attrition, no_gt
 
 
@@ -93,8 +95,13 @@ def wilson(k, n, z=1.96):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--level", action="append", required=True, metavar="SIGMA=DIR",
-                        help="repeatable; repeat the same SIGMA to pool passes")
+    parser.add_argument(
+        "--level",
+        action="append",
+        required=True,
+        metavar="SIGMA=DIR",
+        help="repeatable; repeat the same SIGMA to pool passes",
+    )
     parser.add_argument("--recompute", required=True)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
@@ -104,8 +111,10 @@ def main():
         sigma, _, directory = spec.partition("=")
         by_sigma[float(sigma)].append(directory)
 
-    recovered = {r["goal_id"]: int(r["recovered_sustained"])
-                 for r in csv.DictReader(open(args.recompute))}
+    recovered = {
+        r["goal_id"]: int(r["recovered_sustained"])
+        for r in csv.DictReader(open(args.recompute))
+    }
 
     sigmas, y, per_level = [], [], {}
     for sigma in sorted(by_sigma):
@@ -115,18 +124,24 @@ def main():
             sigmas.append(sigma)
             y.append(recovered[r["goal_id"]])
         per_level[sigma] = {
-            "rows": rows, "matched": matched,
-            "attrition": attrition, "no_gt": no_gt,
+            "rows": rows,
+            "matched": matched,
+            "attrition": attrition,
+            "no_gt": no_gt,
             "rec": sum(recovered[r["goal_id"]] for r in matched),
         }
 
     sigmas = np.array(sigmas, dtype=float)
     y = np.array(y, dtype=float)
 
-    lines = ["# Leg 4 -- sigma_hit, judged as PROTOCOL A4 pre-registered it", "",
-             f"Pooled n = {len(y)} goals, recovered {int(y.sum())} "
-             f"({100.0 * y.mean():.1f}%). Outcome is the episode-window sustained "
-             f"recovery of section 1, not the 10 s censored online flag.", ""]
+    lines = [
+        "# Leg 4 -- sigma_hit, judged as PROTOCOL A4 pre-registered it",
+        "",
+        f"Pooled n = {len(y)} goals, recovered {int(y.sum())} "
+        f"({100.0 * y.mean():.1f}%). Outcome is the episode-window sustained "
+        f"recovery of section 1, not the 10 s censored online flag.",
+        "",
+    ]
 
     # --- primary: continuous fit ---------------------------------------------------
     report = compare_nested(y, {"sigma_hit": sigmas})
@@ -137,7 +152,8 @@ def main():
     r2 = 1.0 - m1["log_likelihood"] / m0["log_likelihood"]
     auc = report["cross_validated_auc"]["sigma_hit"]
     lines += [
-        "## Primary: recovery on sigma_hit as a continuous predictor", "",
+        "## Primary: recovery on sigma_hit as a continuous predictor",
+        "",
         f"- AIC: null {m0['aic']:.2f} -> sigma {m1['aic']:.2f} (delta {delta:.2f})",
         f"- slope {slope:+.3f} per unit sigma_hit "
         f"({'positive: wider basin recovers more' if slope > 0 else 'negative'})"
@@ -150,17 +166,22 @@ def main():
     ]
 
     # --- secondary: the two curves ---------------------------------------------------
-    lines += ["## Secondary: the two curves", "",
-              "| sigma_hit | n | recovery % (95% CI) | false success @0.05 m |"
-              " false success @0.10 m | true success @0.05 m |",
-              "|---|---|---|---|---|---|"]
+    lines += [
+        "## Secondary: the two curves",
+        "",
+        "| sigma_hit | n | recovery % (95% CI) | false success @0.05 m |"
+        " false success @0.10 m | true success @0.05 m |",
+        "|---|---|---|---|---|---|",
+    ]
     for sigma in sorted(per_level):
         d = per_level[sigma]
         rows, n = d["rows"], len(d["rows"])
         nm = len(d["matched"])
         lo, hi = wilson(d["rec"], nm)
-        cells = [f"| {sigma:.2f} | {n} | "
-                 f"{100.0 * d['rec'] / nm:.1f} ({100 * lo:.0f}-{100 * hi:.0f}) |"]
+        cells = [
+            f"| {sigma:.2f} | {n} | "
+            f"{100.0 * d['rec'] / nm:.1f} ({100 * lo:.0f}-{100 * hi:.0f}) |"
+        ]
         for tol in TOLERANCES:
             fs = sum(1 for r in rows if r["reported"] and r["distance"] > tol)
             cells.append(f" {100.0 * fs / n:.1f}% |")
@@ -191,10 +212,13 @@ def main():
 
     total_attr = sum(d["attrition"] for d in per_level.values())
     total_nogt = sum(d["no_gt"] for d in per_level.values())
-    lines += ["## Bookkeeping", "",
-              f"- goals matched to a recomputed outcome: {len(y)}",
-              f"- excluded: {total_attr} kidnap-never-applied, {total_nogt} without "
-              f"ground truth"]
+    lines += [
+        "## Bookkeeping",
+        "",
+        f"- goals matched to a recomputed outcome: {len(y)}",
+        f"- excluded: {total_attr} kidnap-never-applied, {total_nogt} without "
+        f"ground truth",
+    ]
 
     text = "\n".join(lines)
     out = pathlib.Path(args.out)

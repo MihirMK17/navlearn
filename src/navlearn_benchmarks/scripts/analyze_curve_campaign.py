@@ -75,13 +75,13 @@ class Goal:
     """One perturbed goal with every outcome the paper's claims are judged on."""
 
     goal_id: str
-    magnitude: float           # realised displacement, metres
-    reported: bool             # Nav2 said SUCCEEDED
-    true_success: bool         # ground truth within tolerance at episode end
-    false_success: bool        # reported and not truly there
+    magnitude: float  # realised displacement, metres
+    reported: bool  # Nav2 said SUCCEEDED
+    true_success: bool  # ground truth within tolerance at episode end
+    false_success: bool  # reported and not truly there
     true_distance_m: float
-    recovered: bool            # TTR Outcome == 1 (sustained)
-    ttr_s: float               # -1.0 when undefined
+    recovered: bool  # TTR Outcome == 1 (sustained)
+    ttr_s: float  # -1.0 when undefined
     nav_time_s: float
 
 
@@ -92,7 +92,9 @@ def _read_localization(paths) -> dict:
         with open(path) as handle:
             for row in csv.DictReader(handle):
                 try:
-                    metrics[row["GoalID"]][row["Metric Name"]] = float(row["Metric Value"])
+                    metrics[row["GoalID"]][row["Metric Name"]] = float(
+                        row["Metric Value"]
+                    )
                 except (KeyError, ValueError):
                     continue
     return metrics
@@ -114,15 +116,22 @@ def load_arm(arm_dir, expect_goals=None, magnitude_field="displacement") -> list
     tolerance = json.loads(spec_files[0].read_text())["identity"]["xy_goal_tolerance"]
 
     wide_files = sorted(
-        p for p in arm.glob("navlearn_metrics_run_*.csv")
-        if not p.name.endswith("_localization.csv"))
-    loc = _read_localization(sorted(arm.glob("navlearn_metrics_run_*_localization.csv")))
+        p
+        for p in arm.glob("navlearn_metrics_run_*.csv")
+        if not p.name.endswith("_localization.csv")
+    )
+    loc = _read_localization(
+        sorted(arm.glob("navlearn_metrics_run_*_localization.csv"))
+    )
 
     goals, attrition, no_gt = [], 0, 0
     for path in wide_files:
         with open(path) as handle:
             for row in csv.DictReader(handle):
-                if row.get("Kidnap Attempted") == "1" and row.get("Kidnap Applied") != "1":
+                if (
+                    row.get("Kidnap Attempted") == "1"
+                    and row.get("Kidnap Applied") != "1"
+                ):
                     attrition += 1
                     continue
                 if row.get("GT Available") != "1":
@@ -144,17 +153,19 @@ def load_arm(arm_dir, expect_goals=None, magnitude_field="displacement") -> list
                     magnitude = abs(float(row["Kidnap Yaw Change (deg)"]))
                 else:
                     magnitude = float(row["Kidnap Displacement (m)"])
-                goals.append(Goal(
-                    goal_id=row["Goal_ID"],
-                    magnitude=magnitude,
-                    reported=reported,
-                    true_success=truly_there,
-                    false_success=reported and not truly_there,
-                    true_distance_m=distance,
-                    recovered=ttr.get("TTR Outcome") == 1.0,
-                    ttr_s=ttr.get("TTR", -1.0),
-                    nav_time_s=float(row["Nav Time (sec)"]),
-                ))
+                goals.append(
+                    Goal(
+                        goal_id=row["Goal_ID"],
+                        magnitude=magnitude,
+                        reported=reported,
+                        true_success=truly_there,
+                        false_success=reported and not truly_there,
+                        true_distance_m=distance,
+                        recovered=ttr.get("TTR Outcome") == 1.0,
+                        ttr_s=ttr.get("TTR", -1.0),
+                        nav_time_s=float(row["Nav Time (sec)"]),
+                    )
+                )
 
     if expect_goals is not None and len(goals) + attrition + no_gt != expect_goals:
         sys.exit(
@@ -174,19 +185,31 @@ def summarise(goals) -> dict:
         "n": n,
         "attrition": getattr(goals, "attrition", 0),
         "no_gt": getattr(goals, "no_gt", 0),
-        "reported_pct": 100.0 * sum(g.reported for g in goals) / n if n else float("nan"),
-        "true_pct": 100.0 * sum(g.true_success for g in goals) / n if n else float("nan"),
-        "false_pct": 100.0 * sum(g.false_success for g in goals) / n if n else float("nan"),
-        "recovered_pct": 100.0 * sum(g.recovered for g in goals) / n if n else float("nan"),
-        "ttr_median_s": statistics.median(recovered_ttrs) if recovered_ttrs else float("nan"),
-        "nav_time_median_s": statistics.median(g.nav_time_s for g in goals) if n else float("nan"),
+        "reported_pct": (
+            100.0 * sum(g.reported for g in goals) / n if n else float("nan")
+        ),
+        "true_pct": (
+            100.0 * sum(g.true_success for g in goals) / n if n else float("nan")
+        ),
+        "false_pct": (
+            100.0 * sum(g.false_success for g in goals) / n if n else float("nan")
+        ),
+        "recovered_pct": (
+            100.0 * sum(g.recovered for g in goals) / n if n else float("nan")
+        ),
+        "ttr_median_s": (
+            statistics.median(recovered_ttrs) if recovered_ttrs else float("nan")
+        ),
+        "nav_time_median_s": (
+            statistics.median(g.nav_time_s for g in goals) if n else float("nan")
+        ),
     }
 
 
 def log_bin_edges(lo: float, hi: float, bins: int) -> list:
     """Bin edges uniform in log space, the same construction as the leg 1 tables."""
     ratio = (hi / lo) ** (1.0 / bins)
-    return [lo * ratio ** k for k in range(bins + 1)]
+    return [lo * ratio**k for k in range(bins + 1)]
 
 
 def linear_bin_edges(lo: float, hi: float, bins: int) -> list:
@@ -202,7 +225,8 @@ def binned(goals, edges) -> list:
     for i in range(len(edges) - 1):
         last = i == len(edges) - 2
         members = [
-            g for g in goals
+            g
+            for g in goals
             if edges[i] <= g.magnitude < edges[i + 1]
             or (last and math.isclose(g.magnitude, edges[i + 1]))
             or (last and g.magnitude >= edges[i + 1])  # realised may overshoot the band
@@ -225,8 +249,9 @@ def _fmt(value, width=6, digits=1):
     return f"{value:.{digits}f}".rjust(width)
 
 
-def build_report(arms: dict, lo: float, hi: float, bins: int = 4,
-                 bin_scale: str = "log") -> str:
+def build_report(
+    arms: dict, lo: float, hi: float, bins: int = 4, bin_scale: str = "log"
+) -> str:
     """One self-describing markdown report for every arm."""
     edges = (linear_bin_edges if bin_scale == "linear" else log_bin_edges)(lo, hi, bins)
     lines = [
@@ -244,8 +269,10 @@ def build_report(arms: dict, lo: float, hi: float, bins: int = 4,
 
     lines.append("## Overall, per arm")
     lines.append("")
-    lines.append("| arm | n | reported | true | false | recovered | TTR med (s) "
-                 "| nav med (s) | attrition | no GT |")
+    lines.append(
+        "| arm | n | reported | true | false | recovered | TTR med (s) "
+        "| nav med (s) | attrition | no GT |"
+    )
     lines.append("|---|---|---|---|---|---|---|---|---|---|")
     for name, goals in arms.items():
         s = summarise(goals)
@@ -253,7 +280,8 @@ def build_report(arms: dict, lo: float, hi: float, bins: int = 4,
             f"| {name} | {s['n']} |{_fmt(s['reported_pct'])}% |{_fmt(s['true_pct'])}% "
             f"|{_fmt(s['false_pct'])}% |{_fmt(s['recovered_pct'])}% "
             f"|{_fmt(s['ttr_median_s'], digits=2)} |{_fmt(s['nav_time_median_s'])} "
-            f"| {s['attrition']} | {s['no_gt']} |")
+            f"| {s['attrition']} | {s['no_gt']} |"
+        )
     lines.append("")
 
     for name, goals in arms.items():
@@ -269,7 +297,8 @@ def build_report(arms: dict, lo: float, hi: float, bins: int = 4,
             lines.append(
                 f"| {label} | {row['n']} |{_fmt(row['true_pct'])}% "
                 f"|{_fmt(row['false_pct'])}% |{_fmt(row['recovered_pct'])}% "
-                f"|{_fmt(row['ttr_median_s'], digits=2)} |")
+                f"|{_fmt(row['ttr_median_s'], digits=2)} |"
+            )
         lines.append("")
 
     return "\n".join(lines)
@@ -279,58 +308,98 @@ def write_per_goal_csv(arms: dict, path):
     """The joined per-goal table, for the regression stage and for anyone re-deriving."""
     with open(path, "w", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow([
-            "arm", "goal_id", "magnitude_m", "reported", "true_success",
-            "false_success", "true_distance_m", "recovered", "ttr_s", "nav_time_s"])
+        writer.writerow(
+            [
+                "arm",
+                "goal_id",
+                "magnitude_m",
+                "reported",
+                "true_success",
+                "false_success",
+                "true_distance_m",
+                "recovered",
+                "ttr_s",
+                "nav_time_s",
+            ]
+        )
         for name, goals in arms.items():
             for g in goals:
-                writer.writerow([
-                    name, g.goal_id, f"{g.magnitude:.6f}", int(g.reported),
-                    int(g.true_success), int(g.false_success),
-                    f"{g.true_distance_m:.6f}", int(g.recovered),
-                    f"{g.ttr_s:.3f}", f"{g.nav_time_s:.2f}"])
+                writer.writerow(
+                    [
+                        name,
+                        g.goal_id,
+                        f"{g.magnitude:.6f}",
+                        int(g.reported),
+                        int(g.true_success),
+                        int(g.false_success),
+                        f"{g.true_distance_m:.6f}",
+                        int(g.recovered),
+                        f"{g.ttr_s:.3f}",
+                        f"{g.nav_time_s:.2f}",
+                    ]
+                )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Analyze a NavLearn curve campaign",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument(
-        "--arm", action="append", required=True, metavar="NAME=DIR",
-        help="Controller arm as name=directory (repeatable)")
+        "--arm",
+        action="append",
+        required=True,
+        metavar="NAME=DIR",
+        help="Controller arm as name=directory (repeatable)",
+    )
     parser.add_argument(
-        "--range", required=True, metavar="LO:HI",
-        help="Commanded magnitude range of the sweep, e.g. 0.01:3.0")
+        "--range",
+        required=True,
+        metavar="LO:HI",
+        help="Commanded magnitude range of the sweep, e.g. 0.01:3.0",
+    )
     parser.add_argument("--bins", type=int, default=4)
     parser.add_argument(
-        "--magnitude-field", choices=("displacement", "yaw_change"),
+        "--magnitude-field",
+        choices=("displacement", "yaw_change"),
         default="displacement",
         help="Which column is the sweep's independent variable: the kidnap displacement "
-             "(legs 1/2) or |Kidnap Yaw Change (deg)| (the yaw-curve leg, PROTOCOL A3)")
+        "(legs 1/2) or |Kidnap Yaw Change (deg)| (the yaw-curve leg, PROTOCOL A3)",
+    )
     parser.add_argument(
-        "--bin-scale", choices=("log", "linear"), default="log",
-        help="Bin spacing. The yaw leg samples linearly from zero, which has no log")
+        "--bin-scale",
+        choices=("log", "linear"),
+        default="log",
+        help="Bin spacing. The yaw leg samples linearly from zero, which has no log",
+    )
     parser.add_argument(
-        "--expect-goals", type=int, default=None,
-        help="Total goals per arm incl. attrition; refuses a partial arm when set")
+        "--expect-goals",
+        type=int,
+        default=None,
+        help="Total goals per arm incl. attrition; refuses a partial arm when set",
+    )
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
 
     lo, hi = (float(x) for x in args.range.split(":", 1))
     if args.bin_scale == "log" and lo <= 0.0:
-        sys.exit("FATAL: log bins need a positive range minimum; use --bin-scale linear")
+        sys.exit(
+            "FATAL: log bins need a positive range minimum; use --bin-scale linear"
+        )
     arms = {}
     for spec in args.arm:
         name, _, directory = spec.partition("=")
         if not directory:
             sys.exit(f"--arm expects NAME=DIR, got {spec!r}")
-        arms[name] = load_arm(directory, expect_goals=args.expect_goals,
-                              magnitude_field=args.magnitude_field)
+        arms[name] = load_arm(
+            directory,
+            expect_goals=args.expect_goals,
+            magnitude_field=args.magnitude_field,
+        )
 
     out = pathlib.Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    report = build_report(arms, lo=lo, hi=hi, bins=args.bins,
-                          bin_scale=args.bin_scale)
+    report = build_report(arms, lo=lo, hi=hi, bins=args.bins, bin_scale=args.bin_scale)
     (out / "summary.md").write_text(report + "\n")
     write_per_goal_csv(arms, out / "per_goal.csv")
     print(report)

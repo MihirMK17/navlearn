@@ -70,6 +70,7 @@ import subprocess
 import sys
 
 import numpy as np
+
 # The SDF is produced locally by `ign sdf -p` from vendored world files, so it is not
 # untrusted input -- but a world file is still a document pulled from an upstream
 # project, and the hardened parser costs nothing.
@@ -96,14 +97,19 @@ def expand_world(world_path, models_dir):
     env["SDF_PATH"] = str(models_dir)
     proc = subprocess.run(
         ["ign", "sdf", "-p", str(world_path)],
-        capture_output=True, text=True, env=env, check=False)
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
     if proc.returncode != 0:
         raise RuntimeError(f"ign sdf -p failed: {proc.stderr[:400]}")
     if "Tried to use callback" in proc.stderr:
         raise RuntimeError(
             "ign sdf could not resolve model:// URIs. SDF_PATH must point at the "
             "directory holding the model folders; GZ_SIM_RESOURCE_PATH does not work "
-            f"for the standalone CLI. Got SDF_PATH={models_dir}")
+            f"for the standalone CLI. Got SDF_PATH={models_dir}"
+        )
     text = proc.stdout
     if "<include>" in text:
         raise RuntimeError("expanded SDF still contains <include>; expansion failed")
@@ -125,11 +131,13 @@ def pose_matrix(pose):
     cr, sr = math.cos(roll), math.sin(roll)
     cp, sp = math.cos(pitch), math.sin(pitch)
     cy, sy = math.cos(yaw), math.sin(yaw)
-    rot = np.array([
-        [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
-        [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
-        [-sp,     cp * sr,                cp * cr],
-    ])
+    rot = np.array(
+        [
+            [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp, cp * sr, cp * cr],
+        ]
+    )
     out = np.eye(4)
     out[:3, :3] = rot
     out[:3, 3] = (x, y, z)
@@ -139,10 +147,32 @@ def pose_matrix(pose):
 def box_triangles(sx, sy, sz):
     """Triangulated axis-aligned box centred on the origin."""
     hx, hy, hz = sx / 2.0, sy / 2.0, sz / 2.0
-    c = np.array([[-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz],
-                  [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]])
-    faces = [(0, 1, 2), (0, 2, 3), (4, 6, 5), (4, 7, 6), (0, 4, 5), (0, 5, 1),
-             (1, 5, 6), (1, 6, 2), (2, 6, 7), (2, 7, 3), (3, 7, 4), (3, 4, 0)]
+    c = np.array(
+        [
+            [-hx, -hy, -hz],
+            [hx, -hy, -hz],
+            [hx, hy, -hz],
+            [-hx, hy, -hz],
+            [-hx, -hy, hz],
+            [hx, -hy, hz],
+            [hx, hy, hz],
+            [-hx, hy, hz],
+        ]
+    )
+    faces = [
+        (0, 1, 2),
+        (0, 2, 3),
+        (4, 6, 5),
+        (4, 7, 6),
+        (0, 4, 5),
+        (0, 5, 1),
+        (1, 5, 6),
+        (1, 6, 2),
+        (2, 6, 7),
+        (2, 7, 3),
+        (3, 7, 4),
+        (3, 4, 0),
+    ]
     return np.array([[c[i], c[j], c[k]] for i, j, k in faces])
 
 
@@ -174,9 +204,14 @@ def sphere_triangles(radius, segments=16):
             t1 = 2.0 * math.pi * (j + 1) / segments
 
             def pt(phi, theta):
-                return np.array([radius * math.sin(phi) * math.cos(theta),
-                                 radius * math.sin(phi) * math.sin(theta),
-                                 radius * math.cos(phi)])
+                return np.array(
+                    [
+                        radius * math.sin(phi) * math.cos(theta),
+                        radius * math.sin(phi) * math.sin(theta),
+                        radius * math.cos(phi),
+                    ]
+                )
+
             a, b, c, d = pt(p0, t0), pt(p0, t1), pt(p1, t1), pt(p1, t0)
             tris += [[a, b, c], [a, c, d]]
     return np.array(tris)
@@ -210,7 +245,7 @@ def load_mesh_triangles(mesh_path):
     doc = collada.Collada(str(mesh_path))
     unit = doc.assetInfo.unitmeter or 1.0
     chunks = []
-    for geom in doc.scene.objects('geometry'):
+    for geom in doc.scene.objects("geometry"):
         for prim in geom.primitives():
             # A COLLADA primitive may be a triangle set, a polygon list, or a line set.
             # Polygon lists carry a triangleset() conversion; line sets have no faces
@@ -221,7 +256,8 @@ def load_mesh_triangles(mesh_path):
             if not hasattr(faces, "vertex_index") or faces.vertex_index is None:
                 continue
             if hasattr(prim, "triangleset") and not isinstance(
-                    prim, collada.triangleset.TriangleSet):
+                prim, collada.triangleset.TriangleSet
+            ):
                 try:
                     faces = prim.triangleset()
                 except Exception:  # noqa: BLE001 - a non-triangulable primitive
@@ -279,8 +315,9 @@ def geometry_triangles(geom_el, models_dir, warnings):
 
     cyl_el = geom_el.find("cylinder")
     if cyl_el is not None:
-        return cylinder_triangles(float(cyl_el.find("radius").text),
-                                  float(cyl_el.find("length").text))
+        return cylinder_triangles(
+            float(cyl_el.find("radius").text), float(cyl_el.find("length").text)
+        )
 
     sph_el = geom_el.find("sphere")
     if sph_el is not None:
@@ -311,8 +348,7 @@ def collect_world_triangles(sdf_text, models_dir):
     counts = collections.Counter()
 
     def walk_model(model_el, parent_tf):
-        model_tf = parent_tf @ pose_matrix(
-            parse_pose(model_el.findtext("pose")))
+        model_tf = parent_tf @ pose_matrix(parse_pose(model_el.findtext("pose")))
         for link_el in model_el.findall("link"):
             link_tf = model_tf @ pose_matrix(parse_pose(link_el.findtext("pose")))
             for col_el in link_el.findall("collision"):
@@ -373,7 +409,7 @@ def rasterize(segments, resolution, origin, shape):
         return grid
     rows, cols = shape
     step = resolution * _RASTER_STEP_CELLS
-    for (p0, p1) in segments:
+    for p0, p1 in segments:
         length = float(np.hypot(*(p1 - p0)))
         n = max(int(length / step) + 1, 2)
         for t in np.linspace(0.0, 1.0, n):
@@ -395,15 +431,20 @@ def flood_free(occupied, seed_rc):
     if occupied[sr, sc]:
         raise RuntimeError(
             f"flood seed {seed_rc} is on an occupied cell; free space cannot be "
-            "identified from inside an obstacle")
+            "identified from inside an obstacle"
+        )
     stack = [(sr, sc)]
     free[sr, sc] = True
     while stack:
         r, c = stack.pop()
         for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             nr, nc = r + dr, c + dc
-            if 0 <= nr < rows and 0 <= nc < cols and not free[nr, nc] \
-                    and not occupied[nr, nc]:
+            if (
+                0 <= nr < rows
+                and 0 <= nc < cols
+                and not free[nr, nc]
+                and not occupied[nr, nc]
+            ):
                 free[nr, nc] = True
                 stack.append((nr, nc))
     return free
@@ -431,20 +472,21 @@ def read_pgm(path):
         raise RuntimeError(f"{path}: not a binary P5 PGM")
     fields, pos = [], 2
     while len(fields) < 3:
-        while pos < len(data) and data[pos:pos + 1].isspace():
+        while pos < len(data) and data[pos : pos + 1].isspace():
             pos += 1
-        if data[pos:pos + 1] == b"#":
-            while data[pos:pos + 1] not in (b"\n", b""):
+        if data[pos : pos + 1] == b"#":
+            while data[pos : pos + 1] not in (b"\n", b""):
                 pos += 1
             continue
         start = pos
-        while pos < len(data) and not data[pos:pos + 1].isspace():
+        while pos < len(data) and not data[pos : pos + 1].isspace():
             pos += 1
         fields.append(int(data[start:pos]))
     pos += 1
     width, height, _ = fields
-    return np.frombuffer(data[pos:pos + width * height],
-                         dtype=np.uint8).reshape(height, width)
+    return np.frombuffer(data[pos : pos + width * height], dtype=np.uint8).reshape(
+        height, width
+    )
 
 
 def read_map_yaml(path):
@@ -471,7 +513,8 @@ def build(world, models, height, resolution, margin=1.0, seed_xy=(0.0, 0.0)):
     if len(segments) == 0:
         raise RuntimeError(
             f"the world has no collision geometry crossing z={height} m; either the "
-            "height is above everything in the world or the units are wrong")
+            "height is above everything in the world or the units are wrong"
+        )
 
     pts = segments.reshape(-1, 2)
     origin = (pts[:, 0].min() - margin, pts[:, 1].min() - margin)
@@ -479,8 +522,10 @@ def build(world, models, height, resolution, margin=1.0, seed_xy=(0.0, 0.0)):
     heightc = int(math.ceil((pts[:, 1].max() + margin - origin[1]) / resolution)) + 1
 
     occupied = rasterize(segments, resolution, origin, (heightc, width))
-    seed_rc = (int((seed_xy[1] - origin[1]) / resolution),
-               int((seed_xy[0] - origin[0]) / resolution))
+    seed_rc = (
+        int((seed_xy[1] - origin[1]) / resolution),
+        int((seed_xy[0] - origin[0]) / resolution),
+    )
     free = flood_free(occupied, seed_rc)
     counts["triangles"] = len(tris)
     counts["segments"] = len(segments)
@@ -489,8 +534,12 @@ def build(world, models, height, resolution, margin=1.0, seed_xy=(0.0, 0.0)):
 
 def cmd_generate(args):
     occupied, free, origin, counts, warnings = build(
-        args.world, args.models, args.height, args.resolution,
-        seed_xy=(args.seed_x, args.seed_y))
+        args.world,
+        args.models,
+        args.height,
+        args.resolution,
+        seed_xy=(args.seed_x, args.seed_y),
+    )
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     img = to_pgm_array(occupied, free)
@@ -499,7 +548,8 @@ def cmd_generate(args):
         "image: map.pgm\n"
         f"resolution: {args.resolution:.6f}\n"
         f"origin: [{origin[0]:.6f}, {origin[1]:.6f}, 0.000000]\n"
-        "negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n")
+        "negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n"
+    )
     (out / "PROVENANCE.md").write_text(
         f"# {pathlib.Path(args.world).name} map provenance\n\n"
         f"Generated by world_to_map.py from the world's COLLISION geometry -- the same\n"
@@ -519,7 +569,8 @@ def cmd_generate(args):
         f"| free cells | {int(free.sum())} |\n\n"
         f"Contains geometry no robot could observe (behind walls, inside closed rooms),\n"
         f"so it is a map of the world rather than of what is observable from within it.\n"
-        + ("\nWarnings:\n" + "\n".join(f"- {w}" for w in warnings) if warnings else ""))
+        + ("\nWarnings:\n" + "\n".join(f"- {w}" for w in warnings) if warnings else "")
+    )
     print(f"wrote {out}/map.pgm  ({occupied.sum()} occupied, {free.sum()} free cells)")
     for w in warnings:
         print(f"WARNING: {w}", file=sys.stderr)
@@ -533,10 +584,12 @@ def compare(existing_occ, existing_res, existing_origin, gen_occ, gen_res, gen_o
     wall THICKNESS while agreeing perfectly on wall POSITION, and an IoU would call that
     a large disagreement while a localization filter would not notice it at all.
     """
+
     def cells_to_xy(mask, res, origin):
         rows, cols = np.nonzero(mask)
-        return np.stack([origin[0] + (cols + 0.5) * res,
-                         origin[1] + (rows + 0.5) * res], axis=1)
+        return np.stack(
+            [origin[0] + (cols + 0.5) * res, origin[1] + (rows + 0.5) * res], axis=1
+        )
 
     a = cells_to_xy(existing_occ, existing_res, existing_origin)
     b = cells_to_xy(gen_occ, gen_res, gen_origin)
@@ -544,7 +597,7 @@ def compare(existing_occ, existing_res, existing_origin, gen_occ, gen_res, gen_o
         return None
     dists = []
     for start in range(0, len(a), 2000):
-        chunk = a[start:start + 2000]
+        chunk = a[start : start + 2000]
         d = np.sqrt(((chunk[:, None, :] - b[None, :, :]) ** 2).sum(axis=2))
         dists.append(d.min(axis=1))
     return np.concatenate(dists)
@@ -556,11 +609,21 @@ def cmd_validate(args):
     existing_occ = np.flipud(img) < 90  # map_server: dark pixels are occupied
 
     occupied, _, origin, counts, warnings = build(
-        args.world, args.models, args.height, meta["resolution"],
-        seed_xy=(args.seed_x, args.seed_y))
+        args.world,
+        args.models,
+        args.height,
+        meta["resolution"],
+        seed_xy=(args.seed_x, args.seed_y),
+    )
 
-    d = compare(existing_occ, meta["resolution"], meta["origin"],
-                occupied, meta["resolution"], origin)
+    d = compare(
+        existing_occ,
+        meta["resolution"],
+        meta["origin"],
+        occupied,
+        meta["resolution"],
+        origin,
+    )
     if d is None:
         raise RuntimeError("one of the maps has no occupied cells")
 
@@ -578,15 +641,19 @@ def cmd_validate(args):
         "an overlap score would call that a large disagreement where a particle filter "
         "would not notice it.",
         "",
-        "| quantile | distance (m) |", "|---|---|",
+        "| quantile | distance (m) |",
+        "|---|---|",
     ]
     lines += [f"| p{p} | {v:.3f} |" for p, v in pct.items()]
     lines += ["", "| within | share of occupied cells |", "|---|---|"]
     lines += [f"| {t:.2f} m | {v:.1f}% |" for t, v in within.items()]
-    lines += ["", f"- existing map occupied cells: {int(existing_occ.sum())}",
-              f"- geometric slice occupied cells: {int(occupied.sum())}",
-              f"- models {counts['models']}, collisions {counts['collisions']}, "
-              f"triangles {counts['triangles']}, segments {counts['segments']}"]
+    lines += [
+        "",
+        f"- existing map occupied cells: {int(existing_occ.sum())}",
+        f"- geometric slice occupied cells: {int(occupied.sum())}",
+        f"- models {counts['models']}, collisions {counts['collisions']}, "
+        f"triangles {counts['triangles']}, segments {counts['segments']}",
+    ]
     if warnings:
         lines += ["", "Warnings:"] + [f"- {w}" for w in warnings]
     text = "\n".join(lines)
@@ -603,8 +670,11 @@ def main():
     for name in ("generate", "validate"):
         p = sub.add_parser(name)
         p.add_argument("--world", required=True)
-        p.add_argument("--models", required=True,
-                       help="directory holding the model folders (becomes SDF_PATH)")
+        p.add_argument(
+            "--models",
+            required=True,
+            help="directory holding the model folders (becomes SDF_PATH)",
+        )
         p.add_argument("--height", type=float, required=True)
         p.add_argument("--seed-x", type=float, default=0.0)
         p.add_argument("--seed-y", type=float, default=0.0)

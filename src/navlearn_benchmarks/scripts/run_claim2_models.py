@@ -55,7 +55,8 @@ def load_dataset(per_goal_path, targets_path, ambiguity_path):
     scores = list(csv.DictReader(open(ambiguity_path)))
     if len(targets) != len(scores):
         raise RuntimeError(
-            f"targets ({len(targets)}) and ambiguity ({len(scores)}) row counts differ")
+            f"targets ({len(targets)}) and ambiguity ({len(scores)}) row counts differ"
+        )
 
     rows = []
     for i, (t, s) in enumerate(zip(targets, scores)):
@@ -63,17 +64,21 @@ def load_dataset(per_goal_path, targets_path, ambiguity_path):
             raise RuntimeError(f"ambiguity row_index {s['row_index']} != position {i}")
         # The ambiguity file carries the coordinates it scored; they must be the
         # coordinates of the goal we are about to attach the score to.
-        if abs(float(s["target_x"]) - float(t["x"])) > 1e-9 or \
-           abs(float(s["target_y"]) - float(t["y"])) > 1e-9:
+        if (
+            abs(float(s["target_x"]) - float(t["x"])) > 1e-9
+            or abs(float(s["target_y"]) - float(t["y"])) > 1e-9
+        ):
             raise RuntimeError(f"row {i}: scored pose differs from target pose")
         o = outcomes[t["goal_id"]]
-        rows.append({
-            "goal_id": t["goal_id"],
-            "arm": t["arm"],
-            "recovered": int(o["recovered_sustained"]),
-            "magnitude_m": float(o["magnitude_m"]),
-            "ambiguity_bits": float(s["ambiguity_bits"]),
-        })
+        rows.append(
+            {
+                "goal_id": t["goal_id"],
+                "arm": t["arm"],
+                "recovered": int(o["recovered_sustained"]),
+                "magnitude_m": float(o["magnitude_m"]),
+                "ambiguity_bits": float(s["ambiguity_bits"]),
+            }
+        )
     return rows
 
 
@@ -83,12 +88,16 @@ def run(rows, distance_transform, label, lines):
     amb = np.array([r["ambiguity_bits"] for r in rows])
     report = compare_nested(y, {"distance": dist, "ambiguity": amb})
 
-    lines.append(f"## {label} -- n={len(rows)}, recovered {int(y.sum())} "
-                 f"({100.0 * y.mean():.1f}%)")
+    lines.append(
+        f"## {label} -- n={len(rows)}, recovered {int(y.sum())} "
+        f"({100.0 * y.mean():.1f}%)"
+    )
     lines.append("")
     if report["any_separated"]:
-        lines.append("**WARNING: separation detected in at least one model -- "
-                     "coefficients there are not effect sizes.**")
+        lines.append(
+            "**WARNING: separation detected in at least one model -- "
+            "coefficients there are not effect sizes.**"
+        )
         lines.append("")
     lines.append("| model | AIC | BIC | McFadden R2 |")
     lines.append("|---|---|---|---|")
@@ -101,17 +110,25 @@ def run(rows, distance_transform, label, lines):
     for pair, t in report["tests"].items():
         lines.append(f"- LR {pair}: chi2 {t['statistic']:.2f}, p {t['p_value']:.2e}")
     cv = report["cross_validated_auc"]
-    lines.append(f"- cross-validated AUC: distance {cv['distance']:.3f}, "
-                 f"ambiguity {cv['ambiguity']:.3f}")
+    lines.append(
+        f"- cross-validated AUC: distance {cv['distance']:.3f}, "
+        f"ambiguity {cv['ambiguity']:.3f}"
+    )
     corr = report["predictor_correlation"]
-    lines.append(f"- predictor correlation: pearson {corr['pearson']:.3f}, "
-                 f"spearman {corr['spearman']:.3f} (p {corr['spearman_p']:.2e})")
+    lines.append(
+        f"- predictor correlation: pearson {corr['pearson']:.3f}, "
+        f"spearman {corr['spearman']:.3f} (p {corr['spearman_p']:.2e})"
+    )
     v = report["verdict"]
-    lines.append(f"- delta AIC (M1 - M2): {v['delta_aic_M1_minus_M2']:.2f}; "
-                 f"best model {v['best_model_by_aic']}")
-    lines.append(f"- **M2 beats M1: {v['candidate_beats_incumbent']}** | "
-                 f"distance adds nothing on top: {v['incumbent_adds_nothing_on_top']} | "
-                 f"ambiguity subsumes distance: {v['ambiguity_subsumes_distance']}")
+    lines.append(
+        f"- delta AIC (M1 - M2): {v['delta_aic_M1_minus_M2']:.2f}; "
+        f"best model {v['best_model_by_aic']}"
+    )
+    lines.append(
+        f"- **M2 beats M1: {v['candidate_beats_incumbent']}** | "
+        f"distance adds nothing on top: {v['incumbent_adds_nothing_on_top']} | "
+        f"ambiguity subsumes distance: {v['ambiguity_subsumes_distance']}"
+    )
     lines.append("")
     return report
 
@@ -126,15 +143,23 @@ def main():
 
     rows = load_dataset(args.per_goal, args.targets, args.ambiguity)
 
-    lines = ["# Claim 2 -- nested model comparison (PROTOCOL section 6)", "",
-             "Outcome: recovered_sustained (episode window). "
-             "M1 distance, M2 landing ambiguity, M3 both.", ""]
+    lines = [
+        "# Claim 2 -- nested model comparison (PROTOCOL section 6)",
+        "",
+        "Outcome: recovered_sustained (episode window). "
+        "M1 distance, M2 landing ambiguity, M3 both.",
+        "",
+    ]
 
     primary = run(rows, math.log, "Pooled, log distance (primary)", lines)
     run(rows, lambda m: m, "Pooled, raw distance (robustness)", lines)
     for arm in sorted({r["arm"] for r in rows}):
-        run([r for r in rows if r["arm"] == arm], math.log,
-            f"{arm} only, log distance (robustness)", lines)
+        run(
+            [r for r in rows if r["arm"] == arm],
+            math.log,
+            f"{arm} only, log distance (robustness)",
+            lines,
+        )
 
     text = "\n".join(lines)
     pathlib.Path(args.out).write_text(text)

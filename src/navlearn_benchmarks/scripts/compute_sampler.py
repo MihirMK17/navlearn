@@ -135,7 +135,9 @@ INTERPRETERS = re.compile(r"^(python3?(\.\d+)?|ruby[\d.]*)$", re.I)
 # routinely quote node names — an orchestrator script, the harness itself, or a `grep
 # controller_server` would otherwise be classified as the thing it merely mentions and
 # counted as a near-idle member of that class, deflating its mean.
-NEVER = re.compile(r"^(bash|sh|dash|zsh|grep|awk|sed|ps|xargs|tee|timeout|env|sudo)$", re.I)
+NEVER = re.compile(
+    r"^(bash|sh|dash|zsh|grep|awk|sed|ps|xargs|tee|timeout|env|sudo)$", re.I
+)
 
 
 def classify(name, cmdline):
@@ -174,8 +176,8 @@ def read_proc_stat(pid):
 
     try:
         close = raw.rindex(")")
-        name = raw[raw.index("(") + 1: close]
-        fields = raw[close + 2:].split()
+        name = raw[raw.index("(") + 1 : close]
+        fields = raw[close + 2 :].split()
         # Fields after comm and state: utime is index 11, stime 12, num_threads 17
         # (0-based within this slice, per proc(5) counting from field 3).
         utime, stime = int(fields[11]), int(fields[12])
@@ -217,7 +219,9 @@ def read_cmdline(pid):
 def cpu_frequencies_khz():
     """Return the current scaling frequency of every core, in kHz."""
     freqs = []
-    for path in sorted(glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq")):
+    for path in sorted(
+        glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq")
+    ):
         try:
             with open(path) as handle:
                 freqs.append(int(handle.read().strip()))
@@ -242,10 +246,16 @@ def package_temp_c():
 
 def throttle_counters():
     """Return summed core and package throttle counts and total throttled milliseconds."""
-    totals = {"core_throttle_count": 0, "package_throttle_count": 0,
-              "core_throttle_total_time_ms": 0, "package_throttle_total_time_ms": 0}
+    totals = {
+        "core_throttle_count": 0,
+        "package_throttle_count": 0,
+        "core_throttle_total_time_ms": 0,
+        "package_throttle_total_time_ms": 0,
+    }
     for key in totals:
-        for path in glob.glob(f"/sys/devices/system/cpu/cpu[0-9]*/thermal_throttle/{key}"):
+        for path in glob.glob(
+            f"/sys/devices/system/cpu/cpu[0-9]*/thermal_throttle/{key}"
+        ):
             try:
                 with open(path) as handle:
                     totals[key] += int(handle.read().strip())
@@ -256,15 +266,21 @@ def throttle_counters():
 
 def gpu_state():
     """Describe GPU availability, so its absence is recorded rather than merely implied."""
-    state = {"present_in_hardware": False, "driver_available": False,
-             "used_by_navigation": False, "devices": [], "note": ""}
+    state = {
+        "present_in_hardware": False,
+        "driver_available": False,
+        "used_by_navigation": False,
+        "devices": [],
+        "note": "",
+    }
 
     try:
         listing = subprocess.run(
             ["lspci"], capture_output=True, text=True, timeout=10
         ).stdout
         state["devices"] = [
-            line.strip() for line in listing.splitlines()
+            line.strip()
+            for line in listing.splitlines()
             if re.search(r"VGA compatible controller|3D controller", line)
         ]
         state["present_in_hardware"] = bool(state["devices"])
@@ -274,9 +290,14 @@ def gpu_state():
     if shutil.which("nvidia-smi"):
         try:
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=10,
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,utilization.gpu,memory.used",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             if result.returncode == 0:
                 state["driver_available"] = True
@@ -313,8 +334,8 @@ def rendering_state(process_rows):
         "note": (
             "A GUI was running during this run; its rendering load is included in the "
             "SIMULATION class and competed with the stack being measured."
-            if gui else
-            "No GUI process observed. Compute figures reflect simulation and navigation "
+            if gui
+            else "No GUI process observed. Compute figures reflect simulation and navigation "
             "only."
         ),
     }
@@ -360,19 +381,23 @@ def sample_processes(previous, now, elapsed):
 
         cpu_seconds = (ticks - prev_ticks) / CLK_TCK
         rss, pss = read_memory(pid)
-        rows.append({
-            "timestamp": round(now, 3),
-            "kind": "process",
-            "pid": pid,
-            "name": name,
-            "class": klass,
-            "cpu_percent_of_core": round(100.0 * cpu_seconds / elapsed, 2),
-            "cpu_percent_of_machine": round(100.0 * cpu_seconds / elapsed / CPU_COUNT, 3),
-            "cpu_seconds_delta": round(cpu_seconds, 6),
-            "threads": threads,
-            "rss_kb": rss,
-            "pss_kb": pss,
-        })
+        rows.append(
+            {
+                "timestamp": round(now, 3),
+                "kind": "process",
+                "pid": pid,
+                "name": name,
+                "class": klass,
+                "cpu_percent_of_core": round(100.0 * cpu_seconds / elapsed, 2),
+                "cpu_percent_of_machine": round(
+                    100.0 * cpu_seconds / elapsed / CPU_COUNT, 3
+                ),
+                "cpu_seconds_delta": round(cpu_seconds, 6),
+                "threads": threads,
+                "rss_kb": rss,
+                "pss_kb": pss,
+            }
+        )
 
     return rows, current
 
@@ -392,7 +417,9 @@ def system_row(now):
         "pid": None,
         "name": "system",
         "class": "SYSTEM",
-        "cpu_freq_mean_mhz": round(sum(freqs) / len(freqs) / 1000.0, 1) if freqs else None,
+        "cpu_freq_mean_mhz": (
+            round(sum(freqs) / len(freqs) / 1000.0, 1) if freqs else None
+        ),
         "cpu_freq_min_mhz": round(min(freqs) / 1000.0, 1) if freqs else None,
         "cpu_freq_max_mhz": round(max(freqs) / 1000.0, 1) if freqs else None,
         "package_temp_c": package_temp_c(),
@@ -408,6 +435,7 @@ def summarise(process_rows, system_rows, throttle_start, throttle_end, started, 
     which the kernel recorded a throttle event has compute numbers that are not comparable
     with an unthrottled run, and that must be visible in the data rather than inferred.
     """
+
     def percentile(values, fraction):
         if not values:
             return None
@@ -436,7 +464,8 @@ def summarise(process_rows, system_rows, throttle_start, throttle_end, started, 
         }
 
     throttled = {
-        key: throttle_end.get(key, 0) - throttle_start.get(key, 0) for key in throttle_end
+        key: throttle_end.get(key, 0) - throttle_start.get(key, 0)
+        for key in throttle_end
     }
     any_throttle = any(
         value > 0 for key, value in throttled.items() if key.endswith("_count")
@@ -460,8 +489,8 @@ def summarise(process_rows, system_rows, throttle_start, throttle_end, started, 
             "verdict": (
                 "THROTTLED — compute figures for this run are not comparable with "
                 "unthrottled runs and must be excluded or flagged in analysis."
-                if any_throttle else
-                "clean — no kernel throttle event recorded during this run"
+                if any_throttle
+                else "clean — no kernel throttle event recorded during this run"
             ),
             "cpu_freq_mhz_mean": round(sum(freqs) / len(freqs), 1) if freqs else None,
             "cpu_freq_mhz_min": min(freqs) if freqs else None,
@@ -493,12 +522,20 @@ def summarise(process_rows, system_rows, throttle_start, throttle_end, started, 
 def main():
     """Sample until stopped, then write the per-sample CSV and the summary JSON."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--output-prefix", required=True,
-                        help="Path prefix; _samples.csv and _summary.json are appended")
-    parser.add_argument("--interval", type=float, default=0.2,
-                        help="Seconds between samples")
-    parser.add_argument("--duration", type=float, default=0.0,
-                        help="Stop after this many seconds; 0 means run until signalled")
+    parser.add_argument(
+        "--output-prefix",
+        required=True,
+        help="Path prefix; _samples.csv and _summary.json are appended",
+    )
+    parser.add_argument(
+        "--interval", type=float, default=0.2, help="Seconds between samples"
+    )
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=0.0,
+        help="Stop after this many seconds; 0 means run until signalled",
+    )
     args = parser.parse_args()
 
     running = {"value": True}
@@ -537,32 +574,51 @@ def main():
     throttle_end = throttle_counters()
 
     columns = [
-        "timestamp", "kind", "pid", "name", "class",
-        "cpu_percent_of_core", "cpu_percent_of_machine", "cpu_seconds_delta",
-        "threads", "rss_kb", "pss_kb",
-        "cpu_freq_mean_mhz", "cpu_freq_min_mhz", "cpu_freq_max_mhz",
-        "package_temp_c", "load_avg_1min",
-        "core_throttle_count", "package_throttle_count",
-        "core_throttle_total_time_ms", "package_throttle_total_time_ms",
+        "timestamp",
+        "kind",
+        "pid",
+        "name",
+        "class",
+        "cpu_percent_of_core",
+        "cpu_percent_of_machine",
+        "cpu_seconds_delta",
+        "threads",
+        "rss_kb",
+        "pss_kb",
+        "cpu_freq_mean_mhz",
+        "cpu_freq_min_mhz",
+        "cpu_freq_max_mhz",
+        "package_temp_c",
+        "load_avg_1min",
+        "core_throttle_count",
+        "package_throttle_count",
+        "core_throttle_total_time_ms",
+        "package_throttle_total_time_ms",
     ]
     with open(samples_path, "w") as handle:
         handle.write(",".join(columns) + "\n")
         for row in sorted(process_rows + system_rows, key=lambda r: r["timestamp"]):
             handle.write(
-                ",".join("" if row.get(c) is None else str(row.get(c)) for c in columns) + "\n"
+                ",".join("" if row.get(c) is None else str(row.get(c)) for c in columns)
+                + "\n"
             )
 
     summary = summarise(
         process_rows, system_rows, throttle_start, throttle_end, started, ended
     )
-    summary["started_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(started_wall))
+    summary["started_at"] = time.strftime(
+        "%Y-%m-%dT%H:%M:%S%z", time.localtime(started_wall)
+    )
     summary["sample_interval_s"] = args.interval
     with open(summary_path, "w") as handle:
         json.dump(summary, handle, indent=2, sort_keys=True)
         handle.write("\n")
 
-    print(f"compute_sampler: {len(process_rows)} process samples, "
-          f"{len(system_rows)} system samples -> {samples_path}", file=sys.stderr)
+    print(
+        f"compute_sampler: {len(process_rows)} process samples, "
+        f"{len(system_rows)} system samples -> {samples_path}",
+        file=sys.stderr,
+    )
     return 0
 
 

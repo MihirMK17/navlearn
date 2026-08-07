@@ -66,7 +66,7 @@ DELTA_AIC_THRESHOLD = 2.0
 class LogisticFit:
     """A fitted logistic model and everything the comparison table needs from it."""
 
-    coefficients: np.ndarray          # [intercept, slope_1, ...] in the original units
+    coefficients: np.ndarray  # [intercept, slope_1, ...] in the original units
     log_likelihood: float
     n_observations: int
     predictor_names: list = field(default_factory=list)
@@ -86,7 +86,10 @@ class LogisticFit:
     @property
     def bic(self):
         """k ln(n) - 2LL."""
-        return self.n_parameters * math.log(self.n_observations) - 2.0 * self.log_likelihood
+        return (
+            self.n_parameters * math.log(self.n_observations)
+            - 2.0 * self.log_likelihood
+        )
 
     def mcfadden_r2(self, null_log_likelihood):
         """1 - LL/LL0. Zero for the null model by construction."""
@@ -148,8 +151,13 @@ def fit_logistic(x, y, max_iter=500):
     beta0 = np.zeros(design.shape[1])
 
     result = optimize.minimize(
-        _log_likelihood_and_gradient, beta0, args=(design, y),
-        jac=True, method="L-BFGS-B", options={"maxiter": max_iter})
+        _log_likelihood_and_gradient,
+        beta0,
+        args=(design, y),
+        jac=True,
+        method="L-BFGS-B",
+        options={"maxiter": max_iter},
+    )
 
     beta_std = result.x
     log_likelihood = -float(result.fun)
@@ -167,7 +175,8 @@ def fit_logistic(x, y, max_iter=500):
     # Separation shows up as a coefficient running away, or as a likelihood that has
     # reached zero because every observation is fitted perfectly.
     separated = bool(
-        np.any(np.abs(beta_std) > SEPARATION_COEFFICIENT) or log_likelihood > -1e-6)
+        np.any(np.abs(beta_std) > SEPARATION_COEFFICIENT) or log_likelihood > -1e-6
+    )
 
     return LogisticFit(
         coefficients=coefficients,
@@ -198,7 +207,7 @@ def roc_auc(y, scores):
     n_neg = int(np.sum(y == 0))
     if n_pos == 0 or n_neg == 0:
         return float("nan")
-    ranks = rankdata(scores)          # average ranks, which is what makes ties count 0.5
+    ranks = rankdata(scores)  # average ranks, which is what makes ties count 0.5
     return float((np.sum(ranks[y == 1]) - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg))
 
 
@@ -247,8 +256,11 @@ def _likelihood_ratio_test(small, large):
     # Clamped at zero: a negative statistic means the optimiser stopped early on the
     # larger model, which is a fit problem, not evidence against the added term.
     statistic = max(statistic, 0.0)
-    return {"statistic": float(statistic), "df": int(df),
-            "p_value": float(chi2.sf(statistic, df))}
+    return {
+        "statistic": float(statistic),
+        "df": int(df),
+        "p_value": float(chi2.sf(statistic, df)),
+    }
 
 
 def compare_nested(y, predictors, cv_folds=5, cv_seed=0):
@@ -264,11 +276,14 @@ def compare_nested(y, predictors, cv_folds=5, cv_seed=0):
     if not names:
         raise ValueError("at least one predictor is required")
 
-    columns = {name: np.asarray(predictors[name], dtype=np.float64).ravel()
-               for name in names}
+    columns = {
+        name: np.asarray(predictors[name], dtype=np.float64).ravel() for name in names
+    }
     for name, values in columns.items():
         if values.size != y.size:
-            raise ValueError(f"predictor {name!r} has {values.size} rows, y has {y.size}")
+            raise ValueError(
+                f"predictor {name!r} has {values.size} rows, y has {y.size}"
+            )
 
     incumbent = names[0]
     candidate = names[1] if len(names) > 1 else None
@@ -306,7 +321,8 @@ def compare_nested(y, predictors, cv_folds=5, cv_seed=0):
 
     report["cross_validated_auc"] = {
         incumbent: cross_validated_auc(
-            columns[incumbent].reshape(-1, 1), y, folds=cv_folds, seed=cv_seed),
+            columns[incumbent].reshape(-1, 1), y, folds=cv_folds, seed=cv_seed
+        ),
     }
 
     if candidate is not None:
@@ -314,7 +330,8 @@ def compare_nested(y, predictors, cv_folds=5, cv_seed=0):
         report["tests"]["M1->M3"] = _likelihood_ratio_test(models["M1"], models["M3"])
         report["tests"]["M2->M3"] = _likelihood_ratio_test(models["M2"], models["M3"])
         report["cross_validated_auc"][candidate] = cross_validated_auc(
-            columns[candidate].reshape(-1, 1), y, folds=cv_folds, seed=cv_seed)
+            columns[candidate].reshape(-1, 1), y, folds=cv_folds, seed=cv_seed
+        )
 
         # Reported whatever it says. Two highly correlated predictors cannot be told
         # apart by this comparison, and surfacing that only when it looks harmless is how
