@@ -149,6 +149,9 @@ if(BUILD_TESTING)
   # scripts and is ignored by pydocstyle's own default convention. flake8 (run in
   # CI and respecting --max-line-length=100) covers real Python issues.
   set(ament_cmake_pep257_FOUND TRUE)
+  # ament_flake8 ships its own config and never reads the repository's .flake8, so
+  # without this it re-flags the E203 slice spacing that black itself emits.
+  set(ament_cmake_flake8_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/flake8.cfg")
   ament_lint_auto_find_test_dependencies()
 
   # nav2_stack parity gate. Fails the build if the shipped navigation configuration
