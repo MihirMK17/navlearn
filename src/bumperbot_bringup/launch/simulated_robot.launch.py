@@ -137,6 +137,19 @@ def generate_launch_description():
     )
     headless = LaunchConfiguration("headless")
 
+    # Forwarded to gazebo.launch.py, which sets the PRIME offload environment so the
+    # `ign gazebo` process renders on the NVIDIA dGPU. Declared here because ros2 launch
+    # discards undeclared arguments in silence — gpu:=false at this level would
+    # otherwise vanish and the run would silently render on whichever backend the
+    # default selects.
+    gpu_arg = DeclareLaunchArgument(
+        "gpu",
+        default_value="true",
+        description="Render Gazebo on the NVIDIA dGPU via PRIME offload. Set false "
+                    "to reproduce the Intel-iGPU backend pre-2026-08-06 legs used.",
+    )
+    gpu = LaunchConfiguration("gpu")
+
     # Starve the LiDAR for the sensor-rate leg. Forwarded to gazebo.launch.py, which only
     # inserts the governor when this is above zero; the default leaves the scan path
     # byte-identical to what it was before the argument existed.
@@ -188,6 +201,7 @@ def generate_launch_description():
         launch_arguments={
             "world_name": world_name,
             "headless": headless,
+            "gpu": gpu,
             # Sensor-rate leg. 0.0 leaves the scan path exactly as it was.
             "scan_rate_hz": LaunchConfiguration("scan_rate_hz"),
         }.items(),
@@ -300,6 +314,7 @@ def generate_launch_description():
         world_name_arg,
         map_yaml_arg,
         headless_arg,
+        gpu_arg,
         scan_rate_hz_arg,
         use_rviz_arg,
         amcl_config_arg,

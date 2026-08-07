@@ -56,6 +56,32 @@ def generate_launch_description():
         description="Run Gazebo without the GUI (adds -s). Campaign runs use true.",
     )
 
+    # PRIME render offload. prime-select on-demand keeps the display on the Intel iGPU
+    # and a process is given the discrete NVIDIA card only if it asks for it, so without
+    # these variables the GPU LiDAR renders on integrated graphics regardless of what
+    # nvidia-smi reports — which is how every campaign before 2026-08-06 was collected
+    # (warehouse 0.23 Hz, bookstore 3.3-6.2 Hz vs the sensor's 10 Hz). They are set on
+    # the launch process rather than the caller's shell so they reach the `ign gazebo`
+    # child that ros_gz_sim spawns; the GLX pair covers the GUI path and the EGL one the
+    # headless path. gpu:=false reproduces the Intel backend for A/B comparison runs.
+    gpu_arg = DeclareLaunchArgument(
+        name="gpu",
+        default_value="true",
+        description="Render on the NVIDIA dGPU via PRIME offload. Set false to "
+                    "reproduce the Intel-iGPU backend pre-2026-08-06 legs used.",
+    )
+    gpu_on = IfCondition(PythonExpression(
+        ["'", LaunchConfiguration("gpu"), "'.lower() in ('true', '1', 'yes')"]))
+    gpu_env = [
+        SetEnvironmentVariable("__NV_PRIME_RENDER_OFFLOAD", "1", condition=gpu_on),
+        SetEnvironmentVariable("__GLX_VENDOR_LIBRARY_NAME", "nvidia", condition=gpu_on),
+        SetEnvironmentVariable(
+            "__EGL_VENDOR_LIBRARY_FILENAMES",
+            "/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
+            condition=gpu_on,
+        ),
+    ]
+
     world_path = PathJoinSubstitution([
             bumperbot_description,
             "worlds",
@@ -170,6 +196,8 @@ def generate_launch_description():
         world_name_arg,
         scan_rate_hz_arg,
         headless_arg,
+        gpu_arg,
+        *gpu_env,     # must precede `gazebo` — the env has to exist before ign spawns
         gazebo_resource_path,
         robot_state_publisher_node,
         gazebo,
