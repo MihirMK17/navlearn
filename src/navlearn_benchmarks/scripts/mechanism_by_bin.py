@@ -44,6 +44,7 @@ Usage:
 
 import argparse
 import csv
+import math
 import pathlib
 import statistics
 
@@ -51,6 +52,11 @@ import statistics
 def med(values):
     vals = [v for v in values if v is not None]
     return statistics.median(vals) if vals else float("nan")
+
+
+def med_deg(values):
+    """Median of radian values, reported in degrees."""
+    return math.degrees(med(values))
 
 
 def as_float(text):
@@ -63,9 +69,11 @@ def as_float(text):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--mechanism", required=True)
-    parser.add_argument("--magnitudes", required=True,
-                        help="recompute per-goal CSV; supplies magnitude_m and the "
-                             "recovery outcome")
+    parser.add_argument(
+        "--magnitudes",
+        required=True,
+        help="recompute per-goal CSV; supplies magnitude_m and the " "recovery outcome",
+    )
     parser.add_argument("--edges", required=True, help="comma-separated bin edges")
     parser.add_argument("--unit", default="")
     parser.add_argument("--out", required=True)
@@ -74,8 +82,7 @@ def main():
     edges = [float(v) for v in args.edges.split(",")]
     mag = {}
     for r in csv.DictReader(open(args.magnitudes)):
-        mag[r["goal_id"]] = (float(r["magnitude_m"]),
-                             int(r["recovered_sustained"]))
+        mag[r["goal_id"]] = (float(r["magnitude_m"]), int(r["recovered_sustained"]))
 
     rows = []
     unmatched = 0
@@ -84,14 +91,26 @@ def main():
             unmatched += 1
             continue
         m, rec = mag[r["goal_id"]]
-        rows.append({
-            "magnitude": m,
-            "recovered": rec,
-            "t_confident": as_float(r["t_confident"]),
-            "err_at_confident": as_float(r["err_at_confident"]),
-            "min_err": as_float(r["min_err"]),
-            "usable": as_float(r["baseline_cov"]) is not None,
-        })
+        rows.append(
+            {
+                "magnitude": m,
+                "recovered": rec,
+                "t_confident": as_float(r["t_confident"]),
+                "err_at_confident": as_float(r["err_at_confident"]),
+                # Absent in mechanism CSVs written before 2026-08-06; None then, and the
+                # yaw column below prints nan rather than pretending it was measured.
+                "yaw_err_at_confident": as_float(r.get("yaw_err_at_confident")),
+                "min_err": as_float(r["min_err"]),
+                # Newer CSVs carry an explicit usable flag (required for the absolute-
+                # threshold mode, where no baseline exists); older ones imply it from the
+                # baseline column.
+                "usable": (
+                    r["usable"] == "True"
+                    if "usable" in r
+                    else as_float(r["baseline_cov"]) is not None
+                ),
+            }
+        )
 
     lines = [
         "# Confidence versus truth, by perturbation magnitude",
@@ -102,16 +121,19 @@ def main():
         "one that never becomes confident knows it is lost.",
         "",
         f"| bin ({args.unit}) | n | usable | reached confidence | "
-        f"err at confidence (m) | recovered | min err (m) |",
-        "|---|---|---|---|---|---|---|",
+        f"err at confidence (m) | yaw err at confidence (deg) | recovered | min err (m) |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for i in range(len(edges) - 1):
         lo, hi = edges[i], edges[i + 1]
         last = i == len(edges) - 2
-        sel = [r for r in rows
-               if lo <= r["magnitude"] < hi or (last and r["magnitude"] == hi)]
+        sel = [
+            r
+            for r in rows
+            if lo <= r["magnitude"] < hi or (last and r["magnitude"] == hi)
+        ]
         if not sel:
-            lines.append(f"| {lo:g}-{hi:g} | 0 | - | - | - | - | - |")
+            lines.append(f"| {lo:g}-{hi:g} | 0 | - | - | - | - | - | - |")
             continue
         usable = [r for r in sel if r["usable"]]
         conf = [r for r in usable if r["t_confident"] is not None]
@@ -119,35 +141,49 @@ def main():
             f"| {lo:g}-{hi:g} | {len(sel)} | {len(usable)}/{len(sel)} | "
             f"{len(conf)}/{len(usable)} | "
             f"{med(r['err_at_confident'] for r in conf):.3f} | "
+            f"{med_deg(r['yaw_err_at_confident'] for r in conf):.1f} | "
             f"{100.0 * sum(r['recovered'] for r in sel) / len(sel):.1f}% | "
-            f"{med(r['min_err'] for r in usable):.3f} |")
+            f"{med(r['min_err'] for r in usable):.3f} |"
+        )
 
     lines.append("")
     # The decisive split: among goals that did NOT recover, did the filter nonetheless
     # reach confidence? That is the aliasing signature.
-    lines += ["## Non-recovered goals only: did the filter still become confident?", "",
-              f"| bin ({args.unit}) | non-recovered n | of those, reached confidence | "
-              f"err at confidence (m) |", "|---|---|---|---|"]
+    lines += [
+        "## Non-recovered goals only: did the filter still become confident?",
+        "",
+        f"| bin ({args.unit}) | non-recovered n | of those, reached confidence | "
+        f"err at confidence (m) | yaw err at confidence (deg) |",
+        "|---|---|---|---|---|",
+    ]
     for i in range(len(edges) - 1):
         lo, hi = edges[i], edges[i + 1]
         last = i == len(edges) - 2
-        sel = [r for r in rows
-               if (lo <= r["magnitude"] < hi or (last and r["magnitude"] == hi))
-               and not r["recovered"] and r["usable"]]
+        sel = [
+            r
+            for r in rows
+            if (lo <= r["magnitude"] < hi or (last and r["magnitude"] == hi))
+            and not r["recovered"]
+            and r["usable"]
+        ]
         conf = [r for r in sel if r["t_confident"] is not None]
         if not sel:
-            lines.append(f"| {lo:g}-{hi:g} | 0 | - | - |")
+            lines.append(f"| {lo:g}-{hi:g} | 0 | - | - | - |")
             continue
         lines.append(
             f"| {lo:g}-{hi:g} | {len(sel)} | {len(conf)} "
             f"({100.0 * len(conf) / len(sel):.0f}%) | "
-            f"{med(r['err_at_confident'] for r in conf):.3f} |")
-    lines += ["",
-              "A high confidence rate among non-recovered goals, at a large error, is "
-              "the filter locking onto the wrong place -- aliasing. A low one is the "
-              "filter correctly remaining unsure.",
-              "",
-              f"- goals in the mechanism file with no magnitude match: {unmatched}"]
+            f"{med(r['err_at_confident'] for r in conf):.3f} | "
+            f"{med_deg(r['yaw_err_at_confident'] for r in conf):.1f} |"
+        )
+    lines += [
+        "",
+        "A high confidence rate among non-recovered goals, at a large error, is "
+        "the filter locking onto the wrong place -- aliasing. A low one is the "
+        "filter correctly remaining unsure.",
+        "",
+        f"- goals in the mechanism file with no magnitude match: {unmatched}",
+    ]
 
     text = "\n".join(lines)
     out = pathlib.Path(args.out)
