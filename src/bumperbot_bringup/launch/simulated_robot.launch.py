@@ -1,10 +1,62 @@
+import importlib.util
 import os
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    IncludeLaunchDescription,
+    LogInfo,
+    OpaqueFunction,
+    SetLaunchConfiguration,
+)
 from launch.conditions import UnlessCondition, IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.events import Shutdown
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
+
+# Shared with bumperbot_navigation, which owns config/nav2_stack/. Loaded by path because
+# launch files are not importable as a package. Legal localizer names come from the
+# filesystem, so this file holds no list that could drift from what is on disk.
+_stack_spec_path = os.path.join(
+    get_package_share_directory("bumperbot_navigation"), "launch", "stack_spec.py"
+)
+_spec = importlib.util.spec_from_file_location("navlearn_stack_spec", _stack_spec_path)
+stack_spec = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(stack_spec)
+
+
+def _preflight_failure(message):
+    """Return launch actions that log a preflight failure and shut the launch down."""
+    return [
+        LogInfo(msg=f"[nav2_stack] PREFLIGHT FAILED: {message}"),
+        EmitEvent(event=Shutdown(reason=f"nav2_stack preflight: {message}")),
+    ]
+
+
+def _resolve_localizer(context, *args, **kwargs):
+    """Turn the localizer name into the amcl_config path the localization launch expects.
+
+    AMCL is launched by bumperbot_localization, which takes a full YAML path rather than a
+    fragment name, so the nav2_stack/localizers/ fragment is resolved here and handed over.
+    An explicitly supplied amcl_config always wins, which keeps the escape hatch open for
+    reproducing an archived run against its original config.
+    """
+    if LaunchConfiguration("amcl_config").perform(context):
+        return []
+
+    stack = stack_spec.stack_dir(get_package_share_directory("bumperbot_navigation"))
+    localizer = LaunchConfiguration("localizer").perform(context)
+
+    problem = stack_spec.validate_selection(stack, "localizer", localizer)
+    if problem:
+        return _preflight_failure(problem)
+
+    return [
+        SetLaunchConfiguration(
+            "amcl_config", stack_spec.fragment_path(stack, "localizer", localizer)
+        )
+    ]
 
 
 def generate_launch_description():
@@ -16,22 +68,129 @@ def generate_launch_description():
 
     use_slam = LaunchConfiguration("use_slam")
 
-    nav2_profile_arg = DeclareLaunchArgument("nav2_profile", default_value="baseline")
-    nav2_profile = LaunchConfiguration("nav2_profile")
+    # Stack composition. See bumperbot_navigation/config/nav2_stack/ and
+    # bumperbot_navigation/launch/navigation.launch.py for what each slot loads.
+    controller_arg = DeclareLaunchArgument(
+        "controller",
+        default_value="rpp",
+        description="Local controller: rpp | dwb | mppi"
+    )
+    controller_name = LaunchConfiguration("controller")
+
+    planner_arg = DeclareLaunchArgument(
+        "planner",
+        default_value="smac2d",
+        description="Global planner: smac2d | navfn | thetastar"
+    )
+    planner_name = LaunchConfiguration("planner")
+
+    ablation_arg = DeclareLaunchArgument(
+        "ablation",
+        default_value="none",
+        description="Single-variable override: none | high_tolerance | fixed_bt | high_vx"
+    )
+    ablation_name = LaunchConfiguration("ablation")
+
+    localizer_arg = DeclareLaunchArgument(
+        "localizer",
+        default_value="amcl_tuned",
+        description="Localizer fragment; legal values are the files in nav2_stack/localizers/"
+    )
+
+    stack_spec_out_arg = DeclareLaunchArgument(
+        "stack_spec_out",
+        default_value=os.path.join(
+            os.path.expanduser("~"), ".navlearn", "current_stack_spec.json"
+        ),
+        description=(
+            "Path for the JSON provenance record of the composed stack. The benchmark "
+            "harness reads it and copies it into each run directory."
+        )
+    )
+    stack_spec_out = LaunchConfiguration("stack_spec_out")
 
     world_name_arg = DeclareLaunchArgument("world_name", default_value="small_house")
+
+    # The map the localization stack loads. Defaults to the small_house map this launch
+    # file has always used, so nothing that omits the argument changes behaviour; a
+    # campaign running another world passes the map for that world.
+    #
+    # world_name selects what Gazebo simulates and this selects what AMCL localizes
+    # against. They are deliberately separate: coupling them would silently invent a
+    # naming convention for map directories, and a mismatch between the two is exactly
+    # the failure this argument exists to make explicit.
+    map_yaml_arg = DeclareLaunchArgument(
+        "map_yaml",
+        default_value=os.path.join(
+            get_package_share_directory("bumperbot_mapping"),
+            "maps", "small_house", "map.yaml"),
+        description="Full path to the map_server YAML for the world being run.",
+    )
     world_name = LaunchConfiguration("world_name")
+
+    # Forwarded to gazebo.launch.py. Default false preserves the existing GUI behaviour;
+    # campaign runs pass true. See gazebo.launch.py for why this was never enabled before.
+    headless_arg = DeclareLaunchArgument(
+        "headless",
+        default_value="false",
+        description="Run Gazebo without the GUI. Campaign runs use true.",
+    )
+    headless = LaunchConfiguration("headless")
+
+    # Forwarded to gazebo.launch.py, which sets the PRIME offload environment so the
+    # `ign gazebo` process renders on the NVIDIA dGPU. Declared here because ros2 launch
+    # discards undeclared arguments in silence — gpu:=false at this level would
+    # otherwise vanish and the run would silently render on whichever backend the
+    # default selects.
+    gpu_arg = DeclareLaunchArgument(
+        "gpu",
+        default_value="true",
+        description="Render Gazebo on the NVIDIA dGPU via PRIME offload. Set false "
+                    "to reproduce the Intel-iGPU backend pre-2026-08-06 legs used.",
+    )
+    gpu = LaunchConfiguration("gpu")
+
+    # Starve the LiDAR for the sensor-rate leg. Forwarded to gazebo.launch.py, which only
+    # inserts the governor when this is above zero; the default leaves the scan path
+    # byte-identical to what it was before the argument existed.
+    scan_rate_hz_arg = DeclareLaunchArgument(
+        "scan_rate_hz",
+        default_value="0.0",
+        description="Starve the LiDAR to this rate. 0 disables the governor.",
+    )
+
+    # RViz is a second renderer. It draws the map, costmaps, particle cloud and laser scan
+    # continuously, on the same integrated GPU and the same CPU as the navigation stack
+    # being measured — so leaving it on during a compute benchmark contaminates the very
+    # numbers the run exists to collect, exactly as the Gazebo GUI did.
+    #
+    # Default true keeps interactive use unchanged; campaign and unattended runs pass false.
+    use_rviz_arg = DeclareLaunchArgument(
+        "use_rviz",
+        default_value="true",
+        description="Launch RViz. Set false for benchmark runs: its rendering load "
+                    "competes with the stack under measurement.",
+    )
+    use_rviz = LaunchConfiguration("use_rviz")
+
+    # RViz appears only when requested AND the matching mapping mode is active. Combined
+    # here rather than nesting conditions so each viewer has exactly one gate.
+    _rviz_on = ["'", use_rviz, "'.lower() in ('true', '1', 'yes')"]
+    _slam_on = ["'", use_slam, "'.lower() in ('true', '1', 'yes')"]
+    show_rviz_localization = PythonExpression(_rviz_on + [" and not ("] + _slam_on + [")"])
+    show_rviz_slam = PythonExpression(_rviz_on + [" and ("] + _slam_on + [")"])
 
     amcl_config_arg = DeclareLaunchArgument(
         name="amcl_config",
-        default_value=os.path.join(
-            get_package_share_directory("bumperbot_localization"),
-            "config",
-            "amcl.yaml"
-        ),
-        description="Path to AMCL config YAML. Use amcl_phase2.yaml for Phase 2 experiments."
+        default_value="",
+        description=(
+            "Explicit path to an AMCL config YAML. Leave empty to derive it from the "
+            "localizer argument; set it only to reproduce an archived run against its "
+            "original config."
+        )
     )
     amcl_config = LaunchConfiguration("amcl_config")
+    localizer_resolver = OpaqueFunction(function=_resolve_localizer)
 
     gazebo = IncludeLaunchDescription(
         os.path.join(
@@ -39,7 +198,13 @@ def generate_launch_description():
             "launch",
             "gazebo.launch.py"
         ),
-        launch_arguments={"world_name": world_name}.items(),
+        launch_arguments={
+            "world_name": world_name,
+            "headless": headless,
+            "gpu": gpu,
+            # Sensor-rate leg. 0.0 leaves the scan path exactly as it was.
+            "scan_rate_hz": LaunchConfiguration("scan_rate_hz"),
+        }.items(),
     )
     
     controller = IncludeLaunchDescription(
@@ -71,7 +236,14 @@ def generate_launch_description():
             "launch",
             "global_localization.launch.py"
         ),
-        launch_arguments={"amcl_config": amcl_config}.items(),
+        launch_arguments={
+            "amcl_config": amcl_config,
+            # Forwarded so a campaign can select the map for the world it is running.
+            # Without this the localization stack silently keeps the small_house map
+            # while Gazebo loads a different world, and every localization number would
+            # be measured against a floor plan the robot is not standing in.
+            "map_yaml": LaunchConfiguration("map_yaml"),
+        }.items(),
         condition=UnlessCondition(use_slam)
     )
 
@@ -91,7 +263,12 @@ def generate_launch_description():
             "navigation.launch.py"
         ),
         launch_arguments={
-            "nav2_profile" : nav2_profile
+            "controller": controller_name,
+            "planner": planner_name,
+            "ablation": ablation_name,
+            # Forwarded for the record only; AMCL is started by bumperbot_localization.
+            "localizer": LaunchConfiguration("localizer"),
+            "stack_spec_out": stack_spec_out,
         }.items()
     )
 
@@ -111,7 +288,7 @@ def generate_launch_description():
         )],
         output="screen",
         parameters=[{"use_sim_time": True}],
-        condition=UnlessCondition(use_slam)
+        condition=IfCondition(show_rviz_localization)
     )
 
     rviz_slam = Node(
@@ -124,14 +301,24 @@ def generate_launch_description():
         )],
         output="screen",
         parameters=[{"use_sim_time": True}],
-        condition=IfCondition(use_slam)
+        condition=IfCondition(show_rviz_slam)
     )
 
     return LaunchDescription([
         use_slam_arg,
-        nav2_profile_arg,
+        controller_arg,
+        planner_arg,
+        ablation_arg,
+        localizer_arg,
+        stack_spec_out_arg,
         world_name_arg,
+        map_yaml_arg,
+        headless_arg,
+        gpu_arg,
+        scan_rate_hz_arg,
+        use_rviz_arg,
         amcl_config_arg,
+        localizer_resolver,   # must precede `localization` — it sets amcl_config
         gazebo,
         controller,
         joystick,

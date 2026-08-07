@@ -1,0 +1,33 @@
+# nav2_stack/common/behavior_server.yaml
+#
+# PARITY FILE. Recovery behaviors, identical for every stack.
+#
+# Fix carried over from nav2_profiles: all seven profiles spelled the key
+# `bheavior_plugins`. ROS 2 silently ignores an undeclared parameter, so behavior_server
+# fell back to the Nav2 default list
+# ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"].
+# The behavior tree only ever calls Spin, BackUp and Wait, so the default list was a
+# superset and no past result is affected — it loaded two behaviors that were never
+# invoked. Spelled correctly below, so the declared list is now the loaded list.
+
+behavior_server:
+  ros__parameters:
+    use_sim_time: true
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0                 # Hz
+    global_frame: odom
+    robot_base_frame: base_link
+    transform_tolerance: 0.3              # s
+    simulate_ahead_time: 2.0              # s. Forward collision check during a behavior.
+    max_rotational_vel: 1.0               # rad/s
+    min_rotational_vel: 0.4               # rad/s
+    rotational_acc_lim: 3.2               # rad/s^2
+
+    behavior_plugins: ["spin", "backup", "wait"]   # Exactly the three the BT calls.
+    spin:
+      plugin: "nav2_behaviors/Spin"
+    backup:
+      plugin: "nav2_behaviors/BackUp"
+    wait:
+      plugin: "nav2_behaviors/Wait"

@@ -19,8 +19,11 @@
 #include <random>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "navlearn_benchmarks/episode_manager.hpp"
+#include "navlearn_benchmarks/exclusion_zone.hpp"
+#include "navlearn_benchmarks/kidnap_yaw.hpp"
 #include "navlearn_benchmarks/navlearn_utils.hpp"
 
 using namespace std::placeholders;
@@ -33,24 +36,48 @@ using namespace std::chrono_literals;
 namespace navlearn_benchmarks{
 
 EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
+  // Initializer order follows declaration order in the header (-Wreorder). None of
+  // these members depend on another, so the order is a compiler-warning contract only.
   : rclcpp::Node("episode_manager", options)
+  , reinit_in_flight_(false)
+  , last_reinit_time_(0,0,RCL_ROS_TIME)
+  , is_first_bad_init_(false)
+  , have_amcl_pose_(false)
+  , kidnap_stage_(KidnapStage::IDLE)
+  , kidnap_sampled_delay_sec_(0.0)
+  , have_start_gt_(false)
+  , kidnap_target_pose_(unsampledKidnapPose_())
+  , have_kidnap_reference_(false)
   , idx_(0)
   , active_(false)
   , goal_request_inflight_(false)
   , stamp_received_(0,0,RCL_ROS_TIME)
   , qos_profile_sub(10)
-  , is_first_bad_init_(false)
   , pose_sequence_pending_(false)
   , pose_seq_stage_(PoseSeqStage::IDLE)
-  , kidnap_stage_(KidnapStage::IDLE)
-  , kidnap_sampled_delay_sec_(0.0)
-  , have_start_gt_(false)
-  , reinit_in_flight_(false)
-  , last_reinit_time_(0,0,RCL_ROS_TIME)
 {
   dwell_sec_ = this->declare_parameter<double>("dwell_sec", 5.0);
   goal_source_ = this->declare_parameter<std::string>("goal_source", "map_random");
-  goal_seed_ = static_cast<unsigned int>(this->declare_parameter<int>("goal_seed", 42));
+  // One seed for the whole campaign; every draw is derived from it plus the run and goal
+  // indices. run_index must be distinct per episode or episodes repeat conditions — the
+  // defect this replaces. The harness supplies it.
+  campaign_seed_ = this->declare_parameter<int64_t>("campaign_seed", 42);
+  run_index_     = this->declare_parameter<int64_t>("run_index", 0);
+
+  // The retired seeds. They are still declared so that a stale config or script setting
+  // them fails loudly instead of being silently ignored — silent acceptance is exactly
+  // how initial_pose_seed sat at 1337 for an entire campaign without anyone noticing that
+  // every episode was drawing the same five perturbations.
+  for (const char * retired : {"goal_seed", "initial_pose_seed", "kidnap_seed"}) {
+    if (this->declare_parameter<int>(retired, -1) != -1) {
+      RCLCPP_FATAL(get_logger(),
+        "Parameter '%s' is retired and no longer has any effect. It combined a fixed "
+        "constant with the goal index by addition and ignored the run index, so every "
+        "episode in a cell drew the same perturbation. Use 'campaign_seed' (one value for "
+        "the whole campaign) and 'run_index' (distinct per episode) instead.", retired);
+      throw std::runtime_error(std::string("retired parameter set: ") + retired);
+    }
+  }
   goal_poses_x_ = this->declare_parameter<std::vector<double>>("goal_poses_x", {});
   goal_poses_y_ = this->declare_parameter<std::vector<double>>("goal_poses_y", {});
   goal_poses_yaw_ = this->declare_parameter<std::vector<double>>("goal_poses_yaw", {});
@@ -73,6 +100,14 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   est_error_frame_ = declare_parameter<std::string>("est_error_frame", "base_footprint");
   gt_error_frame_  = declare_parameter<std::string>("gt_error_frame",  "base_footprint_gt");
 
+  amcl_pose_topic_ = declare_parameter<std::string>("amcl_pose_topic", "/amcl_pose");
+  // Convergence criterion for the terminal record: trace of the position covariance
+  // (xx + yy). 0.25 m^2 corresponds to roughly a 0.35 m standard deviation per axis.
+  // This is a methodological choice that appears in the paper, so the value used is
+  // written into every terminal report rather than left implicit here.
+  terminal_converged_cov_threshold_m2_ =
+    declare_parameter<double>("terminal_converged_cov_threshold_m2", 0.25);
+
   end_error_pos_threshold_m_  = declare_parameter<double>("end_error_pos_threshold_m", 0.10);
   end_error_yaw_threshold_rad_ = declare_parameter<double>("end_error_yaw_threshold_rad", 0.10);
 
@@ -89,12 +124,27 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   bad_cov_xy_ = declare_parameter<double>("bad_cov_xy", 0.25);
   bad_cov_yaw_ = declare_parameter<double>("bad_cov_yaw", 0.25);
 
-  initial_pose_seed_ = declare_parameter<int>("initial_pose_seed", 1337);
 
   set_pose_service_ = this->declare_parameter<std::string>("set_pose_service", "/gz_set_pose_server/set_entity_pose");
   entity_name_ = this->declare_parameter<std::string>("entity_name", "bumperbot");
 
   kidnap_enabled_ = this->declare_parameter<bool>("kidnap_enabled", false);
+
+  // Whether the teleport is accompanied by an AMCL global reinit. False is the true
+  // kidnapped-robot condition: the filter gets no hint and must recover from scans alone.
+  // See the callReinitGlobalLocalization call site for why this was previously forced on.
+  kidnap_notify_localizer_ =
+    this->declare_parameter<bool>("kidnap_notify_localizer", false);
+
+  clear_global_costmap_srv_ = this->declare_parameter<std::string>(
+    "clear_global_costmap_srv", "/global_costmap/clear_entirely_global_costmap");
+  clear_local_costmap_srv_ = this->declare_parameter<std::string>(
+    "clear_local_costmap_srv", "/local_costmap/clear_entirely_local_costmap");
+  // Clearing between goals keeps episodes independent. Within-episode costmap corruption
+  // is a real phenomenon worth measuring; carrying it into the NEXT episode is
+  // contamination, and n=25 per cell assumes the episodes are independent trials.
+  clear_costmaps_between_goals_ = this->declare_parameter<bool>(
+    "clear_costmaps_between_goals", true);
 
   // deprecated (kept only so old configs don’t crash). Not used in logic.
   kidnap_delay_sec_ = this->declare_parameter<double>("kidnap_delay_sec", 0.0);
@@ -104,8 +154,168 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   kidnap_min_travel_m_  = this->declare_parameter<double>("kidnap_min_travel_m", 0.25);
   kidnap_distance_m_    = this->declare_parameter<double>("kidnap_distance_m", 0.20);
   kidnap_max_distance_m_ = this->declare_parameter<double>("kidnap_max_distance_m", 3.0);
+
+  // Continuous severity. In "curve" mode each goal draws its own displacement from
+  // [kidnap_magnitude_min_m, kidnap_magnitude_max_m], so the sweep itself is the
+  // experiment and the curve is the reported result rather than a discarded calibration
+  // input. "fixed" keeps the banded behaviour, which the ablation legs still need.
+  //
+  // Default is "fixed" so no existing cell changes meaning by upgrading.
+  kidnap_magnitude_mode_ =
+    this->declare_parameter<std::string>("kidnap_magnitude_mode", "fixed");
+  kidnap_magnitude_min_m_ =
+    this->declare_parameter<double>("kidnap_magnitude_min_m", 0.3);
+  kidnap_magnitude_max_m_ =
+    this->declare_parameter<double>("kidnap_magnitude_max_m", 3.0);
+  kidnap_magnitude_scale_ =
+    this->declare_parameter<std::string>("kidnap_magnitude_scale", "log");
+  // Half-width of the annulus the destination is drawn from, as a fraction of the
+  // commanded magnitude. Free space rarely offers a valid pose at exactly one radius, so
+  // a thin band is the difference between a sampler that usually succeeds and one that
+  // reports "no valid pose" for reasons that are about geometry rather than severity.
+  kidnap_magnitude_band_ =
+    this->declare_parameter<double>("kidnap_magnitude_band", 0.05);
+
+  if (kidnap_magnitude_mode_ != "fixed" && kidnap_magnitude_mode_ != "curve") {
+    RCLCPP_FATAL(get_logger(),
+      "kidnap_magnitude_mode must be 'fixed' or 'curve', got '%s'. Refusing to run: a "
+      "misspelled mode would silently fall back to a severity the cell did not request.",
+      kidnap_magnitude_mode_.c_str());
+    throw std::invalid_argument("invalid kidnap_magnitude_mode");
+  }
+
+  // The yaw-curve leg: displacement pinned to zero, the rotation is the swept variable.
+  // Exactly one variable moves per leg — the rule whose violation invalidated the second
+  // leg 2 collection — so a cell asking for both curves at once is refused outright.
+  // Default reproduces the rectangle this used to be hardcoded to, so small_house
+  // campaigns are bit-identical; any other world should pass its own or an empty list.
+  //
+  // Declared with dynamic typing because "no zones at all" is a legitimate and expected
+  // setting, and ROS 2 cannot infer the element type of an empty array: `[]` on the
+  // command line arrives as PARAMETER_NOT_SET, and a statically typed declaration
+  // aborts the node with "No parameter value set". That killed the first warehouse
+  // pilot outright -- which is the good failure, since the alternative would have been
+  // a campaign silently carrying another world's exclusion rectangle.
+  // A STRING, not a double array: "no zones" is a legitimate setting for any world that
+  // is not small_house, and ROS 2 cannot carry an empty typed array -- `[]` arrives as
+  // PARAMETER_NOT_SET and aborts the node, under both static and dynamic typing. Both
+  // were tried against the first warehouse pilot, which is where this was found.
+  const std::string zones_spec = this->declare_parameter<std::string>(
+    "exclusion_zones", "-2.4, 0.7, 3.3, 5.4");
+  try {
+    exclusion_zones_ = navlearn::parseExclusionZones(zones_spec);
+  } catch (const std::invalid_argument & e) {
+    RCLCPP_FATAL(
+      get_logger(), "%s (got '%s'). A half-read zone list would bar a region nobody "
+      "asked for while looking like it worked.", e.what(), zones_spec.c_str());
+    throw;
+  }
+  RCLCPP_INFO(
+    get_logger(), "Exclusion zones: %zu rectangle(s) from '%s'",
+    exclusion_zones_.size() / 4, zones_spec.c_str());
+
+  kidnap_yaw_mode_ =
+    this->declare_parameter<std::string>("kidnap_yaw_mode", "preserve");
+  kidnap_yaw_min_rad_ =
+    this->declare_parameter<double>("kidnap_yaw_min_rad", 0.0);
+  kidnap_yaw_max_rad_ =
+    this->declare_parameter<double>("kidnap_yaw_max_rad", M_PI);
+
+  if (kidnap_yaw_mode_ != "preserve" && kidnap_yaw_mode_ != "curve") {
+    RCLCPP_FATAL(get_logger(),
+      "kidnap_yaw_mode must be 'preserve' or 'curve', got '%s'. Refusing to run: a "
+      "misspelled mode silently running the wrong experiment is how campaigns die.",
+      kidnap_yaw_mode_.c_str());
+    throw std::invalid_argument("invalid kidnap_yaw_mode");
+  }
+
+  if (kidnap_yaw_mode_ == "curve") {
+    if (kidnap_magnitude_mode_ == "curve") {
+      RCLCPP_FATAL(get_logger(),
+        "kidnap_yaw_mode=curve and kidnap_magnitude_mode=curve together sweep two "
+        "variables at once; neither could be attributed. Pick one.");
+      throw std::invalid_argument("yaw curve and magnitude curve are mutually exclusive");
+    }
+    if (kidnap_yaw_min_rad_ < 0.0 || kidnap_yaw_max_rad_ > M_PI ||
+      kidnap_yaw_max_rad_ < kidnap_yaw_min_rad_)
+    {
+      RCLCPP_FATAL(get_logger(),
+        "kidnap yaw curve range [%.3f, %.3f] rad is not inside [0, pi] or is inverted",
+        kidnap_yaw_min_rad_, kidnap_yaw_max_rad_);
+      throw std::invalid_argument("invalid kidnap yaw curve range");
+    }
+    // Linear, not log: the range does not span an order of magnitude in any meaningful
+    // sense (zero is a legitimate and important lower bound), and 0 has no logarithm.
+    yaw_sampler_ = std::make_unique<navlearn::MagnitudeSampler>(
+      kidnap_yaw_min_rad_, kidnap_yaw_max_rad_, navlearn::MagnitudeScale::LINEAR);
+    RCLCPP_INFO(get_logger(),
+      "Kidnap severity: YAW CURVE, linear-uniform over [%.1f, %.1f] deg, displacement "
+      "pinned to ZERO (teleport in place), sign drawn per goal from its own stream.",
+      kidnap_yaw_min_rad_ * 180.0 / M_PI, kidnap_yaw_max_rad_ * 180.0 / M_PI);
+  }
+
+  if (kidnap_magnitude_mode_ == "curve") {
+    const auto scale = (kidnap_magnitude_scale_ == "linear")
+                         ? navlearn::MagnitudeScale::LINEAR
+                         : navlearn::MagnitudeScale::LOG;
+    if (kidnap_magnitude_scale_ != "linear" && kidnap_magnitude_scale_ != "log") {
+      RCLCPP_FATAL(get_logger(),
+        "kidnap_magnitude_scale must be 'log' or 'linear', got '%s'",
+        kidnap_magnitude_scale_.c_str());
+      throw std::invalid_argument("invalid kidnap_magnitude_scale");
+    }
+    // Throws on an inverted range or a non-positive log bound; allowed to escape so a
+    // misconfigured sweep fails to start rather than running a range nobody asked for.
+    magnitude_sampler_ = std::make_unique<navlearn::MagnitudeSampler>(
+      kidnap_magnitude_min_m_, kidnap_magnitude_max_m_, scale);
+
+    RCLCPP_INFO(get_logger(),
+      "Kidnap severity: CURVE, %s-uniform over [%.3f, %.3f] m, drawn per goal from the "
+      "campaign seed; destination sampled in a +/-%.0f%% band around the draw.",
+      kidnap_magnitude_scale_.c_str(), kidnap_magnitude_min_m_, kidnap_magnitude_max_m_,
+      100.0 * kidnap_magnitude_band_);
+  }
+
+  // The TTC leg sweeps the same way, over the bad-initialization displacement. Its own
+  // range so a cell can sweep one perturbation without inheriting the other's bounds,
+  // and its own seed stream so enabling both cannot correlate them.
+  bad_init_magnitude_mode_ =
+    this->declare_parameter<std::string>("bad_init_magnitude_mode", "fixed");
+  bad_init_magnitude_min_m_ =
+    this->declare_parameter<double>("bad_init_magnitude_min_m", 0.05);
+  bad_init_magnitude_max_m_ =
+    this->declare_parameter<double>("bad_init_magnitude_max_m", 2.0);
+  bad_init_magnitude_scale_ =
+    this->declare_parameter<std::string>("bad_init_magnitude_scale", "log");
+
+  if (bad_init_magnitude_mode_ != "fixed" && bad_init_magnitude_mode_ != "curve") {
+    RCLCPP_FATAL(get_logger(),
+      "bad_init_magnitude_mode must be 'fixed' or 'curve', got '%s'",
+      bad_init_magnitude_mode_.c_str());
+    throw std::invalid_argument("invalid bad_init_magnitude_mode");
+  }
+
+  if (bad_init_magnitude_mode_ == "curve") {
+    if (bad_init_magnitude_scale_ != "linear" && bad_init_magnitude_scale_ != "log") {
+      RCLCPP_FATAL(get_logger(),
+        "bad_init_magnitude_scale must be 'log' or 'linear', got '%s'",
+        bad_init_magnitude_scale_.c_str());
+      throw std::invalid_argument("invalid bad_init_magnitude_scale");
+    }
+    bad_init_magnitude_sampler_ = std::make_unique<navlearn::MagnitudeSampler>(
+      bad_init_magnitude_min_m_, bad_init_magnitude_max_m_,
+      (bad_init_magnitude_scale_ == "linear") ? navlearn::MagnitudeScale::LINEAR
+                                              : navlearn::MagnitudeScale::LOG);
+
+    RCLCPP_INFO(get_logger(),
+      "Bad-init severity: CURVE, %s-uniform over [%.3f, %.3f] m, drawn per goal and "
+      "applied at exactly that displacement (polar, not the legacy square draw). "
+      "Orientation error stays at its configured +/-%.3f rad, so the sweep moves one "
+      "variable.",
+      bad_init_magnitude_scale_.c_str(), bad_init_magnitude_min_m_,
+      bad_init_magnitude_max_m_, bad_init_yaw_range_rad_);
+  }
   kidnap_z_             = this->declare_parameter<double>("kidnap_z", 0.01);
-  kidnap_seed_          = this->declare_parameter<int>("kidnap_seed", 4242);
   kidnap_max_sample_tries_ = this->declare_parameter<int>("kidnap_max_sample_tries", 1500);
 
   kidnap_verify_pos_tol_m_ = this->declare_parameter<double>("kidnap_verify_pos_tol_m", 0.05);
@@ -137,6 +347,14 @@ EpisodeManager::EpisodeManager(const rclcpp::NodeOptions & options)
   client_ = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(this, action_server_);
   map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>("map", qos_profile_sub,
               std::bind(&EpisodeManager::mapCallback, this, _1));
+  clear_global_costmap_client_ =
+    create_client<nav2_msgs::srv::ClearEntireCostmap>(clear_global_costmap_srv_);
+  clear_local_costmap_client_ =
+    create_client<nav2_msgs::srv::ClearEntireCostmap>(clear_local_costmap_srv_);
+
+  amcl_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+              amcl_pose_topic_, qos_profile_sub,
+              std::bind(&EpisodeManager::amclPoseCallback, this, _1));
   episode_pub_ = create_publisher<navlearn_msgs::msg::EpisodeEvent>(episode_pub_topic_, rclcpp::QoS(10).reliable());
   kidnap_pub_ = create_publisher<navlearn_msgs::msg::KidnapEvent>(kidnap_event_topic_, rclcpp::QoS(10).reliable());
   timer_ = create_wall_timer(200ms, std::bind(&EpisodeManager::timerCallback, this));
@@ -228,10 +446,7 @@ bool EpisodeManager::hasClearanceCell(int col, int row, int width, int height, d
 
 bool EpisodeManager::inExclusionZone(double x, double y) const
 {
-  const bool in_x = (x > -2.4) && (x < 0.7);
-  const bool in_y = (y> 3.3) && (y < 5.4);
-
-  return in_x && in_y;
+  return navlearn::inAnyExclusionZone(exclusion_zones_, x, y);
 }
 
 void EpisodeManager::loadGoals() {
@@ -287,12 +502,16 @@ void EpisodeManager::loadGoals() {
     goal_poses_.clear();
     goal_poses_.reserve(goals_num_);
 
-    std::mt19937 gen(static_cast<uint32_t>(goal_seed_));
     std::uniform_int_distribution<int> dist(0, width * height - 1);
 
     const int max_tries_per_goal = 1000;
 
     for (int i = 0; i < goals_num_; ++i) {
+      // Seeded per goal rather than once for the sequence, so goal k of this episode is
+      // independent of how many goals preceded it and of every other episode. Derived
+      // without reference to the controller, so all arms navigate to identical goals.
+      std::mt19937_64 gen(seedFor(navlearn::seed::Stream::GOAL_POSITION,
+                                  static_cast<uint64_t>(i)));
       int cell_index = -1;
 
       for (int attempt = 0; attempt < max_tries_per_goal; ++attempt) {
@@ -342,8 +561,11 @@ void EpisodeManager::loadGoals() {
       pose.pose.position.y = info.origin.position.y + (row + 0.5) * res;
       pose.pose.position.z = 0.0;
 
+      // Separate stream: goal orientation must not correlate with goal position.
+      std::mt19937_64 yaw_gen(seedFor(navlearn::seed::Stream::GOAL_ORIENTATION,
+                                      static_cast<uint64_t>(i)));
       std::uniform_real_distribution<double> dist_theta(-M_PI, M_PI);
-      double yaw = dist_theta(gen);
+      double yaw = dist_theta(yaw_gen);
 
       tf2::Quaternion q;
       q.setRPY(0.0, 0.0, yaw);
@@ -440,13 +662,32 @@ geometry_msgs::msg::PoseWithCovarianceStamped EpisodeManager::buildPoseWithCovar
 
 geometry_msgs::msg::PoseWithCovarianceStamped EpisodeManager::buildPerturbedPose(const geometry_msgs::msg::PoseStamped & base)
 {
-  std::mt19937 gen(static_cast<uint32_t>(initial_pose_seed_ + static_cast<int>(idx_)));
-  std::uniform_real_distribution<double> dist_lin(-bad_init_lin_range_m_, bad_init_lin_range_m_);
-  std::uniform_real_distribution<double> dist_yaw(-bad_init_yaw_range_rad_, bad_init_yaw_range_rad_);
+  // The TTC displacement. Previously mt19937(1337 + goal_index), which ignored the run
+  // index entirely: every episode in a cell drew the same handful of offsets, so a cell
+  // of 25 episodes tested 5 distinct conditions. Now distinct per (run, goal), and still
+  // identical across controllers so the arms face the same perturbations.
+  // In curve mode the displacement magnitude is the independent variable, so it is drawn
+  // per goal and applied at exactly that distance. The legacy square draw bounds each
+  // axis rather than the displacement, which makes its nominal range a label rather than
+  // a measurement -- see bad_init_offset.hpp.
+  navlearn::PoseOffset offset;
+  bad_init_commanded_magnitude_m_ = -1.0;
 
-  const double dx = dist_lin(gen);
-  const double dy = dist_lin(gen);
-  const double dyaw = dist_yaw(gen);
+  if (bad_init_magnitude_sampler_) {
+    bad_init_commanded_magnitude_m_ = bad_init_magnitude_sampler_->sample(
+      seedFor(navlearn::seed::Stream::BAD_INIT_MAGNITUDE, idx_));
+    offset = navlearn::polarOffset(
+      seedFor(navlearn::seed::Stream::INITIAL_POSE, idx_),
+      bad_init_commanded_magnitude_m_, bad_init_yaw_range_rad_);
+  } else {
+    offset = navlearn::squareOffset(
+      seedFor(navlearn::seed::Stream::INITIAL_POSE, idx_),
+      bad_init_lin_range_m_, bad_init_yaw_range_rad_);
+  }
+
+  const double dx = offset.dx;
+  const double dy = offset.dy;
+  const double dyaw = offset.dyaw;
 
   geometry_msgs::msg::PoseStamped p = base;
   p.header.frame_id = fixed_frame_;
@@ -523,19 +764,43 @@ void EpisodeManager::startPoseSequence(const rclcpp::Time & t)
   geometry_msgs::msg::PoseStamped est_pose;
   const bool have_est = lookupPose(est_error_frame_, t, est_pose);
 
+  // Correct on EVERY goal that needs it, including goal 0. The old `idx_ > 0` gate
+  // assumed a run starts with a converged filter, but a run inherits AMCL from wherever
+  // the previous run left it -- all runs of a cell share one bringup -- and goal 0 then
+  // depended on its own bad-init injection, an unverified single publish, to reset the
+  // filter through possibly metres of inherited error. When that reset did not take, the
+  // whole run started wrecked and stayed wrecked: measured 2026-08-01 as identical
+  // 20-goal cells swinging 65% / 10% / 10% / 0% true success, with the collapsed cells'
+  // localization error persisting 2.6-4.9 m across entire runs. Independence of episodes
+  // must be constructed at every goal start, not inherited from the previous exit path.
+  // An unreadable estimate is corrected, not trusted. The old `have_est && ...` treated
+  // "cannot read the estimate TF" as "estimate is fine", which is exactly backwards --
+  // goal 0 of a fresh run, before AMCL has published, is both the moment the TF is most
+  // likely missing and the moment the filter is carrying another run's state. Measured
+  // in the 2026-08-02 pilot: run 2 goal 0 skipped correction this way and terminated
+  // 13.4 m from its goal as a false success after a 0.13 m kidnap.
   const bool need_correct =
-    (idx_ > 0) && have_est && needCorrection(gt_pose, est_pose);
+    !have_est || needCorrection(gt_pose, est_pose);
 
   correct_pose_msg_ = buildPoseWithCovariance(gt_pose, correct_cov_xy_, correct_cov_yaw_);
-  bad_pose_msg_ = buildPerturbedPose(gt_pose);
+  if (bad_init_test_) {
+    bad_pose_msg_ = buildPerturbedPose(gt_pose);
+  }
 
   pose_sequence_pending_ = true;
   pose_seq_started_at_ = this->get_clock()->now();
 
   if (need_correct) {
     pose_seq_stage_ = PoseSeqStage::SEND_CORRECT;
-  } else {
+  } else if (bad_init_test_) {
     pose_seq_stage_ = PoseSeqStage::SEND_BAD;
+  } else {
+    // Kidnap cell with an already-correct estimate: nothing to inject. The sequence's
+    // whole job here was the check that just passed.
+    pose_sequence_pending_ = false;
+    pose_seq_stage_ = PoseSeqStage::IDLE;
+    sendGoal();
+    return;
   }
 
   pose_stage_started_at_ = this->get_clock()->now();
@@ -575,15 +840,32 @@ void EpisodeManager::advancePoseSequence(const rclcpp::Time & t)
     case PoseSeqStage::WAIT_CORRECT_APPLIED:
     {
       if ((now - pose_stage_started_at_).seconds() > pose_apply_timeout_sec_) {
-        RCLCPP_WARN(get_logger(), "Correct pose apply timed out (%.2fs). Proceeding to BAD injection.", pose_apply_timeout_sec_);
-        pose_seq_stage_ = PoseSeqStage::SEND_BAD;
-        pose_stage_started_at_ = now;
+        if (bad_init_test_) {
+          RCLCPP_WARN(get_logger(), "Correct pose apply timed out (%.2fs). Proceeding to BAD injection.", pose_apply_timeout_sec_);
+          pose_seq_stage_ = PoseSeqStage::SEND_BAD;
+          pose_stage_started_at_ = now;
+        } else {
+          // Kidnap cell: there is no next stage to absorb the failure, and holding the
+          // goal hostage to a publish that is not landing would stall the run. The goal
+          // proceeds on a possibly-wrong estimate and the WARN is the record of it.
+          RCLCPP_WARN(get_logger(), "Goal-start correction apply timed out (%.2fs). Sending goal on the uncorrected estimate.", pose_apply_timeout_sec_);
+          pose_sequence_pending_ = false;
+          pose_seq_stage_ = PoseSeqStage::IDLE;
+          sendGoal();
+        }
         return;
       }
 
       if (isInitialPoseApplied(pose_wait_target_)) {
-        pose_seq_stage_ = PoseSeqStage::SEND_BAD;
-        pose_stage_started_at_ = now;
+        if (bad_init_test_) {
+          pose_seq_stage_ = PoseSeqStage::SEND_BAD;
+          pose_stage_started_at_ = now;
+        } else {
+          RCLCPP_INFO(get_logger(), "Goal-start correction applied (kidnap cell). Sending goal.");
+          pose_sequence_pending_ = false;
+          pose_seq_stage_ = PoseSeqStage::IDLE;
+          sendGoal();
+        }
       }
       return;
     }
@@ -633,6 +915,23 @@ void EpisodeManager::advancePoseSequence(const rclcpp::Time & t)
 }
 
 // ---------------- kidnap helpers ----------------
+
+geometry_msgs::msg::Pose EpisodeManager::unsampledKidnapPose_()
+{
+  // Sentinel for "no target was sampled this goal". NaN rather than zero because the
+  // origin is legitimate free space on the campaign map: a stale or defaulted target
+  // there reads as a plausible teleport, while NaN is unmistakably not a measurement.
+  // Without this, a kidnap whose sampling failed published the PREVIOUS goal's target —
+  // observed in cmp_ttr run 1 (2026-07-29), where goals 0 and 1 carried the identical
+  // target (0.8616, 0.1936) and goal 1's kidnap never fired.
+  geometry_msgs::msg::Pose p;
+  p.position.x = std::numeric_limits<double>::quiet_NaN();
+  p.position.y = std::numeric_limits<double>::quiet_NaN();
+  p.position.z = std::numeric_limits<double>::quiet_NaN();
+  p.orientation.w = 1.0;
+  return p;
+}
+
 unique_identifier_msgs::msg::UUID EpisodeManager::makeUUID_(uint32_t seed)
 {
   unique_identifier_msgs::msg::UUID id;
@@ -644,7 +943,7 @@ unique_identifier_msgs::msg::UUID EpisodeManager::makeUUID_(uint32_t seed)
   return id;
 }
 
-bool EpisodeManager::sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStamped & ref, geometry_msgs::msg::Pose & out_pose)
+bool EpisodeManager::sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStamped & ref, geometry_msgs::msg::Pose & out_pose, double ring_min_m, double ring_max_m)
 {
   if (!have_map_) return false;
 
@@ -656,35 +955,67 @@ bool EpisodeManager::sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStam
 
   if (width <= 0 || height <= 0 || data.empty()) return false;
 
-  std::mt19937 gen(static_cast<uint32_t>(kidnap_seed_ + static_cast<int>(idx_)));
-  std::uniform_int_distribution<int> dist_cell(0, width * height - 1);
+  // The TTR teleport destination. Same defect as the TTC offset: fixed constant plus
+  // goal index, run index absent.
+  std::mt19937_64 gen(seedFor(navlearn::seed::Stream::KIDNAP_TARGET, idx_));
   std::uniform_real_distribution<double> dist_theta(-M_PI, M_PI);
+  std::uniform_real_distribution<double> dist_unit(0.0, 1.0);
+
+  // Sampled INSIDE the annulus, not rejected into it.
+  //
+  // This previously drew a uniformly random cell from the whole map and discarded it
+  // unless it happened to land in the ring [kidnap_distance_m, kidnap_max_distance_m]
+  // around the robot. At the medium preset that ring is 0.8-1.2 m, an area of about
+  // 2.5 m^2 against a map of a couple of hundred square metres — so roughly one draw in a
+  // hundred was even a candidate before the free-space, clearance and exclusion tests ran.
+  // With the robot in a corridor or a small room, most of the ring is wall and all 1500
+  // tries could miss: the pilot logged 7 "no valid pose found" failures, none of which
+  // meant the ring was actually empty.
+  //
+  // Drawing radius and bearing directly puts every attempt in the ring by construction.
+  // Radius uses sqrt of a uniform over the squared bounds so samples are area-uniform
+  // rather than crowding the inner edge. The remaining rejections are then genuine: a
+  // failure now means the ring really has no valid pose, which is a fact about the map
+  // worth recording rather than an artifact of the sampler.
+  const double r_min = std::max(0.0, ring_min_m);
+  const double r_max = (ring_max_m > 0.0) ? ring_max_m : (r_min + 1.0);
+  if (r_max < r_min) return false;
 
   for (int attempt = 0; attempt < kidnap_max_sample_tries_; ++attempt)
   {
-    int idx = dist_cell(gen);
+    const double u = dist_unit(gen);
+    const double r = std::sqrt(r_min * r_min + u * (r_max * r_max - r_min * r_min));
+    const double bearing = dist_theta(gen);
+
+    const double x = ref.pose.position.x + r * std::cos(bearing);
+    const double y = ref.pose.position.y + r * std::sin(bearing);
+
+    const int col = static_cast<int>((x - info.origin.position.x) / res);
+    const int row = static_cast<int>((y - info.origin.position.y) / res);
+    if (col < 0 || col >= width || row < 0 || row >= height) continue;
+
+    const int idx = row * width + col;
     if (idx < 0 || idx >= static_cast<int>(data.size())) continue;
-
     if (data[idx] != 0) continue;
-
-    int row = idx / width;
-    int col = idx % width;
-
-    const double x = info.origin.position.x + (col + 0.5) * res;
-    const double y = info.origin.position.y + (row + 0.5) * res;
 
     if (inExclusionZone(x, y)) continue;
     if (!hasClearanceCell(col, row, width, height, res, data)) continue;
-
-    const double d = std::hypot(x - ref.pose.position.x, y - ref.pose.position.y);
-    if (kidnap_distance_m_ > 0.0 && d < kidnap_distance_m_) continue;
-    if (kidnap_max_distance_m_ > 0.0 && d > kidnap_max_distance_m_) continue;
 
     out_pose.position.x = x;
     out_pose.position.y = y;
     out_pose.position.z = kidnap_z_;
 
-    const double yaw = dist_theta(gen);
+    // Heading is carried through the teleport, not redrawn.
+    //
+    // This used to be `dist_theta(gen)` -- yaw uniform over the full circle, independent
+    // of the commanded displacement. PROTOCOL.md records the design as "yaw ... currently
+    // fixed -- one variable moves", and the sweep's declared independent variable is
+    // distance, so a random rotation made the campaign measure something nobody declared.
+    // Measured on the 2026-08-02 leg 2 rpp arm (120 goals): median |yaw change| was
+    // 93.5 deg at displacements under 5 cm, and outcome tracked yaw (100% success at
+    // 0-30 deg, 26.8% at 90-180 deg) while showing no trend at all across distance.
+    // Claim 2 would have been confirmed by the rotation rather than by landing geometry.
+    const double yaw = navlearn::kidnapYaw(tf2::getYaw(ref.pose.orientation));
     tf2::Quaternion q;
     q.setRPY(0.0, 0.0, yaw);
     out_pose.orientation = tf2::toMsg(q);
@@ -704,6 +1035,19 @@ void EpisodeManager::publishKidnapEvent_(bool success)
   ev.kidnap_pose = kidnap_target_pose_;
   ev.success = success;
   ev.attempt_id = kidnap_attempt_id_;
+  ev.reference_pose = kidnap_reference_pose_;
+  ev.reference_available = have_kidnap_reference_;
+  ev.commanded_magnitude_m = kidnap_commanded_magnitude_m_;
+
+  if (!have_kidnap_reference_) {
+    // Loud, because it is otherwise undetectable until analysis months later: the goal
+    // still produces a complete-looking row, it simply has no measurable displacement,
+    // and the distance-vs-ambiguity comparison quietly loses a trial.
+    RCLCPP_ERROR(get_logger(),
+      "Kidnap event for goal %zu carries NO reference pose. Realised displacement is "
+      "unrecoverable for this goal and it must be excluded from any distance-based "
+      "analysis.", idx_);
+  }
 
   kidnap_pub_->publish(ev);
 }
@@ -774,7 +1118,30 @@ void EpisodeManager::maybeKidnap(const rclcpp::Time & now)
     }
 
     publishKidnapEvent_(true);
-    callReinitGlobalLocalization();
+
+    // A kidnap must not tell the localizer it has been kidnapped.
+    //
+    // This unconditionally called global localization reinit immediately after the
+    // teleport, which scatters AMCL's particles across the whole map. That is not a
+    // kidnapped robot. A real kidnapped robot's filter remains converged and confidently
+    // wrong, with no odometry cue — the wheels never turned — and must discover the error
+    // from scan mismatch alone. Handing it "you are completely lost" replaces the
+    // phenomenon under study with global re-localization from scratch while driving, which
+    // is a different and much harder problem, and one the harness inflicted on itself.
+    //
+    // It also accounts for the pilot's terminal covariance of 32 m^2: the filter was not
+    // lost by the kidnap, it was scattered by this call.
+    //
+    // Kept as an opt-in parameter because "the robot knows it was moved" is a legitimate
+    // alternative condition to study (a wheel-lift or IMU-drop sensor would provide it) —
+    // but it is a different experiment and must be requested explicitly, not inherited.
+    if (kidnap_notify_localizer_) {
+      RCLCPP_WARN(get_logger(),
+        "kidnap_notify_localizer is enabled: forcing AMCL global reinit after the "
+        "teleport. The filter is being told it is lost, so this measures global "
+        "re-localization, not unaided recovery from a kidnap.");
+      callReinitGlobalLocalization();
+    }
     kidnap_stage_ = KidnapStage::DONE;
     return;
   }
@@ -803,13 +1170,83 @@ void EpisodeManager::maybeKidnap(const rclcpp::Time & now)
     return;
   }
 
-  geometry_msgs::msg::Pose target;
-  if (!sampleKidnapPoseFromMap_(ref_pose, target)) {
-    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Kidnap sample failed (no valid pose found)");
+  // Latched here, at the last point before the teleport is committed, because this is the
+  // last instant at which the robot is still where it was. Everything after this either
+  // moves it or fails trying, and both outcomes need the same "before" to be meaningful.
+  kidnap_reference_pose_ = ref_pose.pose;
+  have_kidnap_reference_ = true;
+
+  // Severity for THIS goal. In curve mode it is drawn from the campaign seed, so every
+  // goal in the sweep gets its own magnitude and the whole sweep still reproduces from a
+  // single number. In fixed mode the configured band is used unchanged.
+  double ring_min = kidnap_distance_m_;
+  double ring_max = kidnap_max_distance_m_;
+  kidnap_commanded_magnitude_m_ = -1.0;
+
+  if (magnitude_sampler_) {
+    kidnap_commanded_magnitude_m_ = magnitude_sampler_->sample(
+      seedFor(navlearn::seed::Stream::PERTURBATION_MAGNITUDE, idx_));
+    const double band = std::max(0.0, kidnap_magnitude_band_);
+    ring_min = kidnap_commanded_magnitude_m_ * (1.0 - band);
+    ring_max = kidnap_commanded_magnitude_m_ * (1.0 + band);
+  }
+
+  // The yaw-curve leg teleports IN PLACE: position is the reference position, verbatim,
+  // and only the heading changes. No map sampling — the robot's own footprint is free
+  // space by construction, so the kidnap cannot fail for want of a valid pose and every
+  // goal in the sweep carries its perturbation. Displacement is commanded zero, and the
+  // realised displacement recoverable from the event's reference/kidnap pose pair is
+  // zero up to the simulator's set-pose fidelity.
+  if (yaw_sampler_) {
+    const double yaw_mag = yaw_sampler_->sample(
+      seedFor(navlearn::seed::Stream::KIDNAP_YAW_MAGNITUDE, idx_));
+    std::mt19937_64 sign_gen(seedFor(navlearn::seed::Stream::KIDNAP_YAW_SIGN, idx_));
+    const bool positive = (sign_gen() & 1ULL) != 0ULL;
+
+    geometry_msgs::msg::Pose in_place = ref_pose.pose;
+    in_place.position.z = kidnap_z_;
+    tf2::Quaternion q;
+    q.setRPY(0.0, 0.0, navlearn::kidnapYawCurve(
+        tf2::getYaw(ref_pose.pose.orientation), yaw_mag, positive));
+    in_place.orientation = tf2::toMsg(q);
+
+    kidnap_commanded_magnitude_m_ = 0.0;
+    kidnap_attempt_id_ = makeUUID_(static_cast<uint32_t>(
+      seedFor(navlearn::seed::Stream::ATTEMPT_ID, idx_)));
+    kidnap_event_time_ = now;
+    kidnap_target_pose_ = in_place;
+
+    if (!setEntityPose_(in_place.position.x, in_place.position.y, in_place.position.z,
+      tf2::getYaw(in_place.orientation)))
+    {
+      publishKidnapEvent_(false);
+      kidnap_stage_ = KidnapStage::DONE;
+      return;
+    }
+    kidnap_stage_ = KidnapStage::WAIT_SERVICE_RESPONSE;
     return;
   }
 
-  kidnap_attempt_id_ = makeUUID_(static_cast<uint32_t>(kidnap_seed_ + static_cast<int>(idx_) * 101));
+  geometry_msgs::msg::Pose target;
+  if (!sampleKidnapPoseFromMap_(ref_pose, target, ring_min, ring_max)) {
+    // Reported as a failed attempt, not merely warned about. Previously this path
+    // published nothing at all, so a goal whose kidnap never fired was recorded as an
+    // ordinary TTR trial — the perturbation was the independent variable and its absence
+    // was invisible in the data. The pilot hit this seven times in one run.
+    RCLCPP_WARN(get_logger(),
+      "Kidnap sample failed for goal %zu (no valid pose in the %.2f-%.2f m ring). This "
+      "goal has NO perturbation applied and must not be pooled with kidnapped goals.",
+      idx_, ring_min, ring_max);
+    kidnap_event_time_ = this->get_clock()->now();
+    publishKidnapEvent_(false);
+    kidnap_stage_ = KidnapStage::DONE;
+    return;
+  }
+
+  // An identifier, not an experimental condition — but derived the same way so that two
+  // episodes cannot share an attempt id.
+  kidnap_attempt_id_ = makeUUID_(static_cast<uint32_t>(
+    seedFor(navlearn::seed::Stream::ATTEMPT_ID, idx_)));
   kidnap_event_time_ = now;
   kidnap_target_pose_ = target;
 
@@ -864,7 +1301,14 @@ void EpisodeManager::timerCallback() {
     return;
   }
 
-  if (!bad_init_test_) {
+  // Kidnap cells run the pose sequence too -- correction only, no bad injection. The
+  // old `!bad_init_test_` gate silently exempted TTR from the every-goal correction that
+  // 27514a9 introduced, so every kidnap landed on whatever estimate the previous goal's
+  // recovery left behind, and goal 0 inherited it across runs through the shared bringup.
+  // Measured on leg 2 (2026-08-02): median terminal ground-truth error 4.6 m at kidnaps
+  // under 5 cm, which is inherited drift, not kidnap response. A kidnap is attributable
+  // to itself only if the filter is correct when it fires.
+  if (!bad_init_test_ && !kidnap_enabled_) {
     sendGoal();
     return;
   }
@@ -943,11 +1387,12 @@ void EpisodeManager::onGoalResponse(const rclcpp_action::ClientGoalHandle<nav2_m
   double hi = kidnap_delay_max_sec_;
   if (hi < lo) std::swap(lo, hi);
 
-  std::mt19937 gen(static_cast<uint32_t>(kidnap_seed_ + static_cast<int>(idx_) * 17));
+  std::mt19937_64 gen(seedFor(navlearn::seed::Stream::KIDNAP_DELAY, idx_));
   std::uniform_real_distribution<double> dist_delay(lo, hi);
   kidnap_sampled_delay_sec_ = dist_delay(gen);
 
   kidnap_stage_ = KidnapStage::IDLE;
+  have_kidnap_reference_ = false;
 }
 
 void EpisodeManager::onFeedback(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::SharedPtr &,
@@ -956,10 +1401,143 @@ void EpisodeManager::onFeedback(const rclcpp_action::ClientGoalHandle<nav2_msgs:
   (void)feedback;
 }
 
+void EpisodeManager::clearCostmaps(const std::string & reason)
+{
+  auto request = std::make_shared<nav2_msgs::srv::ClearEntireCostmap::Request>();
+  int dispatched = 0;
+
+  for (auto & [name, client] :
+       std::vector<std::pair<std::string, rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedPtr>>{
+         {"global", clear_global_costmap_client_}, {"local", clear_local_costmap_client_}})
+  {
+    if (!client) continue;
+    if (!client->service_is_ready()) {
+      RCLCPP_WARN(get_logger(),
+        "Cannot clear %s costmap (%s): service not ready. Phantom obstacles from any "
+        "mislocalized period will persist into the next goal.",
+        name.c_str(), reason.c_str());
+      continue;
+    }
+    // Fire and forget: a clear is idempotent and the next goal must not be blocked waiting
+    // on it. Failure is reported above rather than silently swallowed.
+    client->async_send_request(request);
+    ++dispatched;
+  }
+
+  RCLCPP_INFO(get_logger(), "Cleared %d/2 costmaps (%s).", dispatched, reason.c_str());
+}
+
+void EpisodeManager::amclPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
+{
+  last_amcl_pose_ = *msg;
+  have_amcl_pose_ = true;
+}
+
+namespace {
+
+/// Wrap an angle difference into [-pi, pi].
+double wrapAngle(double angle)
+{
+  while (angle >  M_PI) angle -= 2.0 * M_PI;
+  while (angle < -M_PI) angle += 2.0 * M_PI;
+  return angle;
+}
+
+/// Extract yaw from a quaternion, matching the convention used elsewhere in this file.
+double yawOf(const geometry_msgs::msg::Quaternion & q_msg)
+{
+  tf2::Quaternion q;
+  tf2::fromMsg(q_msg, q);
+  double roll, pitch, yaw;
+  tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+  return yaw;
+}
+
+}  // namespace
+
+navlearn_msgs::msg::TerminalPoseReport EpisodeManager::captureTerminalPose(
+  const geometry_msgs::msg::PoseStamped & goal_pose, const rclcpp::Time & terminated_at)
+{
+  // Every scalar starts at -1.0, the message's documented "not available" sentinel. Zero
+  // is a legitimate and highly meaningful value for each of these distances, so it must
+  // never be able to masquerade as a missing measurement.
+  navlearn_msgs::msg::TerminalPoseReport report;
+  report.gt_available = false;
+  report.estimate_available = false;
+  report.true_distance_to_goal_m = -1.0;
+  report.estimated_distance_to_goal_m = -1.0;
+  report.localization_error_m = -1.0;
+  report.true_yaw_error_rad = -1.0;
+  report.covariance_xx = -1.0;
+  report.covariance_yy = -1.0;
+  report.covariance_yaw = -1.0;
+  report.filter_converged = false;
+  report.convergence_threshold_m2 = terminal_converged_cov_threshold_m2_;
+  report.estimate_age_sec = -1.0;
+
+  // Ground truth, from the simulator's transform. Deliberately the latest available
+  // rather than one at the termination stamp: the robot is stationary by now, so the
+  // newest transform is the right answer, and an exact-stamp lookup could fail on
+  // extrapolation and lose the single number this whole record exists to capture.
+  geometry_msgs::msg::PoseStamped gt_pose;
+  if (lookupPose(gt_error_frame_, rclcpp::Time(0, 0, RCL_ROS_TIME), gt_pose)) {
+    report.gt_available = true;
+    report.true_pose = gt_pose;
+    report.true_distance_to_goal_m = std::hypot(
+      gt_pose.pose.position.x - goal_pose.pose.position.x,
+      gt_pose.pose.position.y - goal_pose.pose.position.y);
+    report.true_yaw_error_rad = std::fabs(
+      wrapAngle(yawOf(gt_pose.pose.orientation) - yawOf(goal_pose.pose.orientation)));
+  } else {
+    RCLCPP_ERROR(get_logger(),
+                 "Terminal capture: no '%s' transform. True distance to goal is LOST for "
+                 "goal %zu — this is the campaign's headline measurement.",
+                 gt_error_frame_.c_str(), idx_);
+  }
+
+  if (have_amcl_pose_) {
+    report.estimate_available = true;
+    report.estimated_pose.header = last_amcl_pose_.header;
+    report.estimated_pose.pose = last_amcl_pose_.pose.pose;
+    report.estimated_distance_to_goal_m = std::hypot(
+      last_amcl_pose_.pose.pose.position.x - goal_pose.pose.position.x,
+      last_amcl_pose_.pose.pose.position.y - goal_pose.pose.position.y);
+
+    // Row-major 6x6: xx at 0, yy at 7, yaw at 35.
+    report.covariance_xx  = last_amcl_pose_.pose.covariance[0];
+    report.covariance_yy  = last_amcl_pose_.pose.covariance[7];
+    report.covariance_yaw = last_amcl_pose_.pose.covariance[35];
+    report.filter_converged =
+      (report.covariance_xx + report.covariance_yy) <= terminal_converged_cov_threshold_m2_;
+
+    // AMCL publishes only when it updates (update_min_d / update_min_a), and the robot has
+    // stopped, so the newest estimate may predate termination. Recording the age keeps
+    // that visible in the data instead of leaving it to be assumed away in analysis.
+    const rclcpp::Time estimate_stamp(last_amcl_pose_.header.stamp,
+                                      terminated_at.get_clock_type());
+    if (estimate_stamp.nanoseconds() > 0) {
+      report.estimate_age_sec = (terminated_at - estimate_stamp).seconds();
+    }
+
+    if (report.gt_available) {
+      report.localization_error_m = std::hypot(
+        gt_pose.pose.position.x - last_amcl_pose_.pose.pose.position.x,
+        gt_pose.pose.position.y - last_amcl_pose_.pose.pose.position.y);
+    }
+  } else {
+    RCLCPP_WARN(get_logger(),
+                "Terminal capture: no pose seen on '%s'; localization error unavailable "
+                "for goal %zu.", amcl_pose_topic_.c_str(), idx_);
+  }
+
+  return report;
+}
+
 void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::WrappedResult result) {
   navlearn_msgs::msg::EpisodeEvent ev;
   ev.header.stamp = this->get_clock()->now();
   ev.state = navlearn_msgs::msg::EpisodeEvent::END;
+  ev.bad_init_commanded_magnitude_m = bad_init_commanded_magnitude_m_;
 
   switch (result.code) {
     case rclcpp_action::ResultCode::SUCCEEDED:
@@ -994,26 +1572,71 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
     ev.nav_time.nanosec = 0;
   }
 
+  // Captured before publishing, while the robot is still standing where it stopped.
+  ev.terminal = captureTerminalPose(goal_poses_[idx_], rclcpp::Time(ev.stamp_terminated));
+
   episode_pub_->publish(ev);
 
   const char *res_str =
     (ev.result == navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED) ? "SUCCEEDED" :
     (ev.result == navlearn_msgs::msg::EpisodeEvent::RESULT_CANCELED)  ? "CANCELED"  : "FAILED";
 
-  RCLCPP_INFO(get_logger(), "END goal %zu result=%s (%u) nav_time=%.3fs\n",
+  RCLCPP_INFO(get_logger(), "END goal %zu result=%s (%u) nav_time=%.3fs",
               idx_, res_str, static_cast<unsigned>(ev.result),
               (rclcpp::Time(ev.stamp_terminated) - stamp_received_).seconds());
 
+  RCLCPP_INFO(get_logger(),
+              "  terminal: true_dist=%.3fm est_dist=%.3fm loc_err=%.3fm converged=%s",
+              ev.terminal.true_distance_to_goal_m,
+              ev.terminal.estimated_distance_to_goal_m,
+              ev.terminal.localization_error_m,
+              ev.terminal.filter_converged ? "yes" : "no");
+
+  // The finding this campaign exists to quantify: Nav2 declared arrival, but the robot is
+  // measurably elsewhere. Logged at WARN so it is visible while a cell runs, not only in
+  // post-hoc analysis. The threshold is the goal checker's own tolerance with a margin,
+  // so this fires only when the discrepancy exceeds what success was supposed to mean.
+  const bool false_success =
+    ev.result == navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED &&
+    ev.terminal.gt_available &&
+    ev.terminal.true_distance_to_goal_m > end_error_pos_threshold_m_;
+
+  if (false_success) {
+    RCLCPP_WARN(get_logger(),
+                "  FALSE SUCCESS: reported SUCCEEDED but ground truth is %.3f m from the "
+                "goal (threshold %.3f m); the filter believed it was %.3f m away.",
+                ev.terminal.true_distance_to_goal_m, end_error_pos_threshold_m_,
+                ev.terminal.estimated_distance_to_goal_m);
+  }
+
   active_ = false;
 
-  if (ev.result != navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED &&
-      (bad_init_test_ || kidnap_enabled_)) {
+  // A false success must take the recovery path, not the success path. Nav2 said
+  // SUCCEEDED, but the robot is measurably elsewhere and the filter is still wrong;
+  // advancing without correction hands that error to the next goal as its starting
+  // state. Measured on 2026-07-29 (cmp_ttr run 1): goal 0 ended a false success, goal
+  // 1's kidnap never applied, and goal 1 still terminated 11.15 m from its goal as a
+  // second false success — pure carryover. Episodes are meant to be independent trials;
+  // the costmap-clearing decision already says so, and the filter is subject to the
+  // same rule.
+  if ((ev.result != navlearn_msgs::msg::EpisodeEvent::RESULT_SUCCEEDED || false_success)
+      && (bad_init_test_ || kidnap_enabled_)) {
     // Recovery: teleport to current goal, re-localize, then advance
-    RCLCPP_WARN(get_logger(), "Goal %zu FAILED during TTC/TTR experiment. Initiating recovery.", idx_);
+    RCLCPP_WARN(get_logger(), "Goal %zu %s during TTC/TTR experiment. Initiating recovery.",
+                idx_, false_success ? "was a FALSE SUCCESS" : "FAILED");
     recovery_stage_ = RecoveryStage::TELEPORT_PENDING;
     recovery_start_time_ = this->get_clock()->now();
     initiateRecoveryTeleport(goal_poses_[idx_]);
   } else {
+    // Clear before advancing, during the inter-goal dwell, so the costmaps have the full
+    // dwell to refill from live scans before the next goal is planned. Episodes are meant
+    // to be independent trials; inheriting the previous episode's phantom obstacles is
+    // contamination, and because cells beyond walls never raytrace clear it would
+    // accumulate monotonically over a 72-cell campaign.
+    if (clear_costmaps_between_goals_) {
+      clearCostmaps("between goals");
+    }
+
     idx_++;
     next_allowed_send_ = this->get_clock()->now() + rclcpp::Duration::from_seconds(dwell_sec_);
 
@@ -1025,6 +1648,8 @@ void EpisodeManager::onResult(const rclcpp_action::ClientGoalHandle<nav2_msgs::a
 
     kidnap_stage_ = KidnapStage::IDLE;
     have_start_gt_ = false;
+    have_kidnap_reference_ = false;
+    kidnap_target_pose_ = unsampledKidnapPose_();
     kidnap_sampled_delay_sec_ = 0.0;
 
     if (idx_ >= goal_poses_.size()) {
@@ -1104,8 +1729,39 @@ void EpisodeManager::initiateRecoveryTeleport(
                       goal_pose.pose.position.y,
                       kidnap_z_,
                       yaw)) {
-    RCLCPP_ERROR(get_logger(), "Recovery: setEntityPose_ failed. Skipping recovery.");
-    recovery_stage_ = RecoveryStage::DONE;
+    // The teleport is unavailable -- in TTC cells the pose server is only launched when
+    // kidnap is enabled, so this path is the NORM there, not an edge case. The teleport
+    // is optional (it repositions the robot for convenience); the hygiene is not. Jumping
+    // straight to DONE skipped both the corrective initialpose and the costmap clear, so
+    // every failed TTC goal left phantom obstacles behind: the next goal's pose sequence
+    // corrects the filter but nothing corrects the map, one early failure can ignite a
+    // run-wide planning-failure spiral, and episodes stop being independent trials --
+    // exactly what PROTOCOL.md forbids. Observed 2026-08-01: leg1 mppi v3 collapsed to
+    // 0/120 while an identically-configured 20-goal probe scored 65%, the divergence
+    // starting at the first goal after a skipped recovery.
+    //
+    // So: skip only the teleport. Correct the filter at the robot's ACTUAL pose (ground
+    // truth, which the episode manager has), clear both costmaps, and wait for
+    // convergence exactly as the teleport path does.
+    RCLCPP_ERROR(get_logger(),
+      "Recovery: setEntityPose_ unavailable. Skipping teleport but still correcting the "
+      "filter at the robot's actual pose and clearing costmaps.");
+
+    geometry_msgs::msg::PoseStamped gt_pose;
+    if (lookupPose(gt_error_frame_, rclcpp::Time(0, 0, RCL_ROS_TIME), gt_pose)) {
+      sendInitialPoseRequest(
+        buildPoseWithCovariance(gt_pose, correct_cov_xy_, correct_cov_yaw_));
+      clearCostmaps("recovery (teleport unavailable)");
+      recovery_start_time_ = this->get_clock()->now();
+      recovery_stage_ = RecoveryStage::WAIT_CONVERGENCE;
+    } else {
+      // No ground truth either: nothing can be corrected against. Advance rather than
+      // hang, but say so loudly -- this goal's successor starts contaminated.
+      RCLCPP_ERROR(get_logger(),
+        "Recovery: no ground truth available; next goal starts CONTAMINATED "
+        "(uncorrected filter, uncleared costmaps).");
+      recovery_stage_ = RecoveryStage::DONE;
+    }
   }
 }
 
@@ -1125,17 +1781,34 @@ void EpisodeManager::advanceRecovery(const rclcpp::Time & now)
 
     case RecoveryStage::REINIT_PENDING:
     {
-      forceReinitGlobalLocalization();
-
-      // Publish correct initial pose at teleport location
+      // Deliberately no global reinit here.
+      //
+      // This used to call forceReinitGlobalLocalization() and then immediately publish the
+      // correct pose — two contradictory operations racing each other. The robot has just
+      // been teleported to a pose we chose, so its location is known exactly; scattering
+      // particles across the map discards that and then asks the filter to rediscover it.
+      // Setting the known pose with tight covariance is both correct and instant.
       geometry_msgs::msg::PoseWithCovarianceStamped correct_pose =
           buildPoseWithCovariance(goal_poses_[idx_], correct_cov_xy_, correct_cov_yaw_);
       sendInitialPoseRequest(correct_pose);
 
+      // Clear the costmaps. While the filter was wrong, every scan was inserted at the
+      // wrong map coordinates: phantom obstacles appeared in open floor and real walls
+      // were raytraced away as free space. Nothing in Nav2 undoes that on its own — an
+      // obstacle cell clears only when the robot later raytraces through it with correct
+      // localization, and cells placed beyond walls can never be raytraced through at all,
+      // so they persist for the lifetime of the node and their inflation keeps bleeding
+      // into traversable space.
+      //
+      // Left uncleared, the corruption outlives the goal that produced it and accumulates
+      // monotonically across a campaign, which would make late cells measurably harder
+      // than early ones for reasons that have nothing to do with the stack under test.
+      clearCostmaps("recovery");
+
       recovery_start_time_ = now;  // reset timer for convergence wait
       recovery_stage_ = RecoveryStage::WAIT_CONVERGENCE;
-      RCLCPP_INFO(get_logger(), "Recovery: waiting for AMCL convergence (timeout %.1fs).",
-                  recovery_timeout_sec_);
+      RCLCPP_INFO(get_logger(), "Recovery: known pose set, costmaps cleared; waiting for "
+                  "AMCL convergence (timeout %.1fs).", recovery_timeout_sec_);
       break;
     }
 
@@ -1176,6 +1849,8 @@ void EpisodeManager::advanceRecovery(const rclcpp::Time & now)
       pose_seq_stage_ = PoseSeqStage::IDLE;
       kidnap_stage_ = KidnapStage::IDLE;
       have_start_gt_ = false;
+      have_kidnap_reference_ = false;
+      kidnap_target_pose_ = unsampledKidnapPose_();
       kidnap_sampled_delay_sec_ = 0.0;
 
       if (idx_ >= goal_poses_.size()) {

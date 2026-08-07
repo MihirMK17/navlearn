@@ -1,0 +1,38 @@
+# nav2_stack/ablations/high_vx.yaml
+#
+# SINGLE-VARIABLE ABLATION. Loaded LAST for controller_server, after common/ and
+# controllers/<c>.yaml, so this override wins.
+#
+# Changes exactly one thing: the maximum linear velocity, 0.30 -> 0.45 m/s.
+#
+# Question: is a stack's advantage a property of its control law, or of the speed envelope
+# it was given? common/controller_common.yaml and the three controller fragments pin every
+# arm at 0.30 m/s precisely so this cannot leak in silently; this overlay raises it on
+# purpose, for one cell.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS FILE SETS THREE KEYS
+#
+# Unlike the other two ablations, the maximum-velocity knob is not a shared
+# controller_server parameter — each controller plugin names it differently:
+#
+#     RPP   desired_linear_vel
+#     MPPI  vx_max
+#     DWB   max_vel_x  (and max_speed_xy, which must track it)
+#
+# All are set below. Only the keys belonging to the loaded plugin are consumed; the rest
+# are parameter overrides for names that plugin never declares, and ROS 2 leaves unclaimed
+# overrides unused. That behavior is asserted rather than assumed —
+# scripts/validate_nav2_stack.py checks the composed result, and the pilot cell must
+# confirm no "parameter not declared" warning appears in controller_server's log before the
+# campaign starts.
+# ---------------------------------------------------------------------------
+
+controller_server:
+  ros__parameters:
+    FollowPath:
+      desired_linear_vel: 0.45            # m/s. ABLATION, RPP.  baseline 0.30
+      vx_max: 0.45                        # m/s. ABLATION, MPPI. baseline 0.30
+      max_vel_x: 0.45                     # m/s. ABLATION, DWB.  baseline 0.30
+      max_speed_xy: 0.45                  # m/s. ABLATION, DWB — must track max_vel_x or DWB
+                                          # clamps the sampled trajectories back down.

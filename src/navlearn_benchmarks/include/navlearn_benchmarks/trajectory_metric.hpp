@@ -81,6 +81,10 @@ private:
     std::string gt_topic_;
     std::string collision_topic_;
     double collision_scan_threshold_m_;
+
+    /// Which detector may increment collision_count_: "scan" or "topic". Exactly one, so
+    /// that a collision tripping both is not counted twice.
+    std::string collision_source_;
     double ds_thresh_m_;
     double max_gap_s_;
     double rpe_delta_s_;

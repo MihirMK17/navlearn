@@ -1,0 +1,59 @@
+# nav2_stack/common/planner_common.yaml
+#
+# PARITY FILE. Loaded FIRST for planner_server, before planners/<p>.yaml.
+# Holds the planner-server frame settings and the global costmap. The global costmap is
+# what the *planner* perceives; like the local costmap it is not a property of any one
+# planner, so it lives here rather than being copied into each planners/*.yaml.
+#
+# SMAC 2D is fixed for the whole campaign. NavFn and Theta* exist only for the two-cell
+# planner probe (EXECUTION_SPEC "Planner probe"), whose purpose is to support the sentence
+# "planner choice does not move false-success rate, controller choice does". That probe is
+# only meaningful if all three planners search the same costmap.
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 1.0       # Hz. Warn if planning falls below this.
+    use_sim_time: true
+    planner_plugins: ["GridBased"]        # The GridBased block comes from planners/<p>.yaml
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0               # Hz
+      publish_frequency: 1.0              # Hz
+      global_frame: map
+      robot_base_frame: base_link
+      use_sim_time: true
+      robot_radius: 0.1                   # m
+      resolution: 0.05                    # m/cell
+      always_send_full_costmap: true
+      track_unknown_space: true           # Required: allow_unknown in the planner is only
+                                          # meaningful if unknown space is tracked here.
+
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_topic: "/map"
+        map_subscribe_transient_local: true
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          max_obstacle_height: 2.0        # m
+          marking: true
+          clearing: true
+          combination_method: 1
+          raytrace_max_range: 3.0         # m
+          raytrace_min_range: 0.0         # m
+          obstacle_max_range: 2.5         # m
+          obstacle_min_range: 0.0         # m
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.55            # m
+        cost_scaling_factor: 3.0

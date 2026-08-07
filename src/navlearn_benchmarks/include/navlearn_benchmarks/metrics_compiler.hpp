@@ -36,6 +36,7 @@
 #include <navlearn_msgs/msg/control_metric.hpp>
 #include <navlearn_msgs/msg/trajectory_metric.hpp>
 #include <navlearn_msgs/msg/episode_event.hpp>
+#include <navlearn_msgs/msg/kidnap_event.hpp>
 #include <unique_identifier_msgs/msg/uuid.hpp>
 
 #include <tf2/LinearMath/Quaternion.h>
@@ -61,6 +62,12 @@ private:
     navlearn_msgs::msg::EpisodeEvent   end_event;
     navlearn_msgs::msg::ControlMetric  control;
     navlearn_msgs::msg::TrajectoryMetric traj;
+
+    // Whether the perturbation was actually applied to this goal. A TTR goal whose kidnap
+    // never fired is not a TTR trial, and until this was recorded there was no way to tell
+    // the two apart in the data.
+    bool have_kidnap = false;
+    navlearn_msgs::msg::KidnapEvent kidnap;
   };
 
   struct RunAccumulator
@@ -95,10 +102,16 @@ private:
   rclcpp::Subscription<navlearn_msgs::msg::EpisodeEvent>::SharedPtr episode_sub_;
   rclcpp::Subscription<navlearn_msgs::msg::ControlMetric>::SharedPtr control_sub_;
   rclcpp::Subscription<navlearn_msgs::msg::TrajectoryMetric>::SharedPtr traj_sub_;
+  rclcpp::Subscription<navlearn_msgs::msg::KidnapEvent>::SharedPtr kidnap_sub_;
+  std::string kidnap_event_topic_;
+  void onKidnap(const navlearn_msgs::msg::KidnapEvent & ev);
 
   std::unordered_map<std::string, EpisodeAggregate> episodes_;
 
   int success_count_;
+
+  // Distance beyond which a SUCCEEDED goal is recorded as a false success [m].
+  double false_success_threshold_m_;
 
   EpisodeAggregate & get_or_create(const unique_identifier_msgs::msg::UUID & id);
 

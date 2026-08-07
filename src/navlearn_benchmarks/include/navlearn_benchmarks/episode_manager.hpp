@@ -50,6 +50,13 @@
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <navlearn_msgs/msg/episode_event.hpp>
 #include <navlearn_msgs/msg/kidnap_event.hpp>
+#include <navlearn_msgs/msg/terminal_pose_report.hpp>
+#include <navlearn_benchmarks/navlearn_seed.hpp>
+#include <navlearn_benchmarks/magnitude_sampler.hpp>
+#include <navlearn_benchmarks/bad_init_offset.hpp>
+
+#include <memory>
+#include <string>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 
 #include <unique_identifier_msgs/msg/uuid.hpp>
@@ -64,6 +71,7 @@
 #include <nav2_msgs/srv/set_initial_pose.hpp>
 #include <navlearn_msgs/srv/set_entity_pose.hpp>
 #include <std_srvs/srv/empty.hpp>
+#include <nav2_msgs/srv/clear_entire_costmap.hpp>
 
 namespace navlearn_benchmarks{
 
@@ -76,6 +84,11 @@ private:
     // Core ROS interfaces
     rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SharedPtr client_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
+    // Subscribed for its covariance, which TF does not carry. The estimated pose itself
+    // could be read from TF, but a filter's confidence is as much a part of the terminal
+    // record as its position: a converged-but-wrong filter and an unconverged one are
+    // different failures and must be distinguishable in the data.
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr amcl_pose_sub_;
     rclcpp::Publisher<navlearn_msgs::msg::EpisodeEvent>::SharedPtr episode_pub_;
     rclcpp::Publisher<navlearn_msgs::msg::KidnapEvent>::SharedPtr kidnap_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
@@ -103,11 +116,28 @@ private:
     std::string est_error_frame_;
     std::string gt_error_frame_;
 
+    // Terminal pose capture. The convergence threshold is a methodological choice that
+    // reaches the paper, so it is a declared parameter and is recorded in every event
+    // rather than being implicit in the code.
+    std::string amcl_pose_topic_;
+    double terminal_converged_cov_threshold_m2_;
+    geometry_msgs::msg::PoseWithCovarianceStamped last_amcl_pose_;
+    bool have_amcl_pose_;
+
     double end_error_pos_threshold_m_;
     double end_error_yaw_threshold_rad_;
 
     double bad_init_lin_range_m_;
     double bad_init_yaw_range_rad_;
+
+    /// Continuous TTC severity. Null in fixed mode, where the legacy square draw applies.
+    std::string bad_init_magnitude_mode_;
+    std::string bad_init_magnitude_scale_;
+    double bad_init_magnitude_min_m_ = 0.05;
+    double bad_init_magnitude_max_m_ = 2.0;
+    std::unique_ptr<navlearn::MagnitudeSampler> bad_init_magnitude_sampler_;
+    /// Displacement this goal was asked for; -1 outside curve mode.
+    double bad_init_commanded_magnitude_m_ = -1.0;
 
     double pose_apply_pos_tol_m_;
     double pose_apply_yaw_tol_rad_;
@@ -119,20 +149,53 @@ private:
     double bad_cov_xy_;
     double bad_cov_yaw_;
 
-    int initial_pose_seed_;
-
     std::string set_pose_service_;
     std::string entity_name_;
 
     bool kidnap_enabled_;
+
+    /// Whether a kidnap also forces an AMCL global reinit. False = true kidnapped-robot
+    /// condition: the filter gets no hint and must recover from scan mismatch alone.
+    bool kidnap_notify_localizer_;
+
+    // Costmap clearing. A mislocalized robot writes phantom obstacles into the map-frame
+    // global costmap and erases real walls; Nav2 never undoes this by itself, and cells
+    // beyond walls can never be raytraced clear, so corruption is permanent and cumulative.
+    rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedPtr clear_global_costmap_client_;
+    rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedPtr clear_local_costmap_client_;
+    std::string clear_global_costmap_srv_;
+    std::string clear_local_costmap_srv_;
+    bool clear_costmaps_between_goals_;
+
+    /// Clear both costmaps. \param reason logged so the data shows when and why.
+    void clearCostmaps(const std::string & reason);
     double kidnap_delay_sec_;                 // deprecated (kept for compatibility, not used)
     double kidnap_delay_min_sec_;
     double kidnap_delay_max_sec_;
     double kidnap_min_travel_m_;
     double kidnap_distance_m_;
     double kidnap_max_distance_m_;
+
+    // Continuous-severity sweep. Null in "fixed" mode, which keeps the banded behaviour
+    // the ablation legs need.
+    std::string kidnap_magnitude_mode_;
+    std::string kidnap_magnitude_scale_;
+    double kidnap_magnitude_min_m_;
+    double kidnap_magnitude_max_m_;
+    double kidnap_magnitude_band_;
+    std::unique_ptr<navlearn::MagnitudeSampler> magnitude_sampler_;
+    /// What this goal was asked for; -1 outside curve mode. Recorded alongside the
+    /// realised displacement because the curve is fitted against the commanded value
+    /// while the predictor comparison uses what the robot actually experienced.
+    double kidnap_commanded_magnitude_m_ = -1.0;
+
+    // The yaw-curve leg (PROTOCOL amendment 2026-08-03): teleport in place, rotation is
+    // the swept variable. Null sampler in "preserve" mode, where heading carries through.
+    std::string kidnap_yaw_mode_;
+    double kidnap_yaw_min_rad_;
+    double kidnap_yaw_max_rad_;
+    std::unique_ptr<navlearn::MagnitudeSampler> yaw_sampler_;
     double kidnap_z_;
-    int kidnap_seed_;
     int kidnap_max_sample_tries_;
 
     double kidnap_verify_pos_tol_m_;
@@ -156,7 +219,18 @@ private:
     geometry_msgs::msg::PoseStamped start_gt_pose_;
     bool have_start_gt_;
 
+    // NaN-position sentinel published when a kidnap event has no sampled target.
+    static geometry_msgs::msg::Pose unsampledKidnapPose_();
+
     geometry_msgs::msg::Pose kidnap_target_pose_;
+
+    // Ground truth at the instant the teleport was triggered. Captured rather than
+    // re-looked-up when the event is published: the service round-trip takes long enough
+    // that a second lookup would return a pose from after the robot had already moved,
+    // which is the one thing this field exists to rule out.
+    geometry_msgs::msg::Pose kidnap_reference_pose_;
+    bool have_kidnap_reference_;
+
     unique_identifier_msgs::msg::UUID kidnap_attempt_id_;
     rclcpp::Time kidnap_event_time_;
     rclcpp::Time kidnap_verify_started_at_;
@@ -205,7 +279,20 @@ private:
     std::vector<double> goal_poses_yaw_;
 
     int goals_num_;
-    unsigned int goal_seed_;
+    // Campaign-wide seed and this episode's index. Every random draw is derived from
+    // these plus the goal index, via navlearn::seed::derive. The controller is
+    // deliberately not an input, so all arms see identical conditions.
+    int64_t campaign_seed_;
+    int64_t run_index_;
+
+    /// Seed for one draw in this episode. Wraps navlearn::seed::derive with the node's
+    /// campaign seed and run index so call sites cannot accidentally omit either.
+    uint64_t seedFor(navlearn::seed::Stream stream, uint64_t goal_index) const
+    {
+      return navlearn::seed::derive(
+        static_cast<uint64_t>(campaign_seed_), stream,
+        static_cast<uint64_t>(run_index_), goal_index);
+    }
 
     rclcpp::QoS qos_profile_sub;
 
@@ -240,14 +327,25 @@ private:
 
     bool inExclusionZone(double x, double y) const;
 
+    /// Rectangles barred from goal placement and kidnap sampling, as flat groups of
+    /// four: [xmin, xmax, ymin, ymax, ...]. World-specific by nature, so it is a
+    /// parameter rather than a constant; the default is the small_house rectangle the
+    /// value used to be hardcoded to.
+    std::vector<double> exclusion_zones_;
+
     void loadGoals();
 
     // TF helpers
     bool sampleStartPoseAt(const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & pose);
     bool lookupPose(const std::string & child_frame, const rclcpp::Time & t, geometry_msgs::msg::PoseStamped & out);
 
+    // Terminal ground truth
+    navlearn_msgs::msg::TerminalPoseReport captureTerminalPose(
+      const geometry_msgs::msg::PoseStamped & goal_pose, const rclcpp::Time & terminated_at);
+
     // Callbacks
     void mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr map);
+    void amclPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
     void timerCallback();
 
     // Nav actions
@@ -279,7 +377,10 @@ private:
 
     // Kidnap helpers
     unique_identifier_msgs::msg::UUID makeUUID_(uint32_t seed);
-    bool sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStamped & ref, geometry_msgs::msg::Pose & out_pose);
+    /// Samples a teleport destination inside the annulus [ring_min_m, ring_max_m] around
+    /// `ref`. The ring is passed rather than read from configuration because in curve mode
+    /// it is drawn per goal from the campaign seed.
+    bool sampleKidnapPoseFromMap_(const geometry_msgs::msg::PoseStamped & ref, geometry_msgs::msg::Pose & out_pose, double ring_min_m, double ring_max_m);
     void publishKidnapEvent_(bool success);
     bool isKidnapGTVerified_();
     bool setEntityPose_(double x, double y, double z, double yaw);

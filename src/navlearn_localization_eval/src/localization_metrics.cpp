@@ -58,8 +58,15 @@ LocalizationMetrics::LocalizationMetrics(const std::string & name)
 
   ttc_hold_sec_ = this->declare_parameter<double>("ttc_hold_sec", 2.0);
   ttc_timeout_sec_ = this->declare_parameter<double>("ttc_timeout_sec", 10.0);
-  ttr_hold_sec_ = this->declare_parameter<double>("ttr_hold_sec", 2.0);
-  ttr_timeout_sec_ = this->declare_parameter<double>("ttr_timeout_sec", 15.0);
+  // Recovery is "estimate inside threshold, held for ttr_hold_sec OR until the goal
+  // ends, whichever comes first". 2.0 s was long enough to catch a momentary pass
+  // through the right answer; 5.0 s requires the filter to actually settle there.
+  ttr_hold_sec_ = this->declare_parameter<double>("ttr_hold_sec", 5.0);
+
+  // 0 disables the timeout, which is the campaign default: recovery gets the whole
+  // episode. A 15 s cap scored every slower recovery as a failure, so the measured
+  // recovery rate was partly a statement about the cap rather than about the filter.
+  ttr_timeout_sec_ = this->declare_parameter<double>("ttr_timeout_sec", 0.0);
   ttr_error_pos_threshold_m_ = this->declare_parameter<double>("ttr_error_pos_threshold_m", 0.20);
   ttr_error_yaw_threshold_rad_ =
     this->declare_parameter<double>("ttr_error_yaw_threshold_rad", 0.10);
@@ -354,17 +361,40 @@ void LocalizationMetrics::onEpisodeEvent(const navlearn_msgs::msg::EpisodeEvent 
     if (kidnap_test_) {
       double ttr_sec_ = -1.0;
 
+      // How long the estimate had been continuously inside threshold when the goal
+      // ended. Recorded whatever the outcome, so the analysis can later demand the full
+      // hold without re-running a single cell.
+      double ttr_hold_achieved_sec = 0.0;
+      if (ttr_state_ == TtrState::RECOVERED &&
+        ttr_recovered_time_.nanoseconds() > 0)
+      {
+        ttr_hold_achieved_sec = (t - ttr_recovered_time_).seconds();
+      } else if (ttr_done_ && ttr_complete_time_.nanoseconds() > 0) {
+        ttr_hold_achieved_sec = ttr_hold_sec_;
+      }
+
       if (ttr_outcome_ == 4) {
         ttr_sec_ = -1.0;
       } else if (ttr_done_ && ttr_state_ != TtrState::TIMED_OUT) {
-        // Recovered + hold completed
+        // Recovered, and the hold ran its full duration.
         ttr_sec_ = (ttr_complete_time_ - ttr_start_time_).seconds();
+        ttr_outcome_ = 1;
+      } else if (ttr_state_ == TtrState::RECOVERED) {
+        // Inside threshold when the goal ended, but the goal ended first. Counted as
+        // recovered: the hold is "5 s OR until the goal ends, whichever comes first".
+        //
+        // The alternative -- demanding the full hold regardless -- makes recovery
+        // impossible on any episode that finishes shortly after the filter converges,
+        // which biases against exactly the fast recoveries the tuning is meant to
+        // produce. The achieved hold is recorded alongside, so requiring the full
+        // duration remains available at analysis time as a stricter reading of the same
+        // data.
+        ttr_sec_ = (ttr_recovered_time_ - ttr_start_time_).seconds();
         ttr_outcome_ = 1;
       } else if (ttr_state_ == TtrState::TIMED_OUT) {
         ttr_outcome_ = 0;
       } else if (ttr_state_ == TtrState::KIDNAPPED ||
-        ttr_state_ == TtrState::RECOVERING ||
-        ttr_state_ == TtrState::RECOVERED)
+        ttr_state_ == TtrState::RECOVERING)
       {
         ttr_outcome_ = 2;
       } else {
@@ -376,6 +406,8 @@ void LocalizationMetrics::onEpisodeEvent(const navlearn_msgs::msg::EpisodeEvent 
         boost::unordered_map<std::string, double>{
           {"TTR", ttr_sec_},
           {"TTR Outcome", static_cast<double>(ttr_outcome_)},
+          {"TTR Hold Achieved", ttr_hold_achieved_sec},
+          {"TTR Hold Required", ttr_hold_sec_},
           {"Kidnap Distance", kidnap_distance_},
           {"Kidnap Angle", kidnap_angle_}
         }, t);
@@ -864,7 +896,7 @@ void LocalizationMetrics::timerCallback()
     }
   }
 
-  if (kidnap_test_ &&
+  if (kidnap_test_ && ttr_timeout_sec_ > 0.0 &&
     (ttr_state_ == TtrState::RECOVERING || ttr_state_ == TtrState::RECOVERED ||
     ttr_state_ == TtrState::KIDNAPPED) &&
     !ttr_done_ && ttr_outcome_ != 4)

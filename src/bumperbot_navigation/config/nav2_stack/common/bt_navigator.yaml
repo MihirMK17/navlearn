@@ -1,0 +1,29 @@
+# nav2_stack/common/bt_navigator.yaml
+#
+# PARITY FILE. One behavior tree, one tick rate, for every controller and planner.
+#
+# Two fixes carried over from nav2_profiles (see experiment_audit.md addendum):
+#
+#   1. bt_loop_duration was 20 on the `baseline` profile and 10 on the other six. The
+#      RPP-baseline arm therefore ticked its behavior tree at half the rate of every
+#      other arm, including the recovery-trigger checks. Unified to 10 here.
+#
+#   2. default_nav_to_pose_bt_xml / default_nav_through_poses_bt_xml were absolute paths
+#      into /home/mihirmk/bumperbot_ws — a DIFFERENT workspace from this one. They are
+#      deliberately ABSENT from this file and are injected by navigation.launch.py using
+#      FindPackageShare, so the tree always resolves inside the installed package.
+#      (The two trees were byte-identical when checked on 2026-07-28, so no past result is
+#      affected; the path was a provenance and portability hazard, not a behavioral one.)
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: true
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /bumperbot_controller/odom
+    transform_tolerance: 0.3              # s
+    default_server_timeout: 1000          # ms. Action-server call timeout.
+    bt_loop_duration: 10                  # ms. BT tick period. Range 10-100.
+    wait_for_service_timeout: 1000        # ms
+    # default_nav_to_pose_bt_xml       -> set in navigation.launch.py
+    # default_nav_through_poses_bt_xml -> set in navigation.launch.py

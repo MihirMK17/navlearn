@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# RETIRED 2026-07-28 — see _retired_guard.sh for why and what replaces it.
+source "$(dirname "${BASH_SOURCE[0]}")/_retired_guard.sh"
 # Phase 3 follow-up: compute profile script
 # Runs RPP baseline, MPPI baseline, MPPI aggressive ONCE EACH (1 episode × 5 goals, no perturbation)
 # Captures controller_server CPU% + RSS via pidstat throughout the run.

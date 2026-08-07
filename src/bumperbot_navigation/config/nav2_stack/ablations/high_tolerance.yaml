@@ -1,0 +1,25 @@
+# nav2_stack/ablations/high_tolerance.yaml
+#
+# SINGLE-VARIABLE ABLATION. Loaded LAST for controller_server, after common/ and
+# controllers/<c>.yaml, so this override wins.
+#
+# Changes exactly one number: xy_goal_tolerance 0.05 -> 0.10.
+#
+# Question: how much of the success-rate difference between stacks is explained by the
+# goal radius alone rather than by control quality? A looser radius means the goal checker
+# fires earlier, which raises reported success without the robot getting any closer.
+#
+# This is the one ablation that speaks directly to the paper's claim. Reported success is
+# measured on the AMCL estimate; the terminal ground-truth distance logged by the harness
+# is not affected by this parameter at all. Widening the tolerance should therefore move
+# reported success while leaving true distance-to-goal roughly unchanged — and if it does,
+# that is the false-success mechanism demonstrated in isolation.
+#
+# Deliberately overrides a common/ parity value. That is the entire point of an ablation,
+# and it is why ablations are a separate composition slot rather than edits to a profile.
+
+controller_server:
+  ros__parameters:
+    general_goal_checker:
+      xy_goal_tolerance: 0.10             # m. ABLATION: baseline is 0.05 in
+                                          # common/controller_common.yaml.

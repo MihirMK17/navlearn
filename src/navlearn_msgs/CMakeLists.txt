@@ -18,6 +18,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/GoalMetric.msg"
   "msg/ControlMetric.msg"
   "msg/EpisodeEvent.msg"
+  "msg/TerminalPoseReport.msg"
   "msg/TrajectoryMetric.msg"
   "msg/KidnapEvent.msg"
   "srv/SetEntityPose.srv"
