@@ -15,7 +15,6 @@ find_package(builtin_interfaces REQUIRED)
 find_package(unique_identifier_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/GoalMetric.msg"
   "msg/ControlMetric.msg"
   "msg/EpisodeEvent.msg"
   "msg/TerminalPoseReport.msg"
