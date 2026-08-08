@@ -56,7 +56,9 @@ def sourced():
 def _governor_executable():
     """Locate the scan_rate_governor binary in the installed workspace."""
     for prefix in os.environ.get("AMENT_PREFIX_PATH", "").split(os.pathsep):
-        candidate = os.path.join(prefix, "lib", "navlearn_benchmarks", "scan_rate_governor")
+        candidate = os.path.join(
+            prefix, "lib", "navlearn_benchmarks", "scan_rate_governor"
+        )
         if os.path.isfile(candidate):
             return candidate
     pytest.skip("scan_rate_governor executable not found in AMENT_PREFIX_PATH")
@@ -89,18 +91,25 @@ def _run_governor(native_hz, target_hz, n_scans, extra_params=()):
     """Publish n_scans into the governor and return the scans it forwarded."""
     node_name = f"scan_rate_governor_test_{next(_node_counter)}"
     args = [
-        _governor_executable(), "--ros-args",
-        "-r", f"__node:={node_name}",
-        "-p", f"input_topic:={IN_TOPIC}",
-        "-p", f"output_topic:={OUT_TOPIC}",
-        "-p", f"native_rate_hz:={native_hz}",
-        "-p", f"target_rate_hz:={target_hz}",
+        _governor_executable(),
+        "--ros-args",
+        "-r",
+        f"__node:={node_name}",
+        "-p",
+        f"input_topic:={IN_TOPIC}",
+        "-p",
+        f"output_topic:={OUT_TOPIC}",
+        "-p",
+        f"native_rate_hz:={native_hz}",
+        "-p",
+        f"target_rate_hz:={target_hz}",
     ]
     for key, value in extra_params:
         args += ["-p", f"{key}:={value}"]
 
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True)
+    proc = subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
 
     rclpy.init()
     node = rclpy.create_node(f"{node_name}_driver")
@@ -114,7 +123,10 @@ def _run_governor(native_hz, target_hz, n_scans, extra_params=()):
         # tests turn flaky.
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            if pub.get_subscription_count() > 0 and node.count_publishers(OUT_TOPIC) > 0:
+            if (
+                pub.get_subscription_count() > 0
+                and node.count_publishers(OUT_TOPIC) > 0
+            ):
                 break
             if proc.poll() is not None:
                 return None, proc
@@ -187,10 +199,22 @@ def test_target_above_native_rate_refuses_to_start(sourced):
     genuinely starved ones, and nothing downstream could tell.
     """
     result = subprocess.run(
-        [_governor_executable(), "--ros-args",
-         "-p", f"input_topic:={IN_TOPIC}", "-p", f"output_topic:={OUT_TOPIC}",
-         "-p", "native_rate_hz:=10.0", "-p", "target_rate_hz:=20.0"],
-        capture_output=True, text=True, timeout=30)
+        [
+            _governor_executable(),
+            "--ros-args",
+            "-p",
+            f"input_topic:={IN_TOPIC}",
+            "-p",
+            f"output_topic:={OUT_TOPIC}",
+            "-p",
+            "native_rate_hz:=10.0",
+            "-p",
+            "target_rate_hz:=20.0",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     assert result.returncode != 0
     assert "exceeds" in (result.stdout + result.stderr).lower()
 
@@ -202,10 +226,22 @@ def test_unachievable_rate_refuses_to_start_by_default(sourced):
     results table that the run never ran at, so the default is to stop.
     """
     result = subprocess.run(
-        [_governor_executable(), "--ros-args",
-         "-p", f"input_topic:={IN_TOPIC}", "-p", f"output_topic:={OUT_TOPIC}",
-         "-p", "native_rate_hz:=10.0", "-p", "target_rate_hz:=3.0"],
-        capture_output=True, text=True, timeout=30)
+        [
+            _governor_executable(),
+            "--ros-args",
+            "-p",
+            f"input_topic:={IN_TOPIC}",
+            "-p",
+            f"output_topic:={OUT_TOPIC}",
+            "-p",
+            "native_rate_hz:=10.0",
+            "-p",
+            "target_rate_hz:=3.0",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     assert result.returncode != 0
     combined = (result.stdout + result.stderr).lower()
     assert "3.33" in combined or "achievable" in combined
@@ -214,6 +250,7 @@ def test_unachievable_rate_refuses_to_start_by_default(sourced):
 def test_unachievable_rate_runs_when_explicitly_allowed(sourced):
     """With allow_approximate_rate, the run proceeds and the delivered rate is announced."""
     received, proc = _run_governor(
-        10.0, 3.0, 10, extra_params=[("allow_approximate_rate", "true")])
+        10.0, 3.0, 10, extra_params=[("allow_approximate_rate", "true")]
+    )
     assert received is not None, "governor exited despite allow_approximate_rate"
     assert [int(m.range_min) for m in received] == [0, 3, 6, 9]

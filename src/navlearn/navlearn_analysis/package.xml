@@ -17,6 +17,10 @@
 
   <depend>rclpy</depend>
   <depend>navlearn_msgs</depend>
+  <!-- The harness launches benchmarks.launch.py and the collision positive control
+       composes trajectory_metric: this layer drives the instrument layer, which is
+       the correct direction and was previously undeclared. -->
+  <exec_depend>navlearn_benchmarks</exec_depend>
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>

@@ -39,7 +39,7 @@ Usage
     Terminal 1:  ros2 launch bumperbot_bringup simulated_robot.launch.py \\
                      world_name:=small_house controller:=rpp planner:=smac2d \\
                      localizer:=amcl_tuned
-    Terminal 2:  ros2 run navlearn_benchmarks collision_positive_control.py
+    Terminal 2:  ros2 run navlearn_analysis collision_positive_control
 
 Exit status
     0 if the detector fired, 1 otherwise. Prints a verdict either way.

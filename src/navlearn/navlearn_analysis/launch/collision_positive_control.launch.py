@@ -31,7 +31,7 @@ Usage
     Terminal 1:  ros2 launch bumperbot_bringup simulated_robot.launch.py \\
                      world_name:=small_house controller:=rpp planner:=smac2d \\
                      localizer:=amcl_tuned headless:=true use_rviz:=false
-    Terminal 2:  ros2 launch navlearn_benchmarks collision_positive_control.launch.py
+    Terminal 2:  ros2 launch navlearn_analysis collision_positive_control.launch.py
 
 The robot ends up against a wall. Restart the bringup before running a benchmark cell so
 the campaign starts from a clean spawn.
@@ -83,11 +83,19 @@ def generate_launch_description():
 
     control = ExecuteProcess(
         cmd=[
-            "ros2", "run", "navlearn_benchmarks", "collision_positive_control.py",
-            "--threshold", threshold,
-            "--speed", LaunchConfiguration("speed"),
-            "--timeout", LaunchConfiguration("timeout"),
-            "--ros-args", "-p", "use_sim_time:=true",
+            "ros2",
+            "run",
+            "navlearn_analysis",
+            "collision_positive_control",
+            "--threshold",
+            threshold,
+            "--speed",
+            LaunchConfiguration("speed"),
+            "--timeout",
+            LaunchConfiguration("timeout"),
+            "--ros-args",
+            "-p",
+            "use_sim_time:=true",
         ],
         output="screen",
     )
@@ -101,11 +109,13 @@ def generate_launch_description():
         )
     )
 
-    return LaunchDescription([
-        threshold_arg,
-        speed_arg,
-        timeout_arg,
-        trajectory_metric,
-        control,
-        stop_when_done,
-    ])
+    return LaunchDescription(
+        [
+            threshold_arg,
+            speed_arg,
+            timeout_arg,
+            trajectory_metric,
+            control,
+            stop_when_done,
+        ]
+    )

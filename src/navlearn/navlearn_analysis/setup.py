@@ -15,6 +15,7 @@ setup(
         # Campaign shell drivers ride along in share/ for reference; operators run them
         # from the checkout (they cd into the workspace and manage results/ there).
         (os.path.join("share", package_name, "scripts"), glob("scripts/*.sh")),
+        (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

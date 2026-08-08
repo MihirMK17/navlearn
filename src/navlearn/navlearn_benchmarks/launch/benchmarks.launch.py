@@ -142,8 +142,8 @@ def resolve_speed_limit(context, *args, **kwargs):
         SetLaunchConfiguration("resolved_v_max", str(float(v_max))),
         LogInfo(
             msg=f"[benchmarks] control_metric v_max={v_max} m/s "
-                f"(from {spec['selection'].get('controller', '?')}"
-                f"/{spec['selection'].get('ablation', '?')})"
+            f"(from {spec['selection'].get('controller', '?')}"
+            f"/{spec['selection'].get('ablation', '?')})"
         ),
     ]
 
@@ -196,7 +196,8 @@ def generate_launch_description():
     # (leg1 mppi_v2, salvaged by column count). Distinct file, derived from csv_path so
     # the pair always lands in the same run directory.
     loc_csv_path = PythonExpression(
-        ["'", csv_path, "'.replace('.csv', '_localization.csv')"])
+        ["'", csv_path, "'.replace('.csv', '_localization.csv')"]
+    )
 
     json_path_arg = DeclareLaunchArgument(
         "json_path",
@@ -242,7 +243,8 @@ def generate_launch_description():
     # reported result rather than a discarded calibration input. The banded presets above
     # are ignored in this mode. Default "fixed" so no existing cell changes meaning.
     kidnap_magnitude_mode_arg = DeclareLaunchArgument(
-        "kidnap_magnitude_mode", default_value="fixed",
+        "kidnap_magnitude_mode",
+        default_value="fixed",
         choices=["fixed", "curve"],
     )
     kidnap_magnitude_mode = LaunchConfiguration("kidnap_magnitude_mode")
@@ -260,7 +262,9 @@ def generate_launch_description():
     # Log by default: a displacement sweep spans an order of magnitude, and uniform-in-
     # metres would leave the onset of degradation sparsely covered.
     kidnap_magnitude_scale_arg = DeclareLaunchArgument(
-        "kidnap_magnitude_scale", default_value="log", choices=["log", "linear"],
+        "kidnap_magnitude_scale",
+        default_value="log",
+        choices=["log", "linear"],
     )
     kidnap_magnitude_scale = LaunchConfiguration("kidnap_magnitude_scale")
 
@@ -275,7 +279,9 @@ def generate_launch_description():
     # "preserve" default, and the campaign collects unrotated goals under a yaw-curve
     # label. The 2026-08-04 yaw pilot caught exactly that.
     kidnap_yaw_mode_arg = DeclareLaunchArgument(
-        "kidnap_yaw_mode", default_value="preserve", choices=["preserve", "curve"],
+        "kidnap_yaw_mode",
+        default_value="preserve",
+        choices=["preserve", "curve"],
     )
     kidnap_yaw_mode = LaunchConfiguration("kidnap_yaw_mode")
 
@@ -284,10 +290,11 @@ def generate_launch_description():
     # rectangle this was hardcoded to before 2026-08-05, which every world inherited.
     # A campaign in another world passes its own list, or '[]' for none.
     exclusion_zones_arg = DeclareLaunchArgument(
-        "exclusion_zones", default_value="-2.4, 0.7, 3.3, 5.4",
+        "exclusion_zones",
+        default_value="-2.4, 0.7, 3.3, 5.4",
         description="Barred rectangles as 'xmin,xmax,ymin,ymax,...'; empty for none. "
-                    "A string rather than a list because ROS 2 cannot carry an empty "
-                    "typed array, and 'no zones' is a normal setting.",
+        "A string rather than a list because ROS 2 cannot carry an empty "
+        "typed array, and 'no zones' is a normal setting.",
     )
     exclusion_zones = LaunchConfiguration("exclusion_zones")
 
@@ -305,7 +312,9 @@ def generate_launch_description():
     # range and seed stream from the kidnap sweep, so a cell can sweep one perturbation
     # without inheriting the other's bounds and enabling both cannot correlate them.
     bad_init_magnitude_mode_arg = DeclareLaunchArgument(
-        "bad_init_magnitude_mode", default_value="fixed", choices=["fixed", "curve"],
+        "bad_init_magnitude_mode",
+        default_value="fixed",
+        choices=["fixed", "curve"],
     )
     bad_init_magnitude_mode = LaunchConfiguration("bad_init_magnitude_mode")
 
@@ -320,7 +329,9 @@ def generate_launch_description():
     bad_init_magnitude_max_m = LaunchConfiguration("bad_init_magnitude_max_m")
 
     bad_init_magnitude_scale_arg = DeclareLaunchArgument(
-        "bad_init_magnitude_scale", default_value="log", choices=["log", "linear"],
+        "bad_init_magnitude_scale",
+        default_value="log",
+        choices=["log", "linear"],
     )
     bad_init_magnitude_scale = LaunchConfiguration("bad_init_magnitude_scale")
 
@@ -515,23 +526,30 @@ def generate_launch_description():
                 "kidnap_distance_m": kidnap_distance_m,
                 "kidnap_magnitude_mode": kidnap_magnitude_mode,
                 "kidnap_magnitude_min_m": ParameterValue(
-                    kidnap_magnitude_min_m, value_type=float),
+                    kidnap_magnitude_min_m, value_type=float
+                ),
                 "kidnap_magnitude_max_m": ParameterValue(
-                    kidnap_magnitude_max_m, value_type=float),
+                    kidnap_magnitude_max_m, value_type=float
+                ),
                 "kidnap_magnitude_scale": kidnap_magnitude_scale,
                 "kidnap_magnitude_band": ParameterValue(
-                    kidnap_magnitude_band, value_type=float),
+                    kidnap_magnitude_band, value_type=float
+                ),
                 "kidnap_yaw_mode": kidnap_yaw_mode,
                 "exclusion_zones": ParameterValue(exclusion_zones, value_type=str),
                 "kidnap_yaw_min_rad": ParameterValue(
-                    kidnap_yaw_min_rad, value_type=float),
+                    kidnap_yaw_min_rad, value_type=float
+                ),
                 "kidnap_yaw_max_rad": ParameterValue(
-                    kidnap_yaw_max_rad, value_type=float),
+                    kidnap_yaw_max_rad, value_type=float
+                ),
                 "bad_init_magnitude_mode": bad_init_magnitude_mode,
                 "bad_init_magnitude_min_m": ParameterValue(
-                    bad_init_magnitude_min_m, value_type=float),
+                    bad_init_magnitude_min_m, value_type=float
+                ),
                 "bad_init_magnitude_max_m": ParameterValue(
-                    bad_init_magnitude_max_m, value_type=float),
+                    bad_init_magnitude_max_m, value_type=float
+                ),
                 "bad_init_magnitude_scale": bad_init_magnitude_scale,
                 "goal_min_distance_m": goal_min_distance_m,
                 "recovery_timeout_sec": recovery_timeout_sec,

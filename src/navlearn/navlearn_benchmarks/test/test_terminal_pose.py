@@ -50,13 +50,24 @@ from navlearn_msgs.msg import (  # noqa: E402
 from unique_identifier_msgs.msg import UUID  # noqa: E402
 
 TERMINAL_COLUMNS = [
-    "GT Available", "Estimate Available",
-    "True Pose_X (m)", "True Pose_Y (m)", "True Pose_Yaw (deg)",
-    "Estimated Pose_X (m)", "Estimated Pose_Y (m)", "Estimated Pose_Yaw (deg)",
-    "True Distance To Goal (m)", "Estimated Distance To Goal (m)",
-    "Localization Error (m)", "True Yaw Error (deg)",
-    "Covariance_XX (m2)", "Covariance_YY (m2)", "Covariance_Yaw (rad2)",
-    "Filter Converged", "Convergence Threshold (m2)", "Estimate Age (sec)",
+    "GT Available",
+    "Estimate Available",
+    "True Pose_X (m)",
+    "True Pose_Y (m)",
+    "True Pose_Yaw (deg)",
+    "Estimated Pose_X (m)",
+    "Estimated Pose_Y (m)",
+    "Estimated Pose_Yaw (deg)",
+    "True Distance To Goal (m)",
+    "Estimated Distance To Goal (m)",
+    "Localization Error (m)",
+    "True Yaw Error (deg)",
+    "Covariance_XX (m2)",
+    "Covariance_YY (m2)",
+    "Covariance_Yaw (rad2)",
+    "Filter Converged",
+    "Convergence Threshold (m2)",
+    "Estimate Age (sec)",
     "False Success",
 ]
 
@@ -113,7 +124,9 @@ def _episode_end(goal_id, *, result, true_xy, est_xy, goal_xy, gt_available=True
 def _compiler_executable():
     """Locate the metrics_compiler binary in the installed workspace."""
     for prefix in os.environ.get("AMENT_PREFIX_PATH", "").split(os.pathsep):
-        candidate = os.path.join(prefix, "lib", "navlearn_benchmarks", "metrics_compiler")
+        candidate = os.path.join(
+            prefix, "lib", "navlearn_benchmarks", "metrics_compiler"
+        )
         if os.path.isfile(candidate):
             return candidate
     pytest.skip("metrics_compiler executable not found in AMENT_PREFIX_PATH")
@@ -139,11 +152,20 @@ def _run_compiler(tmp_path, events, kidnaps=()):
     node_name = f"metrics_compiler_test_{next(_node_counter)}"
 
     proc = subprocess.Popen(
-        [_compiler_executable(), "--ros-args",
-         "-r", f"__node:={node_name}",
-         "-p", f"csv_path:={csv_path}", "-p", f"json_path:={json_path}",
-         "-p", "false_success_threshold_m:=0.10"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        [
+            _compiler_executable(),
+            "--ros-args",
+            "-r",
+            f"__node:={node_name}",
+            "-p",
+            f"csv_path:={csv_path}",
+            "-p",
+            f"json_path:={json_path}",
+            "-p",
+            "false_success_threshold_m:=0.10",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
     rclpy.init()
@@ -158,10 +180,12 @@ def _run_compiler(tmp_path, events, kidnaps=()):
         # interval; discovery time varies and a fixed wait is how these tests turn flaky.
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            if (ep_pub.get_subscription_count() > 0
-                    and cm_pub.get_subscription_count() > 0
-                    and tm_pub.get_subscription_count() > 0
-                    and kd_pub.get_subscription_count() > 0):
+            if (
+                ep_pub.get_subscription_count() > 0
+                and cm_pub.get_subscription_count() > 0
+                and tm_pub.get_subscription_count() > 0
+                and kd_pub.get_subscription_count() > 0
+            ):
                 break
             rclpy.spin_once(node, timeout_sec=0.1)
         else:
@@ -213,27 +237,43 @@ def sourced():
 
 def test_header_and_row_column_counts_match(sourced, tmp_path):
     """A header/row mismatch shifts every column and is invisible in a spreadsheet."""
-    rows, csv_path = _run_compiler(tmp_path, [
-        _episode_end(_uuid(1), result=EpisodeEvent.RESULT_SUCCEEDED,
-                     true_xy=(1.0, 0.0), est_xy=(0.02, 0.0), goal_xy=(0.0, 0.0)),
-    ])
+    rows, csv_path = _run_compiler(
+        tmp_path,
+        [
+            _episode_end(
+                _uuid(1),
+                result=EpisodeEvent.RESULT_SUCCEEDED,
+                true_xy=(1.0, 0.0),
+                est_xy=(0.02, 0.0),
+                goal_xy=(0.0, 0.0),
+            ),
+        ],
+    )
 
     with open(csv_path) as handle:
         lines = [line for line in handle.read().splitlines() if line.strip()]
     header_cols = lines[0].count(",") + 1
     for line in lines[1:]:
-        assert line.count(",") + 1 == header_cols, (
-            f"row has {line.count(',') + 1} columns, header has {header_cols}"
-        )
+        assert (
+            line.count(",") + 1 == header_cols
+        ), f"row has {line.count(',') + 1} columns, header has {header_cols}"
     assert rows, "no rows parsed"
 
 
 def test_terminal_columns_present(sourced, tmp_path):
     """Every terminal field reaches the CSV under its documented name."""
-    rows, _ = _run_compiler(tmp_path, [
-        _episode_end(_uuid(2), result=EpisodeEvent.RESULT_SUCCEEDED,
-                     true_xy=(0.03, 0.0), est_xy=(0.02, 0.0), goal_xy=(0.0, 0.0)),
-    ])
+    rows, _ = _run_compiler(
+        tmp_path,
+        [
+            _episode_end(
+                _uuid(2),
+                result=EpisodeEvent.RESULT_SUCCEEDED,
+                true_xy=(0.03, 0.0),
+                est_xy=(0.02, 0.0),
+                goal_xy=(0.0, 0.0),
+            ),
+        ],
+    )
     for column in TERMINAL_COLUMNS:
         assert column in rows[0], f"missing column: {column}"
 
@@ -245,10 +285,18 @@ def test_false_success_is_flagged(sourced, tmp_path):
     localization estimate, so a converged-but-displaced filter yields a success the robot
     did not achieve.
     """
-    rows, _ = _run_compiler(tmp_path, [
-        _episode_end(_uuid(3), result=EpisodeEvent.RESULT_SUCCEEDED,
-                     true_xy=(1.20, 0.0), est_xy=(0.02, 0.0), goal_xy=(0.0, 0.0)),
-    ])
+    rows, _ = _run_compiler(
+        tmp_path,
+        [
+            _episode_end(
+                _uuid(3),
+                result=EpisodeEvent.RESULT_SUCCEEDED,
+                true_xy=(1.20, 0.0),
+                est_xy=(0.02, 0.0),
+                goal_xy=(0.0, 0.0),
+            ),
+        ],
+    )
     row = rows[0]
     assert row["Goal Result"] == "SUCCEEDED"
     assert float(row["True Distance To Goal (m)"]) == pytest.approx(1.20, abs=1e-6)
@@ -259,10 +307,18 @@ def test_false_success_is_flagged(sourced, tmp_path):
 
 def test_genuine_success_is_not_flagged(sourced, tmp_path):
     """A goal actually reached must not be marked as a false success."""
-    rows, _ = _run_compiler(tmp_path, [
-        _episode_end(_uuid(4), result=EpisodeEvent.RESULT_SUCCEEDED,
-                     true_xy=(0.03, 0.0), est_xy=(0.02, 0.0), goal_xy=(0.0, 0.0)),
-    ])
+    rows, _ = _run_compiler(
+        tmp_path,
+        [
+            _episode_end(
+                _uuid(4),
+                result=EpisodeEvent.RESULT_SUCCEEDED,
+                true_xy=(0.03, 0.0),
+                est_xy=(0.02, 0.0),
+                goal_xy=(0.0, 0.0),
+            ),
+        ],
+    )
     assert rows[0]["False Success"] == "0"
 
 
@@ -273,11 +329,19 @@ def test_missing_ground_truth_is_not_a_clean_success(sourced, tmp_path):
     a perfectly executed one, or the campaign's headline statistic is biased by exactly
     the goals where measurement failed.
     """
-    rows, _ = _run_compiler(tmp_path, [
-        _episode_end(_uuid(5), result=EpisodeEvent.RESULT_SUCCEEDED,
-                     true_xy=(0.0, 0.0), est_xy=(0.02, 0.0), goal_xy=(0.0, 0.0),
-                     gt_available=False),
-    ])
+    rows, _ = _run_compiler(
+        tmp_path,
+        [
+            _episode_end(
+                _uuid(5),
+                result=EpisodeEvent.RESULT_SUCCEEDED,
+                true_xy=(0.0, 0.0),
+                est_xy=(0.02, 0.0),
+                goal_xy=(0.0, 0.0),
+                gt_available=False,
+            ),
+        ],
+    )
     row = rows[0]
     assert row["GT Available"] == "0"
     assert float(row["True Distance To Goal (m)"]) == -1.0
