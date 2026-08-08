@@ -1,6 +1,8 @@
 localization_metrics:
   ros__parameters:
-    csv_path: /home/mihirmk/robot_ws/src/navlearn_localization_eval/evaluations/localization_evaluation.csv
+    # csv_path comes from benchmarks.launch.py (loc_csv_path) per run; the node's
+    # declare_parameter default is relative. An absolute source-tree path lived here
+    # once and pinned the output to one machine's checkout.
     scan_child_frame: laser_link
     odom_parent_frame: odom
     odom_child_frame: base_footprint

@@ -11,7 +11,7 @@ jobs:
 
     steps:
       # 1 · Check out your code
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       # 2 · Build and test in one shell (keeps the ROS env sourced)
       - name: Build & Test

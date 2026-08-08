@@ -3,7 +3,7 @@
             schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>navlearn_benchmarks</name>
-  <version>0.1.0</version>
+  <version>0.3.0</version>
   <description>
     Benchmarking nodes for per-episode metrics:
     EpisodeManager, ControlMetric, TrajectoryMetric, and MetricsCompiler.
@@ -33,6 +33,11 @@
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>std_srvs</depend>
+  <!-- CMakeLists find_package()s these three; they resolved only transitively through
+       ros_gz_bridge until declared here. -->
+  <depend>std_msgs</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>ros_gz_interfaces</depend>
 
   <!-- Tests -->
   <!-- world_to_map.py: DAE mesh loading (python3-collada is the rosdep key for

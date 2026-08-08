@@ -2,10 +2,10 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>bumperbot_bringup</name>
-  <version>0.0.0</version>
+  <version>0.3.0</version>
   <description>Bumperbot Bringup package</description>
   <maintainer email="mihir.kulkarni17@gmail.com">mihirmk</maintainer>
-  <license>Apache 2.0</license>
+  <license>Apache-2.0</license>
   <author email="antonio.brandi@outlook.it">Antonio Brandi</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -14,6 +14,13 @@
   <exec_depend>bumperbot_firmware</exec_depend>
   <exec_depend>bumperbot_controller</exec_depend>
   <exec_depend>bumperbot_description</exec_depend>
+  <!-- simulated_robot.launch.py includes launch files from all four; the dependencies
+       were real from the start but never declared, so colcon's dependency-scoped
+       environments could not see them. -->
+  <exec_depend>bumperbot_localization</exec_depend>
+  <exec_depend>bumperbot_mapping</exec_depend>
+  <exec_depend>bumperbot_navigation</exec_depend>
+  <exec_depend>bumperbot_utils</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

@@ -15,7 +15,13 @@ NAVLEARN_NODES="ruby gzserver planner_server controller_server amcl bt_navigator
 map_server behavior_server smoother_server trajectory_metric control_metric \
 metrics_compiler lifecycle_manager robot_state_publisher parameter_bridge \
 collision_monitor episode_manager_node rviz2 spawner scan_rate_governor scan_sanitizer \
-twist_mux joy_teleop controller_manager velocity_smoother waypoint_follower"
+twist_mux joy_teleop controller_manager velocity_smoother waypoint_follower \
+ground_truth_publisher localization_metrics gz_set_pose_server ekf_node \
+imu_republisher safety_stop"
+# The last six were absent until 2026-08-07: the three localization-eval nodes are
+# composed by benchmarks.launch.py yet were never killed by teardown nor seen by
+# preflight — a surviving gz_set_pose_server holds the Ignition service the next
+# cell's kidnaps depend on. ekf/imu/safety_stop come up with the bringup itself.
 
 # The kernel keeps 15 characters of a process name in /proc/PID/comm, so pgrep -x and
 # pkill -x match nothing at all for the 11 names above that are longer -- controller_server,
