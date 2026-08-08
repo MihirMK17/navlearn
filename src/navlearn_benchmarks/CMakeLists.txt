@@ -22,6 +22,10 @@ find_package(builtin_interfaces REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(ros_gz_interfaces REQUIRED)
+find_package(tf2_msgs REQUIRED)
+find_package(Boost REQUIRED)
+find_package(ignition-transport11 REQUIRED)
+find_package(ignition-msgs8 REQUIRED)
 
 add_library(episode_manager SHARED src/episode_manager.cpp)
 target_include_directories(episode_manager PRIVATE
@@ -89,6 +93,43 @@ target_include_directories(scan_rate_governor PRIVATE
   $<INSTALL_INTERFACE:include>)
 ament_target_dependencies(scan_rate_governor rclcpp sensor_msgs)
 
+# ========= Localization-eval trio (absorbed from navlearn_localization_eval) =========
+# These three were a separate package with no declared dependency in either direction,
+# yet benchmarks.launch.py composed all of them and episode_manager was the sole client
+# of gz_set_pose_server's SetEntityPose service. The boundary existed only to be crossed;
+# the executables keep their names, so launch composition and teardown are unchanged.
+
+# Online TTC/TTR/ATE/RPE metrics against ground truth; writes the long-format
+# localization CSV joined downstream by goal UUID.
+add_executable(localization_metrics src/localization_metrics.cpp)
+target_include_directories(localization_metrics PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${Boost_INCLUDE_DIRS})
+ament_target_dependencies(localization_metrics
+  rclcpp geometry_msgs sensor_msgs nav_msgs nav2_msgs navlearn_msgs tf2_msgs tf2_ros tf2
+  unique_identifier_msgs)
+
+# Republishes the Ignition ground-truth stream (/tf_gt) as the canonical
+# /bumperbot/ground_truth_pose and the base_footprint_gt frame.
+add_executable(ground_truth_publisher src/ground_truth_publisher.cpp)
+target_include_directories(ground_truth_publisher PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${Boost_INCLUDE_DIRS})
+ament_target_dependencies(ground_truth_publisher
+  rclcpp geometry_msgs tf2_msgs tf2_ros)
+
+# Bridges the SetEntityPose ROS service onto Ignition Transport for the kidnap teleport.
+add_executable(gz_set_pose_server src/gz_set_pose_server.cpp)
+target_include_directories(gz_set_pose_server PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+ament_target_dependencies(gz_set_pose_server rclcpp geometry_msgs navlearn_msgs)
+target_link_libraries(gz_set_pose_server
+  ignition-transport11::ignition-transport11 ignition-msgs8::ignition-msgs8)
+
 install(TARGETS
   episode_manager
   episode_manager_node
@@ -97,6 +138,9 @@ install(TARGETS
   metrics_compiler
   collision_monitor
   scan_rate_governor
+  localization_metrics
+  ground_truth_publisher
+  gz_set_pose_server
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}

@@ -25,7 +25,7 @@ Why it exists
     actually defines is computable offline without re-running anything.
 
 Definitions (PROTOCOL section 1; thresholds and the per-sample test replicate
-navlearn_localization_eval/src/localization_metrics.cpp)
+navlearn_benchmarks/src/localization_metrics.cpp)
 
     ok(sample)      GT interpolated to the amcl stamp; requires |err_x| < 0.20 m,
                     |err_y| < 0.20 m, hypot(err_x, err_y) < 0.20 m and

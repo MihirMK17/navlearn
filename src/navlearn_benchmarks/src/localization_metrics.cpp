@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <navlearn_localization_eval/localization_metrics.hpp>
+#include <navlearn_benchmarks/localization_metrics.hpp>
 
 using namespace std::placeholders;
 

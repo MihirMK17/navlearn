@@ -421,7 +421,7 @@ def generate_launch_description():
 
     localization_metrics_yaml = PathJoinSubstitution(
         [
-            FindPackageShare("navlearn_localization_eval"),
+            FindPackageShare("navlearn_benchmarks"),
             "config",
             "localization_metrics.yaml",
         ]
@@ -429,7 +429,7 @@ def generate_launch_description():
 
     gz_set_pose_yaml = PathJoinSubstitution(
         [
-            FindPackageShare("navlearn_localization_eval"),
+            FindPackageShare("navlearn_benchmarks"),
             "config",
             "gz_set_pose_server.yaml",
         ]
@@ -589,14 +589,14 @@ def generate_launch_description():
     )
 
     ground_truth_publisher = Node(
-        package="navlearn_localization_eval",
+        package="navlearn_benchmarks",
         executable="ground_truth_publisher",
         name="ground_truth_publisher",
         output="log",
         parameters=[
             PathJoinSubstitution(
                 [
-                    FindPackageShare("navlearn_localization_eval"),
+                    FindPackageShare("navlearn_benchmarks"),
                     "config",
                     "ground_truth_publisher.yaml",
                 ]
@@ -611,7 +611,7 @@ def generate_launch_description():
                 ["'", bad_init_test, "' == 'true' or '", kidnap_test, "' == 'true'"]
             )
         ),
-        package="navlearn_localization_eval",
+        package="navlearn_benchmarks",
         executable="localization_metrics",
         name="localization_metrics",
         output="log",
@@ -630,7 +630,7 @@ def generate_launch_description():
 
     gz_set_pose_server_node = Node(
         condition=IfCondition(PythonExpression(["'", kidnap_test, "' == 'true'"])),
-        package="navlearn_localization_eval",
+        package="navlearn_benchmarks",
         executable="gz_set_pose_server",
         name="gz_set_pose_server",
         output="log",

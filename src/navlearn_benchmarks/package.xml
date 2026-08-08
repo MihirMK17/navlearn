@@ -39,6 +39,13 @@
   <depend>builtin_interfaces</depend>
   <depend>ros_gz_interfaces</depend>
 
+  <!-- Absorbed localization-eval trio (localization_metrics, ground_truth_publisher,
+       gz_set_pose_server). -->
+  <depend>tf2_msgs</depend>
+  <depend>boost</depend>
+  <depend>ignition-transport11</depend>
+  <depend>ignition-msgs8</depend>
+
   <!-- Tests -->
   <!-- world_to_map.py: DAE mesh loading (python3-collada is the rosdep key for
        pycollada) and hardened XML parsing of .world/.sdf files. Runtime script deps;

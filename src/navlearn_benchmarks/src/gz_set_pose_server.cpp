@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <navlearn_localization_eval/gz_set_pose_server.hpp>
+#include <navlearn_benchmarks/gz_set_pose_server.hpp>
 
 using namespace std::placeholders;
 

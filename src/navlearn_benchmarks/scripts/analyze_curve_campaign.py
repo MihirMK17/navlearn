@@ -21,7 +21,7 @@ Why it exists
     be defended. This script IS the method.
 
 Definitions (from docs/paper1/PROTOCOL.md, frozen 2026-07-30; node behaviour verified in
-navlearn_localization_eval source)
+navlearn_benchmarks/src/localization_metrics.cpp source)
 
     true success    ground truth within the stack's xy_goal_tolerance at episode end.
                     The tolerance is read from each run's own stack spec, never assumed.

@@ -21,7 +21,7 @@ trajectory_metric:
     collision_scan_threshold_m: 0.15
 
     # Ground truth pose topic (geometry_msgs/TransformStamped).
-    # For Gazebo Ignition: published by navlearn_localization_eval/ground_truth_publisher
+    # For Gazebo Ignition: published by navlearn_benchmarks/ground_truth_publisher
     #   (enabled via localization_eval_enabled:=true at launch).
     # For Isaac Sim: publish TransformStamped directly to this topic via the Isaac ROS bridge.
     # If not running a GT source, ATE/RPE will report NaN (safe default).

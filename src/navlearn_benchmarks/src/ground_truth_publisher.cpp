@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <navlearn_localization_eval/ground_truth_publisher.hpp>
+#include <navlearn_benchmarks/ground_truth_publisher.hpp>
 
 using namespace std::placeholders;
 
