@@ -4,9 +4,18 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    IncludeLaunchDescription,
+    LogInfo,
+    OpaqueFunction,
+    SetEnvironmentVariable,
+    SetLaunchConfiguration,
+)
 from launch.conditions import IfCondition
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.events import Shutdown
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 from launch_ros.actions import Node
@@ -39,7 +48,6 @@ def generate_launch_description():
                     "0 disables the governor and leaves the scan path unchanged.",
     )
     scan_rate_hz = LaunchConfiguration("scan_rate_hz")
-    scan_governor_enabled = PythonExpression(["float('", scan_rate_hz, "') > 0.0"])
 
     # Headless operation. Gazebo has always been launched with `-r` (run) and no `-s`
     # (server only), so every benchmark run so far rendered a GUI — roughly 29 hours of
@@ -82,15 +90,39 @@ def generate_launch_description():
         ),
     ]
 
-    world_path = PathJoinSubstitution([
-            bumperbot_description,
-            "worlds",
-            PythonExpression(expression=["'", LaunchConfiguration("world_name"), "'", " + '.world'"])
+    # World lookup searches this package's worlds/ first, then every entry on
+    # GZ_SIM_RESOURCE_PATH for worlds/<name>.world — so an asset package (e.g.
+    # navlearn_assets, which registers itself on that variable through an ament
+    # environment hook) can contribute worlds without this package knowing it exists.
+    # A name that resolves nowhere shuts the launch down by name instead of handing
+    # Gazebo a path that does not exist.
+    def _resolve_world(context, *args, **kwargs):
+        name = LaunchConfiguration("world_name").perform(context)
+        candidates = [os.path.join(bumperbot_description, "worlds", f"{name}.world")]
+        for entry in os.environ.get("GZ_SIM_RESOURCE_PATH", "").split(pathsep):
+            if entry:
+                candidates.append(os.path.join(entry, "worlds", f"{name}.world"))
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                return [SetLaunchConfiguration("world_file", candidate)]
+        return [
+            LogInfo(msg=f"[gazebo.launch] world '{name}.world' not found in "
+                        f"{len(candidates)} search locations"),
+            EmitEvent(event=Shutdown(reason=f"unknown world '{name}'")),
         ]
-    )
+
+    world_resolver = OpaqueFunction(function=_resolve_world)
+    world_path = LaunchConfiguration("world_file")
 
     model_path = str(Path(bumperbot_description).parent.resolve())
     model_path += pathsep + os.path.join(get_package_share_directory("bumperbot_description"), 'models')
+
+    # APPEND to the ambient value rather than overwrite it. Overwriting silently
+    # discarded whatever the environment already carried — exactly the channel an
+    # asset package's environment hook uses to make its models resolvable.
+    ambient_resource_path = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
+    if ambient_resource_path:
+        model_path += pathsep + ambient_resource_path
 
     gazebo_resource_path = SetEnvironmentVariable(
         "GZ_SIM_RESOURCE_PATH",
@@ -157,21 +189,11 @@ def generate_launch_description():
         output="screen"
     )
 
-    # Launched only when a rate is requested, so the default path is unchanged.
-    scan_rate_governor_node = Node(
-        package="navlearn_benchmarks",
-        executable="scan_rate_governor",
-        parameters=[{
-            "use_sim_time": True,
-            "input_topic": "scan_unfiltered",
-            "output_topic": "scan_governed",
-            "native_rate_hz": 10.0,   # RPLidar A1; matches the xacro update_rate
-            "target_rate_hz": ParameterValue(scan_rate_hz, value_type=float),
-        }],
-        condition=IfCondition(scan_governor_enabled),
-        output="screen"
-    )
-
+    # The scan-rate governor that used to sit between the bridge and the sanitizer is
+    # composed by bumperbot_bringup now: it is a navlearn_benchmarks node, and a robot
+    # description package that launches benchmark instrumentation has its layering
+    # backwards. The scan_rate_hz argument stays declared here because the sanitizer's
+    # input-topic switch below still keys on it.
     scan_sanitizer_node = Node(
         package="bumperbot_description",
         executable="scan_sanitizer",
@@ -198,11 +220,11 @@ def generate_launch_description():
         headless_arg,
         gpu_arg,
         *gpu_env,     # must precede `gazebo` — the env has to exist before ign spawns
+        world_resolver,   # must precede `gazebo` — it sets world_file
         gazebo_resource_path,
         robot_state_publisher_node,
         gazebo,
         gz_spawn_entity,
         gz_ros2_bridge,
-        scan_rate_governor_node,
         scan_sanitizer_node
     ])

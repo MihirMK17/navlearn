@@ -21,6 +21,11 @@
   <exec_depend>bumperbot_mapping</exec_depend>
   <exec_depend>bumperbot_navigation</exec_depend>
   <exec_depend>bumperbot_utils</exec_depend>
+  <!-- The composition root composes benchmark instrumentation too: the scan-rate
+       governor for the sensor-starvation leg lives in navlearn_benchmarks and is
+       launched here, not by the robot description — a leaf package that composed a
+       benchmark node had its layering backwards. -->
+  <exec_depend>navlearn_benchmarks</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

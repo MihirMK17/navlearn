@@ -13,6 +13,7 @@ from launch.conditions import UnlessCondition, IfCondition
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 
 # Shared with bumperbot_navigation, which owns config/nav2_stack/. Loaded by path because
@@ -150,13 +151,38 @@ def generate_launch_description():
     )
     gpu = LaunchConfiguration("gpu")
 
-    # Starve the LiDAR for the sensor-rate leg. Forwarded to gazebo.launch.py, which only
-    # inserts the governor when this is above zero; the default leaves the scan path
+    # Starve the LiDAR for the sensor-rate leg. The governor node is composed HERE —
+    # it is benchmark instrumentation from navlearn_benchmarks, and this launch is the
+    # composition root that may depend on everything — while the argument is also
+    # forwarded to gazebo.launch.py because the scan sanitizer's input-topic switch
+    # keys on it. One CLI value feeds both, so the two consumers cannot drift.
+    #
+    # Sensor-rate leg design: starve by decimating what is published rather than by
+    # lowering the simulated sensor's own rate — that would also change what Gazebo
+    # simulates and how the bridge is loaded, so a rate cell would differ from baseline
+    # in more than one variable. Default 0.0 = governor not launched, scan path
     # byte-identical to what it was before the argument existed.
     scan_rate_hz_arg = DeclareLaunchArgument(
         "scan_rate_hz",
         default_value="0.0",
         description="Starve the LiDAR to this rate. 0 disables the governor.",
+    )
+    scan_rate_hz = LaunchConfiguration("scan_rate_hz")
+
+    scan_rate_governor = Node(
+        package="navlearn_benchmarks",
+        executable="scan_rate_governor",
+        parameters=[{
+            "use_sim_time": True,
+            "input_topic": "scan_unfiltered",
+            "output_topic": "scan_governed",
+            "native_rate_hz": 10.0,   # RPLidar A1; matches the xacro update_rate
+            "target_rate_hz": ParameterValue(scan_rate_hz, value_type=float),
+        }],
+        condition=IfCondition(
+            PythonExpression(["float('", scan_rate_hz, "') > 0.0"])
+        ),
+        output="screen",
     )
 
     # RViz is a second renderer. It draws the map, costmaps, particle cloud and laser scan
@@ -320,6 +346,7 @@ def generate_launch_description():
         amcl_config_arg,
         localizer_resolver,   # must precede `localization` — it sets amcl_config
         gazebo,
+        scan_rate_governor,
         controller,
         joystick,
         # safety_stop,
