@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>navlearn_analysis</name>
+  <version>0.3.0</version>
+  <description>
+    The Python side of NavLearn as a real, installed package: the campaign harness and
+    its per-run probes, the offline claim analyses, the map/world tooling, and the
+    figure generators. Previously 30+ loose scripts binding to each other through
+    sys.path insertion and importlib file loading; a package makes every import real,
+    every CLI a console entry point, and every test discoverable by construction —
+    colcon runs pytest over test/ wholesale, so a test file can never again sit
+    unregistered and dark.
+  </description>
+  <maintainer email="mihir.kulkarni17@gmail.com">mihirmk</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>navlearn_msgs</depend>
+  <!-- The harness launches benchmarks.launch.py and the collision positive control
+       composes trajectory_metric: this layer drives the instrument layer, which is
+       the correct direction and was previously undeclared. -->
+  <exec_depend>navlearn_benchmarks</exec_depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>python3-numpy</depend>
+  <depend>python3-scipy</depend>
+  <depend>python3-yaml</depend>
+  <!-- world_to_map.py: DAE mesh loading (python3-collada is the rosdep key for
+       pycollada) and hardened XML parsing; map tooling reads PGMs through Pillow;
+       figure generators draw with matplotlib; the TTR recompute reads rosbags. -->
+  <depend>python3-collada</depend>
+  <depend>python3-defusedxml</depend>
+  <depend>python3-pil</depend>
+  <depend>python3-matplotlib</depend>
+  <depend>rosbag2_py</depend>
+
+  <test_depend>python3-pytest</test_depend>
+  <!-- Tests resolve the nav2_stack fragments, the small_house map, campaign maps and
+       the vendored AWS meshes through these packages' share directories instead of
+       workspace-relative path arithmetic. -->
+  <test_depend>bumperbot_navigation</test_depend>
+  <test_depend>bumperbot_mapping</test_depend>
+  <test_depend>bumperbot_description</test_depend>
+  <test_depend>navlearn_assets</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

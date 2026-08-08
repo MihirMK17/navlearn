@@ -1,0 +1,8 @@
+metrics_compiler:
+  ros__parameters:
+    # csv_path / json_path are supplied by benchmarks.launch.py per run; the node's own
+    # declare_parameter defaults are relative. Absolute source-tree paths lived here once
+    # and made the node write into the checkout when launched without the harness.
+    episode_event_topic: /navlearn/episode_event
+    control_metric_topic: /navlearn/control_metric
+    trajectory_metric_topic: /navlearn/trajectory_metric

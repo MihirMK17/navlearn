@@ -1,0 +1,86 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd"
+            schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>navlearn_benchmarks</name>
+  <version>0.3.0</version>
+  <description>
+    Benchmarking nodes for per-episode metrics:
+    EpisodeManager, ControlMetric, TrajectoryMetric, and MetricsCompiler.
+  </description>
+
+  <maintainer email="mihir.kulkarni17@gmail.com">mihirmk</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Core runtime deps -->
+  <depend>rclcpp</depend>
+  <depend>rclpy</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rclcpp_components</depend>
+
+  <!-- Messages -->
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>navlearn_msgs</depend>
+  <depend>unique_identifier_msgs</depend>
+
+  <!-- TF (used by EpisodeManager) -->
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>std_srvs</depend>
+  <!-- CMakeLists find_package()s these three; they resolved only transitively through
+       ros_gz_bridge until declared here. -->
+  <depend>std_msgs</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>ros_gz_interfaces</depend>
+
+  <!-- Absorbed localization-eval trio (localization_metrics, ground_truth_publisher,
+       gz_set_pose_server). -->
+  <depend>tf2_msgs</depend>
+  <depend>boost</depend>
+  <depend>ignition-transport11</depend>
+  <depend>ignition-msgs8</depend>
+
+  <!-- Tests -->
+  <!-- world_to_map.py: DAE mesh loading (python3-collada is the rosdep key for
+       pycollada) and hardened XML parsing of .world/.sdf files. Runtime script deps;
+       test_world_to_map.py carries an importorskip guard for environments that never
+       ran rosdep. -->
+  <exec_depend>python3-collada</exec_depend>
+  <exec_depend>python3-defusedxml</exec_depend>
+
+  <!-- Analysis scripts: logistic fits (nested_models, sigma_curves, compare_yaw_slopes)
+       need scipy; map_ambiguity reads occupancy PGMs through Pillow. Undeclared, CI's
+       rosdep never installs them, every test in those files skips, and pytest exits 5
+       ("no tests collected") — which ament_cmake_pytest counts as a FAILED test. -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
+
+  <!-- Campaign environments (bookstore world/models, multi-map occupancy grids) moved
+       to their own asset package; the campaign scripts and map-dependent tests resolve
+       them through its share directory. -->
+  <exec_depend>navlearn_assets</exec_depend>
+
+  <!-- The campaign gates refuse to run unless the vendored, patched planner is what
+       AMENT_PREFIX_PATH resolves (leg drivers, gate 1), and run_forensics records that
+       resolution in every environment snapshot. Declaring it also puts the workspace
+       overlay into this package's colcon test environment — without it colcon isolates
+       the test env to declared dependencies and the overlay test can only fail. -->
+  <exec_depend>nav2_smac_planner</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,32 @@
+localization_metrics:
+  ros__parameters:
+    # csv_path comes from benchmarks.launch.py (loc_csv_path) per run; the node's
+    # declare_parameter default is relative. An absolute source-tree path lived here
+    # once and pinned the output to one machine's checkout.
+    scan_child_frame: laser_link
+    odom_parent_frame: odom
+    odom_child_frame: base_footprint
+    tf_parent_frame: map
+    tf_child_frame: odom
+    bad_init_test: false
+    kidnap_test: true
+    
+    ttc_hold_sec: 2.0
+    ttc_timeout_sec: 15.0
+    ttr_hold_sec: 2.0
+    ttr_timeout_sec: 15.0
+    ttr_error_pos_threshold_m: 0.20
+    ttr_error_yaw_threshold_rad: 0.10
+    ttc_error_x_threshold_m: 0.20
+    ttc_error_y_threshold_m: 0.20
+    ttc_error_yaw_threshold_rad: 0.10
+
+    episode_topic: /navlearn/episode_event
+    amcl_topic: /amcl_pose
+    tf_topic: /tf
+    ground_truth_tf_topic: /bumperbot/ground_truth_pose
+    initial_pose_topic: /navlearn/bad_initialpose_event
+    kidnap_topic: /navlearn/kidnap_event
+    scan_topic: /scan
+    odom_topic: /bumperbot_controller/odom
+    

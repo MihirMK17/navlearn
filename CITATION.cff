@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use NavLearn in your research, please cite it as below."
+title: "NavLearn: a benchmarking framework for localization-aware navigation evaluation on ROS 2 / Nav2"
+type: software
+authors:
+  - family-names: Kulkarni
+    given-names: Mihir
+    email: mihir.kulkarni17@gmail.com
+repository-code: "https://github.com/MihirMK17/navlearn"
+license: Apache-2.0
+version: 0.3.0
+date-released: 2026-08-07
+keywords:
+  - ROS 2
+  - Nav2
+  - AMCL
+  - navigation benchmarking
+  - localization
+  - mobile robots
