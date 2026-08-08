@@ -1,0 +1,27 @@
+AMCL Metrics
+1. Mission Outcome: A stable localization should reduce recoveries and time variability under identical scenarios
+	- Nav Success Rate: from `MetricsCompiler`
+	- Nav Time: from `MetricsCompiler`
+	- Path Length: from `MetricsCompiler`                                                                
+	- Recovery Count: from `MetricsCompiler`
+2. Localization Quality: Covariance needs to stay small without spikes. Localization needs to be consistent and its uncertainty bounded
+	- Pose Covariance: from `/amcl_pose` topic. Need position covariance `cov(x,x)`, 
+	                   cov(y,y)`, orientation covariance `cov(yaw, yaw)`. Also, the spread as
+	                   derived `cov(x, x)` + `cov(y, y)`
+	- Particle Cloud spread: from `/particlecloud`. Compute particle mean and covariance as a
+			   grounded spread measure.
+3. Localization Stability: Jumps are catastrophic for planners and controllers. Localization needs to have zero jumps and drifts
+	- TF Continuity: tracking `map -> odom` transform and plot its jump derived as 
+			   `Jump_lin = ||delta_trans||` and `Jump_ang = ||delta_trans||`
+	- AMCL pose continuity: Same as TF continuity but plotted from `/amcl_pose`
+4. Responsiveness: Fast convergence makes real robots useable. Settle time needs to be quick
+	- Time-to-converge (TTC): define convergence as `trace_xy < T_pos` and `yaw_var < T_yaw` 
+			   for N consecutive seconds
+	- Time-to-recover (TTR): after kidnap / 2DInitialPose midway measured same as above from
+			   kidnap / teleport event time
+	- Update rate / message health: from `/amcl_pose`, `/scan`, and `/odom` rate. Monitor drops
+5. Input Validity: `/scan`, `/odom`, and `/tf` should not be flaky otherwise AMCL tuning is waste of time.
+	- Scan Health: monitor `/rate`, `timestamp monotonicity`, and `frame_id` from '/scan`
+	- Odom Health: monitor `/rate`, `timestamp monotonicity`, and `frame_id` from '/odom`
+	- TF Health: monitor all required transforms are available continuously from '/tf`,
+			   `tf_static`

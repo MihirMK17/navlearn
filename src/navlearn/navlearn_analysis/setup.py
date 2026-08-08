@@ -53,6 +53,11 @@ setup(
             "kidnap_feasibility = navlearn_analysis.kidnap_feasibility:main",
             # Stack parity gate
             "validate_nav2_stack = navlearn_analysis.stack.validate_nav2_stack:main",
+            # Figure generators — every image in the repo README regenerates from these
+            "render_map = navlearn_analysis.figures.render_map:main",
+            "plot_yaw_cliff = navlearn_analysis.figures.plot_yaw_cliff:main",
+            "animate_kidnap_recovery = "
+            "navlearn_analysis.figures.animate_kidnap_recovery:main",
         ],
     },
 )
