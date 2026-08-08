@@ -56,7 +56,7 @@ Usage
             --height 0.1538 --resolution 0.05 --out results/maps/small_warehouse
     Validate an existing map against the world geometry:
         python3 world_to_map.py validate --world <path.world> --models <dir> \
-            --height 0.1538 --map src/bumperbot_mapping/maps/small_house/map.yaml \
+            --height 0.1538 --map src/bumperbot/bumperbot_mapping/maps/small_house/map.yaml \
             --out results/maps/small_house_validation.md
 """
 
