@@ -17,7 +17,7 @@ install(
 )
 
 install(
-  DIRECTORY launch meshes models photos urdf rviz worlds
+  DIRECTORY launch meshes models urdf rviz worlds
   DESTINATION share/${PROJECT_NAME}
 )
 

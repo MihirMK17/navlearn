@@ -1,4 +1,5 @@
-# ROS 2 workspace build artifacts
+# ROS 2 workspace build artifacts. The bare names also cover accidental colcon runs
+# from inside src/ (src/build etc.), which have happened.
 build/
 install/
 log/
@@ -38,12 +39,19 @@ loc_eval.txt
 scan_inf_nan.txt
 scan_inf_nan_plusinf.txt
 
-# Experiment artifacts — raw CSVs/large outputs (cite from results/phase_comparison/*.json)
+# Experiment artifacts — raw run output stays local; the paper dataset is published
+# separately, not through git.
 results/
 benchmark_reports/
+evaluations/
 
-# Large media + sim assets
-media/
+# Media policy: curated README assets ARE tracked (media/ must render on GitHub).
+# Raw captures stay local: mp4s are never inlined by GitHub markdown, and personal
+# photos have no business in a public research repo.
+media/*.mp4
+src/bumperbot_description/photos/
+
+# Retired simulator assets (Isaac Sim was cut from Paper 1; local copies only)
 IsaacSim/
 
 # Tooling exhaust
