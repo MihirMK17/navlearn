@@ -62,6 +62,11 @@
   <exec_depend>python3-scipy</exec_depend>
   <exec_depend>python3-pil</exec_depend>
 
+  <!-- Campaign environments (bookstore world/models, multi-map occupancy grids) moved
+       to their own asset package; the campaign scripts and map-dependent tests resolve
+       them through its share directory. -->
+  <exec_depend>navlearn_assets</exec_depend>
+
   <!-- The campaign gates refuse to run unless the vendored, patched planner is what
        AMENT_PREFIX_PATH resolves (leg drivers, gate 1), and run_forensics records that
        resolution in every environment snapshot. Declaring it also puts the workspace

@@ -155,29 +155,6 @@ install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
 )
 
-# Campaign occupancy maps for the environments beyond small_house.
-#
-# They live here rather than in bumperbot_mapping because these are campaign assets, not
-# robot assets: they exist for the three-map leg and are versioned with the analysis that
-# consumes them. small_house stays where it is -- it predates the campaign and the bringup
-# resolves it.
-#
-# Upstream is aws-robomaker (MIT-0), whose repositories were archived 2026-07-21, so
-# vendoring is also the only way these stay reachable. Provenance and the re-SLAM decision
-# are recorded in maps/README.md.
-install(DIRECTORY maps
-  DESTINATION share/${PROJECT_NAME}
-)
-
-# Python instrumentation run per benchmark episode by multi_run_harness.py.
-install(PROGRAMS
-  scripts/rate_monitor.py
-  scripts/compute_sampler.py
-  scripts/collision_positive_control.py
-  scripts/costmap_corruption_monitor.py
-  DESTINATION lib/${PROJECT_NAME}
-)
-
 # Install empty benchmark_reports dir so the default csv_path/json_path from
 # benchmarks.launch.py (FindPackageShare + "benchmark_reports/...") is always valid.
 install(DIRECTORY
@@ -198,39 +175,11 @@ if(BUILD_TESTING)
   set(ament_cmake_flake8_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/flake8.cfg")
   ament_lint_auto_find_test_dependencies()
 
-  # nav2_stack parity gate. Fails the build if the shipped navigation configuration
-  # develops the drift the 2026-07-25 audit found — differing goal tolerances or speed
-  # envelopes across controller arms, a per-controller costmap, an MPPI ObstaclesCritic
-  # out of step with the inflation layer, or a multi-variable "single-variable" ablation.
-  # Also proves each of those guards still fires, and that the harness refuses to run
-  # against missing or stale run provenance.
+  # The pure-Python suites (nav2_stack parity gate, watchdog, forensics, models, maps,
+  # seeds, and the claim analyses) live in navlearn_analysis, where colcon discovers
+  # them wholesale. What remains here needs the BUILT nodes: the compiler contract
+  # tests and the governor node test.
   find_package(ament_cmake_pytest REQUIRED)
-  ament_add_pytest_test(test_nav2_stack test/test_nav2_stack.py
-    TIMEOUT 300
-  )
-
-  # Unattended-run watchdog. The harness previously waited on the per-episode launch with
-  # subprocess.run, which is correct for every ending except the one that happened: a
-  # segfaulted planner_server, a stack reset by the lifecycle manager, and a launch that
-  # stayed up forever with nothing left to drive it -- 8 h 14 m for 5 of 72 runs. Pins the
-  # two detectors, the exit codes a campaign script reads them by, and the property that
-  # makes the abort safe: the kill reaches the launch's children and stops at the harness.
-  # Also pins that the budgets clear the slowest goal leg 1 actually measured, because a
-  # watchdog that culls slow goals silently biases every rate in the paper.
-  ament_add_pytest_test(test_run_watchdog test/test_run_watchdog.py
-    TIMEOUT 300
-  )
-
-  # Per-run forensic capture. The 2026-08-01 segfault was solved from a core dump nobody
-  # had arranged to keep, which survived only because no second crash of the same
-  # executable overwrote it -- apport stores one report per binary and skips the write when
-  # one is present. Pins the invariant that makes moving reports out of the spool safe: the
-  # original is deleted only after the copy succeeded, so a failed harvest never destroys
-  # the only artefact of the failure being investigated. Also caps how long the probes may
-  # block the abort, since the launch is still alive while they run.
-  ament_add_pytest_test(test_run_forensics test/test_run_forensics.py
-    TIMEOUT 300
-  )
 
   # Terminal pose report reaching the metrics CSV. Publishes the three messages
   # MetricsCompiler needs and inspects the resulting row, so the whole contract-to-column
@@ -253,15 +202,6 @@ if(BUILD_TESTING)
     TIMEOUT 300
   )
 
-  # Map-derived destination ambiguity. Asserted against hand-checkable geometry rather
-  # than golden values, because the failure mode that matters is a measure that is
-  # self-consistent and wrong: a corridor must score as ambiguous and a landmark must
-  # reduce ambiguity, or the number is not measuring identifiability whatever else it is
-  # doing. Also pins the map axis convention, which if mirrored yields a perfectly
-  # plausible field for a world that does not exist.
-  ament_add_pytest_test(test_map_ambiguity test/test_map_ambiguity.py
-    TIMEOUT 300
-  )
 
   # Scan-rate governor node. The gtest above proves the keep rule; this proves the node:
   # correct topic wiring, the forwarded scan bit-identical to the input (a restamped
@@ -272,24 +212,7 @@ if(BUILD_TESTING)
     TIMEOUT 300
   )
 
-  # Nested logistic-model comparison. statsmodels and scikit-learn are not installed on
-  # the campaign machine, so the fit is hand-rolled on scipy and has to earn trust from
-  # tests rather than from use: every reported quantity is checked against a closed form,
-  # a textbook identity, or data whose answer is known by construction. Also pins the two
-  # ways a logistic regression lies quietly -- separation returning a runaway coefficient
-  # as an overwhelming effect, and in-sample fit passing off an overfit as a real one.
-  ament_add_pytest_test(test_nested_models test/test_nested_models.py
-    TIMEOUT 300
-  )
 
-  # Kidnap feasibility. Replicates the node's own free-space-plus-clearance rule offline
-  # so the attempt budget describes the experiment that actually runs. Pins the property
-  # that justifies the magnitude band as a knob (widening never loses feasibility) and
-  # the distinction between a valid pose existing and the bounded-draw sampler finding
-  # it -- budgeting on existence would under-provision every cluttered cell.
-  ament_add_pytest_test(test_kidnap_feasibility test/test_kidnap_feasibility.py
-    TIMEOUT 300
-  )
 
   # Seed derivation. Asserts the two invariants the campaign's statistics rest on:
   # every (run, goal) draws a distinct condition, and all controllers draw identical
@@ -337,11 +260,6 @@ if(BUILD_TESTING)
   ament_add_gtest(test_exclusion_zone test/test_exclusion_zone.cpp)
   target_include_directories(test_exclusion_zone PRIVATE include)
 
-  # The Python reference used by analysis, pinned to the same golden vectors so the two
-  # implementations cannot silently diverge.
-  ament_add_pytest_test(test_seed_reference test/test_seed_reference.py
-    TIMEOUT 120
-  )
 endif()
 
 ament_package()
